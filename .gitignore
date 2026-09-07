@@ -1,0 +1,133 @@
+# =========================
+# C# / .NET
+# =========================
+
+# Скомпилированные файлы
+bin/
+obj/
+out/
+build/
+publish/
+
+# Кэш и временные файлы
+*.tmp
+*.temp
+*.log
+*.pdb
+*.pgc
+*.pgd
+*.rsp
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Результаты сборки
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# =========================
+# Visual Studio
+# =========================
+
+.vs/
+*.cache
+*.ilk
+*.meta
+*.obj
+*.iobj
+*.pch
+*.ipdb
+*.idb
+
+# Пользовательские файлы решений и проектов
+*.sln.user
+*.csproj.user
+*.vbproj.user
+*.vcxproj.user
+
+# =========================
+# Rider / JetBrains
+# =========================
+
+.idea/
+
+# =========================
+# NuGet
+# =========================
+
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+
+# Но можно оставить, если используется PackageReference
+# и папка packages не нужна в репозитории
+
+# =========================
+# Тесты
+# =========================
+
+TestResults/
+*.trx
+coverage/
+*.coverage
+*.coveragexml
+
+# =========================
+# Секреты и локальные настройки
+# =========================
+
+# Если используешь appsettings.Local.json или секреты
+appsettings.Local.json
+appsettings.*.Local.json
+secrets.json
+*.pfx
+*.pem
+*.key
+
+# Если у тебя есть файл с API-ключами, токенами и т.п.
+secrets/
+.env
+.env.local
+
+# =========================
+# WPF / WinForms / Desktop
+# =========================
+
+# Если есть временные файлы дизайнера
+*.g.cs
+*.g.i.cs
+
+# Но обычно *.g.cs генерируется автоматически,
+# поэтому лучше не коммитить лишнее, если это не требуется
+
+# =========================
+# Прочее
+# =========================
+
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+
+# Файлы моделей (Whisper и т.д.)
+*.bin
+*.onnx
+*.pt
+*.pb
+
+# Если есть папка с моделями
+Models/

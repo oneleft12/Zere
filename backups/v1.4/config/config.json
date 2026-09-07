@@ -1,0 +1,10 @@
+{
+  "version": "1.5.0",
+  "assistantName": "JARVIS",
+  "language": "ru",
+  "model": "qwen2.5:7b",
+  "voiceEnabled": false,
+  "autoMemory": true,
+  "debugMode": true,
+  "logLevel": "Info"
+}

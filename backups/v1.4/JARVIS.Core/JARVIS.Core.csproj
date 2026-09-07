@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\JARVIS.Tools\JARVIS.Tools.csproj" />
+    <ProjectReference Include="..\JARVIS.Memory\JARVIS.Memory.csproj" />
+    <ProjectReference Include="..\JARVIS.AI\JARVIS.AI.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows7.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
