@@ -30,6 +30,14 @@ SQLite база через репозитории:
 - `MemoryRepository` — CRUD для воспоминаний (Key-Value)
 - `ConversationRepository` — история диалогов
 
+### 4. Plugin Pattern (Плагинная система)
+Разные реализации одного функционала загружаются как плагины:
+- **IPlugin** — базовый интерфейс
+- **IPersonalityPlugin** — плагины личности (System Prompt + параметры)
+- **ICommandHandlerPlugin** — плагины обработчиков команд
+- Внешние плагины загружаются из `./plugins/*.dll`
+- Встроенные плагины загружаются из сборки
+
 ---
 
 ## Межпроектные зависимости
@@ -48,6 +56,23 @@ JARVIS.App
         └── JARVIS.Voice
               ├── Whisper (STT)
               └── Piper (TTS)
+
+JARVIS.Core/Plugins/
+  ├── Interfaces/
+  │   ├── IPlugin.cs
+  │   ├── IPersonalityPlugin.cs
+  │   └── ICommandHandlerPlugin.cs
+  ├── BasePlugin.cs
+  ├── PluginManager.cs
+  ├── PluginConfig.cs
+  ├── BuiltIn/
+  │   └── Personality/
+  │       └── PersonalityPlugin.cs
+  └── Settings/
+      └── SettingsMenu.cs
+
+./plugins/  (внешние плагины)
+  └── *.dll
 ```
 
 ---
@@ -57,7 +82,7 @@ JARVIS.App
 ### Добавить новый обработчик:
 1. Создать класс в `JARVIS.Core/Handlers/`
 2. Реализовать `IJarvisHandler`
-3. Зарегистрировать в `JarvisEngine.cs` (ipeline)
+3. Зарегистрировать в `JarvisEngine.cs` (pipeline)
 
 ### Добавить новый тип команды:
 1. Добавить значение в enum `*CommandType`
@@ -68,14 +93,56 @@ JARVIS.App
 1. Создать класс в `JARVIS.Tools/`
 2. Вызвать из соответствующего обработчика
 
+### Добавить плагин личности:
+1. Создать .dll проект
+2. Реализовать `IPersonalityPlugin`
+3. Положить .dll в `./plugins/`
+4. Перезагрузить плагины через настройки
+
+### Добавить плагин обработчика команд:
+1. Создать .dll проект
+2. Реализовать `ICommandHandlerPlugin`
+3. Положить .dll в `./plugins/`
+4. Плагин автоматически добавится в pipeline
+
 ---
 
 ## Ключевые интерфейсы
 
 ```csharp
-// Единственный интерфейс обработчика
+// Интерфейс обработчика
 public interface IJarvisHandler
 {
+    bool CanHandle(string message);
+    Task<string> HandleAsync(string message);
+}
+
+// Интерфейс плагина
+public interface IPlugin
+{
+    string Id { get; }
+    string Name { get; }
+    string Description { get; }
+    string Version { get; }
+    PluginType Type { get; }
+    void Initialize();
+    void Dispose();
+}
+
+// Интерфейс плагина личности
+public interface IPersonalityPlugin : IPlugin
+{
+    string SystemPrompt { get; }
+    float Temperature { get; }
+    PersonalityStyle Style { get; }
+    string[] GetAvailableStyles();
+    void SetStyle(string styleName);
+}
+
+// Интерфейс плагина обработчика команд
+public interface ICommandHandlerPlugin : IPlugin
+{
+    string[] SupportedCommands { get; }
     bool CanHandle(string message);
     Task<string> HandleAsync(string message);
 }
@@ -85,11 +152,15 @@ public interface IJarvisHandler
 
 ## Конфигурация
 
-Все настройки в `config/config.json`:
+### config/config.json
 - `model` — имя модели Ollama
 - `voice.enabled` — включён ли голос
 - `autoMemory` — автоизвлечение фактов
 - `debugMode` — подробные логи
+
+### config/plugins.json
+- `ActivePersonalityId` — ID активного плагина личности
+- `PluginSettings` — пользовательские настройки плагинов
 
 ---
 
@@ -120,8 +191,8 @@ public interface IJarvisHandler
 
 ## Рекомендации по развитию
 
-1. **Интерфейс** — добавить WPF/MAUI оболочку вместо консоли
-2. **Плагины** — загрузка .dll из папки `plugins/`
-3. **API** — REST API для интеграции с другими приложениями
-4. **Мультиязычность** — переключение языка интерфейса
-5. **Голос** — режим всегда слушающего (wake word detection)
+1. **Web-панель** — HTTP-интерфейс для настроек (план: `docs/WEB_PANEL_PLAN.md`)
+2. **API** — REST API для интеграции с другими приложениями
+3. **Мультиязычность** — переключение языка интерфейса
+4. **Голос** — режим всегда слушающего (wake word detection)
+5. **GUI** — WPF/MAUI оболочка вместо консоли

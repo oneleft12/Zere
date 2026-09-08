@@ -2,6 +2,8 @@
 using JARVIS.Core.Configuration;
 using JARVIS.Core.Dependencies;
 using JARVIS.Core.Logging;
+using JARVIS.Core.Plugins;
+using JARVIS.Core.Plugins.Settings;
 using JARVIS.Memory.Database;
 
 var config = JarvisConfig.Load();
@@ -44,6 +46,14 @@ _ = new MemoryDatabase();
 
 var jarvis = new JarvisEngine();
 
+var activePersonality = jarvis.PluginManager.ActivePersonality;
+if (activePersonality != null)
+{
+    Console.WriteLine($"[Личность] {activePersonality.Name} | Стиль: {activePersonality.Style}\n");
+}
+
+Console.WriteLine("Команды: 'настройки' — панель настроек, 'exit' — выход\n");
+
 while (true)
 {
     Console.Write("Вы: ");
@@ -55,6 +65,20 @@ while (true)
 
     if (message.ToLower() == "exit")
         break;
+
+    if (message.ToLower() == "настройки" || message.ToLower() == "settings")
+    {
+        var settingsMenu = new SettingsMenu(jarvis.PluginManager, jarvis.Config);
+        settingsMenu.Show();
+
+        activePersonality = jarvis.PluginManager.ActivePersonality;
+        if (activePersonality != null)
+        {
+            Console.WriteLine($"\n[Личность] {activePersonality.Name} | Стиль: {activePersonality.Style}\n");
+        }
+        continue;
+    }
+
     try
     {
         var answer = await jarvis.ProcessAsync(message);

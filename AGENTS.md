@@ -72,6 +72,52 @@ Pipeline обработки команд (порядок важен):
 
 ---
 
+## Плагинная система
+
+### Интерфейсы плагинов (`JARVIS.Core/Plugins/Interfaces/`)
+- **IPlugin** — базовый интерфейс всех плагинов
+- **IPersonalityPlugin** — плагины личности (System Prompt + параметры)
+- **ICommandHandlerPlugin** — плагины обработчиков команд
+
+### Менеджер плагинов (`PluginManager`)
+- Загружает встроенные плагины из сборки
+- Загружает внешние плагины из `./plugins/*.dll`
+- Управляет активной личностью
+
+### Встроенный плагин личности
+| Стиль | Температура | Описание |
+|---|---|---|
+| **Friendly** | 0.7 | Дружелюбный, тёплый, с эмодзи |
+| **Formal** | 0.3 | Официальный, строгий, профессиональный |
+| **Sarcastic** | 0.9 | Саркастичный, с иронией и юмором |
+| **Professional** | 0.4 | Деловой, без лишних слов |
+| **Casual** | 0.8 | Неформальный, на "ты" |
+
+### Конфигурация плагинов (`config/plugins.json`)
+```json
+{
+  "ActivePersonalityId": "personality",
+  "PluginSettings": {}
+}
+```
+
+---
+
+## Настройки
+
+### Консольная панель
+Команда `настройки` или `settings` в консоли:
+- Выбор личности/стиля
+- Управление плагинами
+- Просмотр конфигурации
+
+### Web-панель (планируется)
+- `http://localhost:8080`
+- REST API для настроек
+- План: `docs/WEB_PANEL_PLAN.md`
+
+---
+
 ## Конфигурация (`config/config.json`)
 
 - **Модель**: qwen3.5:2b (через Ollama)
@@ -117,8 +163,21 @@ Jarvis/
 │   │   ├── IntentType.cs
 │   │   ├── IntentRouter.cs
 │   │   └── IntentResult.cs
-│   └── Logging/
-│       └── LogService.cs
+│   ├── Logging/
+│   │   └── LogService.cs
+│   └── Plugins/                # Плагинная система
+│       ├── Interfaces/
+│       │   ├── IPlugin.cs
+│       │   ├── IPersonalityPlugin.cs
+│       │   └── ICommandHandlerPlugin.cs
+│       ├── BasePlugin.cs
+│       ├── PluginManager.cs
+│       ├── PluginConfig.cs
+│       ├── BuiltIn/
+│       │   └── Personality/
+│       │       └── PersonalityPlugin.cs
+│       └── Settings/
+│           └── SettingsMenu.cs
 │
 ├── JARVIS.AI/                  # AI-клиент
 │   ├── OllamaClient.cs         # HTTP → Ollama API
