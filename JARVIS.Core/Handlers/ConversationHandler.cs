@@ -2,37 +2,47 @@ using JARVIS.Memory.Database;
 
 namespace JARVIS.Core.Handlers;
 
-public class ConversationHandler
+public class ConversationHandler : IJarvisHandler
 {
-    private readonly ConversationRepository _history = new();
+    private readonly ConversationRepository _conversations = new();
 
     public bool CanHandle(string message)
     {
         var lower = message.ToLower().Trim();
 
         return lower == "покажи историю" ||
+               lower == "история" ||
                lower == "очисти историю";
     }
 
-    public string Handle(string message)
+    public Task<string> HandleAsync(string message)
+    {
+        return Task.FromResult(Handle(message));
+    }
+
+    private string Handle(string message)
     {
         var lower = message.ToLower().Trim();
 
-        if (lower == "очисти историю")
+        if (lower == "покажи историю" || lower == "история")
         {
-            _history.ClearHistory();
-            return "История диалога очищена.";
+            var history = _conversations.GetLast(20);
+
+            if (history.Count == 0)
+                return "История пуста.";
+
+            return string.Join(
+                "\n\n",
+                history.Select(h =>
+                    $"Вы: {h.UserMessage}\nJARVIS: {h.JarvisResponse}"));
         }
 
-        var history = _history.GetLast(10);
+        if (lower == "очисти историю")
+        {
+            _conversations.ClearHistory();
+            return "История очищена.";
+        }
 
-        if (history.Count == 0)
-            return "История пока пуста.";
-
-        return string.Join(
-            "\n\n",
-            history.Select(h =>
-                $"Вы: {h.UserMessage}\nJARVIS: {h.JarvisResponse}")
-        );
+        return "Команда истории не распознана.";
     }
 }

@@ -1,5 +1,6 @@
 ﻿using JARVIS.Core;
 using JARVIS.Core.Configuration;
+using JARVIS.Core.Dependencies;
 using JARVIS.Core.Logging;
 using JARVIS.Memory.Database;
 
@@ -7,8 +8,6 @@ var config = JarvisConfig.Load();
 var logger = new LogService();
 
 logger.Info($"{config.AssistantName} OS {config.Version} запускается.");
-
-_ = new MemoryDatabase();
 
 Console.WriteLine($"""
 =================================
@@ -19,10 +18,29 @@ Console.WriteLine($"""
 Модель: {config.Model}
 Язык: {config.Language}
 
-SQLite Memory Engine подключён.
-Введите 'exit' для выхода.
-
 """);
+
+var checker = new DependencyChecker(config);
+var results = checker.RunAll();
+checker.PrintReport();
+
+if (!checker.AllCriticalPassed())
+{
+    checker.OfferInstall();
+}
+
+if (!checker.AllCriticalPassed())
+{
+    Console.WriteLine("Критические зависимости не выполнены.");
+    Console.WriteLine("Устраните ошибки выше и запустите снова.");
+    Console.WriteLine("Нажмите Enter для выхода...");
+    Console.ReadLine();
+    return;
+}
+
+Console.WriteLine("Все зависимости в порядке.\n");
+
+_ = new MemoryDatabase();
 
 var jarvis = new JarvisEngine();
 

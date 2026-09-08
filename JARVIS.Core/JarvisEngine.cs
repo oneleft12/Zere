@@ -1,52 +1,34 @@
-using JARVIS.Memory.Database;
+using JARVIS.Core.Handlers;
 
-namespace JARVIS.Core.Handlers;
+namespace JARVIS.Core;
 
-public class ConversationHandler : IJarvisHandler
+public class JarvisEngine
 {
-    private readonly ConversationRepository _conversations = new();
+    private readonly HandlerPipeline _pipeline;
+    private readonly MemoryExtractor _extractor = new();
 
-    public bool CanHandle(string message)
+    public JarvisEngine()
     {
-        var lower = message.ToLower().Trim();
-
-        return lower == "покажи историю" ||
-               lower == "история" ||
-               lower == "очисти историю";
+        _pipeline = new HandlerPipeline(new IJarvisHandler[]
+        {
+            new MemoryHandler(),
+            new MemoryQueryHandler(),
+            new ConversationHandler(),
+            new ProcessHandler(),
+            new WindowsHandler(),
+            new FileHandler(),
+            new GameHandler(),
+            new VolumeHandler(),
+            new AIHandler()
+        });
     }
 
-    public Task<string> HandleAsync(string message)
+    public async Task<string> ProcessAsync(string message)
     {
-        return Task.FromResult(Handle(message));
-    }
+        _extractor.TryExtract(message);
 
-    private string Handle(string message)
-    {
-        var lower = message.ToLower().Trim();
+        var result = await _pipeline.HandleAsync(message);
 
-        // ===== ПОКАЗАТЬ ИСТОРИЮ =====
-
-        if (lower == "покажи историю" || lower == "история")
-        {
-            var history = _conversations.GetLast(20);
-
-            if (history.Count == 0)
-                return "История пуста.";
-
-            return string.Join(
-                "\n\n",
-                history.Select(h =>
-                    $"Вы: {h.UserMessage}\nJARVIS: {h.JarvisResponse}"));
-        }
-
-        // ===== ОЧИСТИТЬ ИСТОРИЮ =====
-
-        if (lower == "очисти историю")
-        {
-            _conversations.Clear();
-            return "История очищена.";
-        }
-
-        return "Команда истории не распознана.";
+        return result ?? "Команда не распознана.";
     }
 }

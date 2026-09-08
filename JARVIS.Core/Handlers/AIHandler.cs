@@ -1,14 +1,21 @@
 using JARVIS.AI;
 using JARVIS.Core.AI;
+using JARVIS.Core.Configuration;
 
 namespace JARVIS.Core.Handlers;
 
 public class AIHandler : IJarvisHandler
 {
-    private readonly OllamaClient _ai = new();
+    private readonly OllamaClient _ai;
     private readonly ContextBuilder _context = new();
 
     private const string AssistantName = "JARVIS";
+
+    public AIHandler()
+    {
+        var config = JarvisConfig.Load();
+        _ai = new OllamaClient(config.Model);
+    }
 
     public bool CanHandle(string message)
     {

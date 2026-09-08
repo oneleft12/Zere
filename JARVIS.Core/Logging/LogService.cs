@@ -12,7 +12,8 @@ public class LogService
 
         Directory.CreateDirectory(folder);
 
-        _logPath = Path.Combine(folder, "jarvis.log");
+        var timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+        _logPath = Path.Combine(folder, $"jarvis_{timestamp}.log");
     }
 
     public void Info(string message)
@@ -36,7 +37,5 @@ public class LogService
             $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{level}] {message}";
 
         File.AppendAllText(_logPath, line + Environment.NewLine);
-
-        Console.WriteLine($"[{level}] {message}");
     }
 }

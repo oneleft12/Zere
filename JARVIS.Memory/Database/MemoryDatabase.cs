@@ -42,6 +42,15 @@ public class MemoryDatabase
             Timestamp TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS Memories
+        (
+            Id INTEGER PRIMARY KEY AUTOINCREMENT,
+            Key TEXT NOT NULL UNIQUE,
+            Value TEXT NOT NULL,
+            Category TEXT NOT NULL DEFAULT 'User',
+            CreatedAt TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS Meta
         (
             Key TEXT PRIMARY KEY,

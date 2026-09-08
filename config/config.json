@@ -2,7 +2,7 @@
   "version": "1.6.0",
   "assistantName": "JARVIS",
   "language": "ru",
-  "model": "qwen2.5:7b",
+  "model": "qwen3.5:2b",
 
   "voice": {
     "enabled": false,

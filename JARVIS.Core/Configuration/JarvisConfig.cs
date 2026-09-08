@@ -7,7 +7,7 @@ public class JarvisConfig
     public string Version { get; set; } = "1.5.0";
     public string AssistantName { get; set; } = "JARVIS";
     public string Language { get; set; } = "ru";
-    public string Model { get; set; } = "qwen2.5:7b";
+    public string Model { get; set; } = "qwen3.5:2b";
 
     public bool VoiceEnabled { get; set; }
     public bool AutoMemory { get; set; }
