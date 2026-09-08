@@ -12,6 +12,7 @@ public class JarvisConfig
     public bool VoiceEnabled { get; set; }
     public bool AutoMemory { get; set; }
     public bool DebugMode { get; set; }
+    public int OllamaTimeoutMinutes { get; set; } = 10;
 
     public string LogLevel { get; set; } = "Info";
 

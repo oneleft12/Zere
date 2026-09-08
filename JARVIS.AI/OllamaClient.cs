@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
-using System.Net.NetworkInformation;
+using System.Text;
+using System.Text.Json;
 using JARVIS.AI.Models;
 
 namespace JARVIS.AI;
@@ -17,12 +18,12 @@ public class OllamaClient
         "http://host.docker.internal:11434"
     ];
 
-    public OllamaClient(string model = "qwen3.5:2b")
+    public OllamaClient(string model = "qwen3.5:2b", int timeoutMinutes = 10)
     {
         _model = model;
         _httpClient = new HttpClient
         {
-            Timeout = TimeSpan.FromMinutes(5)
+            Timeout = TimeSpan.FromMinutes(timeoutMinutes)
         };
 
         _resolvedUrl = ResolveOllamaUrl();
@@ -42,16 +43,22 @@ public class OllamaClient
             {
                 model = _model,
                 prompt = $"{SystemPrompt.Jarvis}\n\nПользователь: {prompt}",
-                stream = false
+                stream = true
             };
 
-            var response = await _httpClient.PostAsJsonAsync("/api/generate", request);
+            var content = new StringContent(
+                JsonSerializer.Serialize(request),
+                Encoding.UTF8,
+                "application/json");
 
-            response.EnsureSuccessStatusCode();
+            var httpResponse = await _httpClient.PostAsync("/api/generate", content);
+            httpResponse.EnsureSuccessStatusCode();
 
-            var result = await response.Content.ReadFromJsonAsync<OllamaResponse>();
+            var result = await ReadStreamAsync(httpResponse.Content);
 
-            return result?.response ?? "Нет ответа от модели.";
+            return string.IsNullOrWhiteSpace(result)
+                ? "Нет ответа от модели."
+                : result.Trim();
         }
         catch (TaskCanceledException)
         {
@@ -65,6 +72,41 @@ public class OllamaClient
         {
             return $"Ошибка AI: {ex.Message}";
         }
+    }
+
+    private static async Task<string> ReadStreamAsync(HttpContent content)
+    {
+        var sb = new StringBuilder();
+
+        using var stream = await content.ReadAsStreamAsync();
+        using var reader = new StreamReader(stream);
+
+        while (!reader.EndOfStream)
+        {
+            var line = await reader.ReadLineAsync();
+
+            if (string.IsNullOrWhiteSpace(line))
+                continue;
+
+            try
+            {
+                var chunk = JsonSerializer.Deserialize<OllamaStreamChunk>(line);
+
+                if (chunk != null)
+                {
+                    sb.Append(chunk.response);
+
+                    if (chunk.done)
+                        break;
+                }
+            }
+            catch (JsonException)
+            {
+                // Skip malformed lines
+            }
+        }
+
+        return sb.ToString();
     }
 
     private string? ResolveOllamaUrl()

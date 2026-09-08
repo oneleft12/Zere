@@ -19,7 +19,7 @@ public class AIHandler : IJarvisHandler
         _pluginManager = pluginManager;
 
         var config = JarvisConfig.Load();
-        _ai = new OllamaClient(config.Model);
+        _ai = new OllamaClient(config.Model, config.OllamaTimeoutMinutes);
     }
 
     public bool CanHandle(string message)
