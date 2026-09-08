@@ -61,7 +61,7 @@ public class SettingsMenu
             Console.WriteLine("╔══════════════════════════════════════╗");
             Console.WriteLine("║     ЛИЧНОСТЬ АССИСТЕНТА            ║");
             Console.WriteLine("╠══════════════════════════════════════╣");
-            Console.WriteLine($"║  Текущий стиль: {personality?.Style ?? "Не задан"}");
+            Console.WriteLine($"║  Текущий стиль: {(personality?.Style.ToString() ?? "Не задан")}");
             Console.WriteLine("╠══════════════════════════════════════╣");
 
             var personalities = _pluginManager.Personalities;
