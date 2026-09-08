@@ -56,6 +56,9 @@ public class OllamaClient
 
             var result = await ReadStreamAsync(httpResponse.Content);
 
+            if (string.IsNullOrWhiteSpace(result))
+                Console.WriteLine("[Ollama] Пустой ответ от модели.");
+
             return string.IsNullOrWhiteSpace(result)
                 ? "Нет ответа от модели."
                 : result.Trim();
