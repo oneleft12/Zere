@@ -81,6 +81,94 @@ Pipeline обработки команд (порядок важен):
 
 ---
 
+## Карта структуры проекта
+
+```
+Jarvis/
+├── AGENTS.md                   # Этот файл
+├── JARVIS.slnx                 # Решение (.NET 10)
+├── config/
+│   └── config.json             # Конфигурация (модель, язык, голос)
+├── jarvis.db                   # SQLite база данных
+│
+├── JARVIS.App/                 # Точка входа
+│   └── Program.cs              # Консольный цикл
+│
+├── JARVIS.Core/                # Ядро
+│   ├── JarvisEngine.cs         # Главный engine
+│   ├── Configuration/
+│   │   └── JarvisConfig.cs     # Загрузка config.json
+│   ├── Context/                # Контекст диалога
+│   ├── Dependencies/
+│   │   └── DependencyChecker.cs
+│   ├── Handlers/               # Обработчики команд
+│   │   ├── HandlerPipeline.cs  # Цепочка обработки
+│   │   ├── IJarvisHandler.cs   # Интерфейс
+│   │   ├── AIHandler.cs        # → Ollama
+│   │   ├── MemoryHandler.cs    # Запоминание
+│   │   ├── MemoryQueryHandler.cs
+│   │   ├── ConversationHandler.cs
+│   │   ├── ProcessHandler.cs
+│   │   ├── WindowsHandler.cs
+│   │   ├── FileHandler.cs
+│   │   ├── GameHandler.cs
+│   │   └── VolumeHandler.cs
+│   ├── Intent/                 # Маршрутизация намерений
+│   │   ├── IntentType.cs
+│   │   ├── IntentRouter.cs
+│   │   └── IntentResult.cs
+│   └── Logging/
+│       └── LogService.cs
+│
+├── JARVIS.AI/                  # AI-клиент
+│   ├── OllamaClient.cs         # HTTP → Ollama API
+│   ├── SystemPrompt.cs         # Системный промпт
+│   └── Models/                 # DTO для ответов
+│
+├── JARVIS.Memory/              # Память
+│   └── Database/
+│       ├── MemoryDatabase.cs   # Инициализация SQLite
+│       ├── MemoryRepository.cs # CRUD воспоминаний
+│       └── ConversationRepository.cs
+│
+├── JARVIS.Tools/               # Инструменты
+│   ├── Applications/
+│   │   ├── ApplicationLauncher.cs
+│   │   ├── AppAliasProvider.cs
+│   │   └── Indexing/           # Сканеры приложений
+│   ├── Files/
+│   │   ├── FileManager.cs
+│   │   └── FileCommandRouter.cs
+│   ├── Gaming/
+│   │   ├── GameTracker.cs
+│   │   ├── GameGuardian.cs
+│   │   └── GameCatalog.cs
+│   ├── Windows/
+│   │   ├── ProcessService.cs
+│   │   ├── Volume/VolumeService.cs
+│   │   ├── ScreenCaptureService.cs
+│   │   ├── AudioController.cs
+│   │   └── FileController.cs
+│   └── System/
+│       ├── SystemInfoService.cs
+│       ├── ProcessManager.cs
+│       └── PowerController.cs
+│
+├── JARVIS.Voice/               # Голос
+│   ├── Whisper/
+│   │   ├── WhisperService.cs   # STT (speech-to-text)
+│   │   └── VoiceManager.cs
+│   ├── Piper/
+│   │   └── PiperService.cs     # TTS (text-to-speech)
+│   ├── VoiceConfig.cs
+│   └── Models/ggml-base.bin    # Модель Whisper
+│
+├── logs/                       # Логи
+└── backups/                    # Бэкапы версий
+```
+
+---
+
 ## Цель проекта
 
 Создание автономного AI-ассистента для Windows, который:
