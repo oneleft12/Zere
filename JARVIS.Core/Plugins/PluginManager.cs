@@ -1,4 +1,5 @@
 using System.Reflection;
+using JARVIS.Core.Plugins.BuiltIn.Personality;
 using JARVIS.Core.Plugins.Interfaces;
 
 namespace JARVIS.Core.Plugins;
@@ -115,12 +116,17 @@ public class PluginManager
         }
     }
 
-    public bool SetActivePersonality(string pluginId)
+    public bool SetActivePersonality(string pluginId, string? styleName = null)
     {
         var personality = _personalities.FirstOrDefault(p => p.Id == pluginId);
 
         if (personality == null)
             return false;
+
+        if (!string.IsNullOrEmpty(styleName) && personality is PersonalityPlugin pp)
+        {
+            pp.SetInitialStyle(styleName);
+        }
 
         ActivePersonality = personality;
         Console.WriteLine($"[PluginManager] Активная личность: {personality.Name} | Стиль: {personality.Style}");

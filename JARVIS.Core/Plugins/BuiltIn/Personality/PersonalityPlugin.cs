@@ -90,6 +90,14 @@ public class PersonalityPlugin : BasePlugin, IPersonalityPlugin
         }
     }
 
+    public void SetInitialStyle(string styleName)
+    {
+        if (Enum.TryParse<PersonalityStyle>(styleName, true, out var style))
+        {
+            _currentStyle = style;
+        }
+    }
+
     public void SetCustomPrompt(string prompt)
     {
         _prompts[PersonalityStyle.Custom] = prompt;

@@ -4,7 +4,8 @@ namespace JARVIS.Core.Plugins;
 
 public class PluginConfig
 {
-    public string ActivePersonalityId { get; set; } = "friendly";
+    public string ActivePersonalityId { get; set; } = "personality";
+    public string ActivePersonalityStyle { get; set; } = "Friendly";
     public string ActiveCommandHandlerId { get; set; } = "";
     public Dictionary<string, string> PluginSettings { get; set; } = new();
 
