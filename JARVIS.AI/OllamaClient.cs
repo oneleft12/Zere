@@ -79,30 +79,45 @@ public class OllamaClient
         var sb = new StringBuilder();
 
         using var stream = await content.ReadAsStreamAsync();
-        using var reader = new StreamReader(stream);
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 8192, leaveOpen: true);
+
+        var buffer = new char[4096];
 
         while (!reader.EndOfStream)
         {
-            var line = await reader.ReadLineAsync();
+            var bytesRead = await reader.ReadAsync(buffer, 0, buffer.Length);
 
-            if (string.IsNullOrWhiteSpace(line))
-                continue;
+            if (bytesRead == 0)
+                break;
 
-            try
+            var chunk = new string(buffer, 0, bytesRead);
+
+            var lines = chunk.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (var line in lines)
             {
-                var chunk = JsonSerializer.Deserialize<OllamaStreamChunk>(line);
+                var trimmed = line.Trim();
 
-                if (chunk != null)
+                if (string.IsNullOrEmpty(trimmed))
+                    continue;
+
+                try
                 {
-                    sb.Append(chunk.response);
+                    var json = JsonSerializer.Deserialize<OllamaStreamChunk>(trimmed);
 
-                    if (chunk.done)
-                        break;
+                    if (json != null)
+                    {
+                        if (!string.IsNullOrEmpty(json.response))
+                            sb.Append(json.response);
+
+                        if (json.done)
+                            return sb.ToString();
+                    }
                 }
-            }
-            catch (JsonException)
-            {
-                // Skip malformed lines
+                catch (JsonException)
+                {
+                    // Skip malformed JSON
+                }
             }
         }
 
