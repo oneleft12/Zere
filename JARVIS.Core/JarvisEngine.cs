@@ -19,7 +19,7 @@ public class JarvisEngine
         _pluginManager = new PluginManager();
         _pluginManager.LoadAll();
 
-        _pluginManager.SetActivePersonality(_config.ActivePersonalityId);
+        _pluginManager.SetActivePersonality(_config.ActivePersonalityId, _config.ActivePersonalityStyle);
 
         _pipeline = new HandlerPipeline(new IJarvisHandler[]
         {

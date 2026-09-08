@@ -54,6 +54,14 @@
 - **ProcessManager** — менеджер процессов
 - **PowerController** — управление питанием (выключение, перезагрузка)
 
+### Voice (`JARVIS.Voice/`)
+- **VoiceManager** — оркестратор STT (Whisper) + TTS (Piper)
+- **AudioRecorder** — запись с микрофона
+- **AudioPlayer** — воспроизведение WAV
+- **WhisperService** — распознавание речи (speech-to-text)
+- **PiperService** — синтез речи (text-to-speech)
+- **VoiceConfig** — конфигурация голоса
+
 ---
 
 ## Обработчики (Handlers) — `JARVIS.Core/Handlers/`
@@ -122,7 +130,7 @@ Pipeline обработки команд (порядок важен):
 
 - **Модель**: qwen3.5:2b (через Ollama)
 - **Язык**: ru
-- **Голос**: отключён по умолчанию (Whisper + Piper)
+- **Голос**: Whisper (STT) + Piper (TTS), привязка к личности
 - **Память**: автоизвлечение фактов из диалога
 
 ---
@@ -214,13 +222,16 @@ Jarvis/
 │       └── PowerController.cs
 │
 ├── JARVIS.Voice/               # Голос
+│   ├── VoiceManager.cs        # Оркестратор STT + TTS
+│   ├── VoiceConfig.cs         # Конфигурация голоса
 │   ├── Whisper/
-│   │   ├── WhisperService.cs   # STT (speech-to-text)
-│   │   └── VoiceManager.cs
+│   │   └── WhisperService.cs  # STT (speech-to-text)
 │   ├── Piper/
-│   │   └── PiperService.cs     # TTS (text-to-speech)
-│   ├── VoiceConfig.cs
-│   └── Models/ggml-base.bin    # Модель Whisper
+│   │   └── PiperService.cs    # TTS (text-to-speech)
+│   ├── Audio/
+│   │   ├── AudioRecorder.cs   # Запись с микрофона
+│   │   └── AudioPlayer.cs     # Воспроизведение WAV
+│   └── Models/ggml-base.bin   # Модель Whisper
 │
 ├── logs/                       # Логи
 └── backups/                    # Бэкапы версий

@@ -1,22 +1,174 @@
+using System.Diagnostics;
+
 namespace JARVIS.Voice.Piper;
 
 public class PiperService
 {
     public bool IsLoaded { get; private set; }
 
-    public void LoadVoice(string path)
-    {
-        if (!Directory.Exists(path))
-            throw new DirectoryNotFoundException(path);
+    private readonly string _piperDir;
+    private string _currentVoice = "ru_RU-irina-medium";
+    private string? _piperExe;
 
-        IsLoaded = true;
+    public string CurrentVoice => _currentVoice;
+
+    public PiperService()
+    {
+        var root = Path.GetFullPath(
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+
+        _piperDir = Path.Combine(root, "JARVIS.Voice", "Piper");
     }
 
-    public void Speak(string text)
+    public bool Initialize(string? voiceName = null)
     {
-        if (!IsLoaded)
-            return;
+        if (voiceName != null)
+            _currentVoice = voiceName;
 
-        Console.WriteLine($"[PIPER] {text}");
+        _piperExe = FindPiperExecutable();
+
+        if (_piperExe == null)
+        {
+            Console.WriteLine("[Piper] Исполняемый файл piper не найден.");
+            IsLoaded = false;
+            return false;
+        }
+
+        var modelPath = FindModelPath();
+
+        if (modelPath == null)
+        {
+            Console.WriteLine($"[Piper] Модель '{_currentVoice}' не найдена в {_piperDir}");
+            IsLoaded = false;
+            return false;
+        }
+
+        IsLoaded = true;
+        Console.WriteLine($"[Piper] Загружен. Голос: {_currentVoice}");
+        return true;
+    }
+
+    public async Task<string> SpeakAsync(string text)
+    {
+        if (!IsLoaded || _piperExe == null)
+        {
+            Console.WriteLine($"[Piper] {text}");
+            return "";
+        }
+
+        var outputFile = Path.Combine(
+            _piperDir,
+            $"output_{DateTime.Now:yyyyMMdd_HHmmss}.wav");
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = _piperExe,
+                Arguments = $"--model \"{FindModelPath()}\" --output_file \"{outputFile}\"",
+                UseShellExecute = false,
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(psi);
+
+            if (process == null)
+            {
+                Console.WriteLine("[Piper] Не удалось запустить процесс.");
+                return "";
+            }
+
+            await process.StandardInput.WriteAsync(text);
+            await process.StandardInput.FlushAsync();
+            process.StandardInput.Close();
+
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode != 0)
+            {
+                var error = await process.StandardError.ReadToEndAsync();
+                Console.WriteLine($"[Piper] Ошибка: {error}");
+                return "";
+            }
+
+            return outputFile;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Piper] Ошибка: {ex.Message}");
+            return "";
+        }
+    }
+
+    private string? FindPiperExecutable()
+    {
+        var piperDir = Path.Combine(_piperDir, "piper");
+
+        if (File.Exists(piperDir))
+            return piperDir;
+
+        var piperExe = Path.Combine(_piperDir, "piper.exe");
+
+        if (File.Exists(piperExe))
+            return piperExe;
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "piper",
+                Arguments = "--version",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(psi);
+            process?.WaitForExit(3000);
+
+            if (process?.ExitCode == 0)
+                return "piper";
+        }
+        catch { }
+
+        return null;
+    }
+
+    private string? FindModelPath()
+    {
+        var modelFile = $"{_currentVoice}.onnx";
+
+        var modelPath = Path.Combine(_piperDir, modelFile);
+
+        if (File.Exists(modelPath))
+            return modelPath;
+
+        var onnxFiles = Directory.GetFiles(_piperDir, "*.onnx");
+
+        if (onnxFiles.Length > 0)
+            return onnxFiles[0];
+
+        return null;
+    }
+
+    public List<string> GetAvailableVoices()
+    {
+        if (!Directory.Exists(_piperDir))
+            return new List<string>();
+
+        return Directory.GetFiles(_piperDir, "*.onnx")
+            .Select(f => Path.GetFileNameWithoutExtension(f))
+            .ToList();
+    }
+
+    public void SetVoice(string voiceName)
+    {
+        _currentVoice = voiceName;
+
+        if (IsLoaded)
+            Initialize(voiceName);
     }
 }

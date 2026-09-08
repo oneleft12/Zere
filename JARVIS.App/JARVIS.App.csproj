@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\JARVIS.Core\JARVIS.Core.csproj" />
     <ProjectReference Include="..\JARVIS.AI\JARVIS.AI.csproj" />
+    <ProjectReference Include="..\JARVIS.Voice\JARVIS.Voice.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
