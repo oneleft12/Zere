@@ -90,6 +90,8 @@ public static class ServiceRegistration
             return new HandlerPipeline(handlers);
         });
 
+        services.AddSingleton<JarvisEngine>();
+
         return services.BuildServiceProvider();
     }
 }
