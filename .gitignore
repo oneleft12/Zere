@@ -126,8 +126,15 @@ Desktop.ini
 # Файлы моделей (Whisper и т.д.)
 *.bin
 *.onnx
+*.ort
 *.pt
 *.pb
+
+# Piper TTS (внешние бинарники)
+JARVIS.Voice/Piper/*.exe
+JARVIS.Voice/Piper/*.dll
+JARVIS.Voice/Piper/espeak-ng-data/
+JARVIS.Voice/Piper/pkgconfig/
 
 # Если есть папка с моделями
 Models/
