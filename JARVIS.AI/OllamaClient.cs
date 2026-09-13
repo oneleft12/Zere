@@ -11,13 +11,6 @@ public class OllamaClient
     private readonly string _model;
     private string? _resolvedUrl;
 
-    private static readonly string[] Candidates =
-    [
-        "http://localhost:11434",
-        "http://127.0.0.1:11434",
-        "http://host.docker.internal:11434"
-    ];
-
     public OllamaClient(string model = "qwen3.5:2b", int timeoutMinutes = 10)
     {
         _model = model;
@@ -26,7 +19,7 @@ public class OllamaClient
             Timeout = TimeSpan.FromMinutes(timeoutMinutes)
         };
 
-        _resolvedUrl = ResolveOllamaUrl();
+        _resolvedUrl = OllamaUrlResolver.Resolve();
 
         if (_resolvedUrl != null)
             _httpClient.BaseAddress = new Uri(_resolvedUrl);
@@ -125,24 +118,5 @@ public class OllamaClient
         }
 
         return sb.ToString();
-    }
-
-    private string? ResolveOllamaUrl()
-    {
-        foreach (var url in Candidates)
-        {
-            try
-            {
-                using var test = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
-                test.BaseAddress = new Uri(url);
-                var response = test.GetAsync("/api/tags").Result;
-
-                if (response.IsSuccessStatusCode)
-                    return url;
-            }
-            catch { }
-        }
-
-        return null;
     }
 }

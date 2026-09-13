@@ -4,9 +4,12 @@ namespace JARVIS.Memory.Database;
 
 public class MemoryRepository
 {
-    private readonly MemoryDatabase _database = new();
+    private readonly MemoryDatabase _database;
 
-    // ================= СОХРАНИТЬ =================
+    public MemoryRepository(MemoryDatabase database)
+    {
+        _database = database;
+    }
 
     public void Remember(string key, string value, string category = "User")
     {
@@ -33,8 +36,6 @@ public class MemoryRepository
         command.ExecuteNonQuery();
     }
 
-    // ================= УДАЛИТЬ =================
-
     public bool Forget(string key)
     {
         using var connection = _database.CreateConnection();
@@ -53,14 +54,10 @@ public class MemoryRepository
         return command.ExecuteNonQuery() > 0;
     }
 
-    // ================= ПОЛУЧИТЬ ПО КЛЮЧУ =================
-
     public MemoryItem? Get(string key)
     {
         return Find(key);
     }
-
-    // ================= НАЙТИ =================
 
     public MemoryItem? Find(string key)
     {
@@ -92,8 +89,6 @@ public class MemoryRepository
             CreatedAt = DateTime.Parse(reader.GetString(4))
         };
     }
-
-    // ================= ВСЯ ПАМЯТЬ =================
 
     public List<MemoryItem> GetAll()
     {
@@ -128,7 +123,41 @@ public class MemoryRepository
         return list;
     }
 
-    // ================= ОЧИСТИТЬ =================
+    public List<MemoryItem> Search(string query)
+    {
+        using var connection = _database.CreateConnection();
+        connection.Open();
+
+        var command = connection.CreateCommand();
+
+        command.CommandText =
+        """
+        SELECT Id, Key, Value, Category, CreatedAt
+        FROM Memories
+        WHERE lower(Key) LIKE $query OR lower(Value) LIKE $query
+        ORDER BY Category, Key
+        """;
+
+        command.Parameters.AddWithValue($"$query", $"%{query.ToLower()}%");
+
+        var reader = command.ExecuteReader();
+
+        var list = new List<MemoryItem>();
+
+        while (reader.Read())
+        {
+            list.Add(new MemoryItem
+            {
+                Id = reader.GetInt64(0),
+                Key = reader.GetString(1),
+                Value = reader.GetString(2),
+                Category = reader.GetString(3),
+                CreatedAt = DateTime.Parse(reader.GetString(4))
+            });
+        }
+
+        return list;
+    }
 
     public void Clear()
     {

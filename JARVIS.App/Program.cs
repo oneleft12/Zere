@@ -6,6 +6,7 @@ using JARVIS.Core.Plugins;
 using JARVIS.Core.Plugins.Settings;
 using JARVIS.Memory.Database;
 using JARVIS.Voice;
+using Microsoft.Extensions.DependencyInjection;
 
 var config = JarvisConfig.Load();
 var logger = new LogService();
@@ -43,9 +44,11 @@ if (!checker.AllCriticalPassed())
 
 Console.WriteLine("Все зависимости в порядке.\n");
 
-_ = new MemoryDatabase();
+var services = ServiceRegistration.Create();
 
-var jarvis = new JarvisEngine();
+_ = services.GetRequiredService<MemoryDatabase>();
+
+var jarvis = services.GetRequiredService<JarvisEngine>();
 var voiceManager = new VoiceManager();
 
 var activePersonality = jarvis.PluginManager.ActivePersonality;
@@ -125,7 +128,10 @@ while (true)
 
         if (message.ToLower() == "настройки" || message.ToLower() == "settings")
         {
-            var settingsMenu = new SettingsMenu(jarvis.PluginManager, jarvis.Config);
+            var pluginManager = services.GetRequiredService<PluginManager>();
+            var pluginConfig = services.GetRequiredService<PluginConfig>();
+
+            var settingsMenu = new SettingsMenu(pluginManager, pluginConfig);
             settingsMenu.Show();
 
             activePersonality = jarvis.PluginManager.ActivePersonality;

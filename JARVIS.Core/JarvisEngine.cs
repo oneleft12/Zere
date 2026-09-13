@@ -6,33 +6,16 @@ namespace JARVIS.Core;
 public class JarvisEngine
 {
     private readonly HandlerPipeline _pipeline;
-    private readonly MemoryExtractor _extractor = new();
+    private readonly MemoryExtractor _extractor;
     private readonly PluginManager _pluginManager;
-    private readonly PluginConfig _config;
 
     public PluginManager PluginManager => _pluginManager;
-    public PluginConfig Config => _config;
 
-    public JarvisEngine()
+    public JarvisEngine(HandlerPipeline pipeline, MemoryExtractor extractor, PluginManager pluginManager)
     {
-        _config = PluginConfig.Load();
-        _pluginManager = new PluginManager();
-        _pluginManager.LoadAll();
-
-        _pluginManager.SetActivePersonality(_config.ActivePersonalityId, _config.ActivePersonalityStyle);
-
-        _pipeline = new HandlerPipeline(new IJarvisHandler[]
-        {
-            new MemoryHandler(),
-            new MemoryQueryHandler(),
-            new ConversationHandler(),
-            new ProcessHandler(),
-            new WindowsHandler(),
-            new FileHandler(),
-            new GameHandler(),
-            new VolumeHandler(),
-            new AIHandler(_pluginManager)
-        });
+        _pipeline = pipeline;
+        _extractor = extractor;
+        _pluginManager = pluginManager;
     }
 
     public async Task<string> ProcessAsync(string message)

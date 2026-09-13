@@ -1,14 +1,15 @@
 using JARVIS.Memory.Models;
-using Microsoft.Data.Sqlite;
 
 namespace JARVIS.Memory.Database;
 
 public class ConversationRepository
 {
-    private readonly MemoryDatabase _database = new();
+    private readonly MemoryDatabase _database;
 
-    private readonly string _connectionString =
-    "Data Source=jarvis.db";
+    public ConversationRepository(MemoryDatabase database)
+    {
+        _database = database;
+    }
 
     public void Save(string userMessage, string jarvisResponse)
     {
@@ -31,19 +32,21 @@ public class ConversationRepository
 
         command.ExecuteNonQuery();
     }
-     public void ClearHistory()
-    {   
-    using var connection = _database.CreateConnection();
 
-    connection.Open();
+    public void ClearHistory()
+    {
+        using var connection = _database.CreateConnection();
 
-    var command = connection.CreateCommand();
+        connection.Open();
 
-    command.CommandText = "DELETE FROM Conversations";
+        var command = connection.CreateCommand();
 
-    command.ExecuteNonQuery();
+        command.CommandText = "DELETE FROM Conversations";
+
+        command.ExecuteNonQuery();
     }
-   public List<Conversation> GetLast(int count)
+
+    public List<Conversation> GetLast(int count)
     {
         using var connection = _database.CreateConnection();
 

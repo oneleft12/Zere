@@ -150,9 +150,9 @@ Jarvis/
 │
 ├── JARVIS.Core/                # Ядро
 │   ├── JarvisEngine.cs         # Главный engine
+│   ├── ServiceRegistration.cs  # DI-контейнер
 │   ├── Configuration/
 │   │   └── JarvisConfig.cs     # Загрузка config.json
-│   ├── Context/                # Контекст диалога
 │   ├── Dependencies/
 │   │   └── DependencyChecker.cs
 │   ├── Handlers/               # Обработчики команд
@@ -167,10 +167,6 @@ Jarvis/
 │   │   ├── FileHandler.cs
 │   │   ├── GameHandler.cs
 │   │   └── VolumeHandler.cs
-│   ├── Intent/                 # Маршрутизация намерений
-│   │   ├── IntentType.cs
-│   │   ├── IntentRouter.cs
-│   │   └── IntentResult.cs
 │   ├── Logging/
 │   │   └── LogService.cs
 │   └── Plugins/                # Плагинная система
@@ -189,6 +185,7 @@ Jarvis/
 │
 ├── JARVIS.AI/                  # AI-клиент
 │   ├── OllamaClient.cs         # HTTP → Ollama API
+│   ├── OllamaUrlResolver.cs    # Общий резолвер URL Ollama
 │   ├── SystemPrompt.cs         # Системный промпт
 │   └── Models/                 # DTO для ответов
 │

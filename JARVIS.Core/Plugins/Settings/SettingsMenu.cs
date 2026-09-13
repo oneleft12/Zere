@@ -19,7 +19,7 @@ public class SettingsMenu
         {
             Console.Clear();
             Console.WriteLine("╔══════════════════════════════════════╗");
-            Console.WriteLine("║       НАСТРОЙКИ JARVIS v1.6        ║");
+            Console.WriteLine("║       НАСТРОЙКИ JARVIS v1.7        ║");
             Console.WriteLine("╠══════════════════════════════════════╣");
             Console.WriteLine("║  1. Личность ассистента            ║");
             Console.WriteLine("║  2. Плагины                        ║");

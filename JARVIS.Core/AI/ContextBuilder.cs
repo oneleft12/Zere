@@ -5,8 +5,14 @@ namespace JARVIS.Core.AI;
 
 public class ContextBuilder
 {
-    private readonly MemoryRepository _memory = new();
-    private readonly ConversationRepository _history = new();
+    private readonly MemoryRepository _memory;
+    private readonly ConversationRepository _history;
+
+    public ContextBuilder(MemoryRepository memory, ConversationRepository history)
+    {
+        _memory = memory;
+        _history = history;
+    }
 
     public string BuildMemory()
     {

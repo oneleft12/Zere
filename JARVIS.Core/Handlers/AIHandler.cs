@@ -2,24 +2,22 @@ using JARVIS.AI;
 using JARVIS.Core.AI;
 using JARVIS.Core.Configuration;
 using JARVIS.Core.Plugins;
-using JARVIS.Core.Plugins.Interfaces;
 
 namespace JARVIS.Core.Handlers;
 
 public class AIHandler : IJarvisHandler
 {
     private readonly OllamaClient _ai;
-    private readonly ContextBuilder _context = new();
+    private readonly ContextBuilder _context;
     private readonly PluginManager _pluginManager;
 
     private const string AssistantName = "JARVIS";
 
-    public AIHandler(PluginManager pluginManager)
+    public AIHandler(OllamaClient ai, ContextBuilder context, PluginManager pluginManager)
     {
+        _ai = ai;
+        _context = context;
         _pluginManager = pluginManager;
-
-        var config = JarvisConfig.Load();
-        _ai = new OllamaClient(config.Model, config.OllamaTimeoutMinutes);
     }
 
     public bool CanHandle(string message)

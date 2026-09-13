@@ -4,7 +4,12 @@ namespace JARVIS.Core.Handlers;
 
 public class MemoryHandler : IJarvisHandler
 {
-    private readonly MemoryRepository _memory = new();
+    private readonly MemoryRepository _memory;
+
+    public MemoryHandler(MemoryRepository memory)
+    {
+        _memory = memory;
+    }
 
     public bool CanHandle(string message)
     {
@@ -26,8 +31,6 @@ public class MemoryHandler : IJarvisHandler
     {
         var lower = message.ToLower().Trim();
 
-        // ===== ПОКАЗАТЬ ПАМЯТЬ =====
-
         if (lower == "покажи память")
         {
             var memories = _memory.GetAll();
@@ -40,15 +43,11 @@ public class MemoryHandler : IJarvisHandler
                        memories.Select(m => $"• {m.Key} = {m.Value}"));
         }
 
-        // ===== ОЧИСТИТЬ ПАМЯТЬ =====
-
         if (lower == "очисти память")
         {
             _memory.Clear();
             return "Память полностью очищена.";
         }
-
-        // ===== ЗАБЫТЬ =====
 
         if (lower.StartsWith("забудь "))
         {
@@ -60,8 +59,6 @@ public class MemoryHandler : IJarvisHandler
                 ? $"Я забыл информацию: {key}."
                 : $"Я не нашёл запись «{key}».";
         }
-
-        // ===== ОБНОВИТЬ ПАМЯТЬ =====
 
         if (lower.StartsWith("обнови память "))
         {
@@ -79,8 +76,6 @@ public class MemoryHandler : IJarvisHandler
 
             return $"Память обновлена: {key} = {value}";
         }
-
-        // ===== ЗАПОМНИ =====
 
         var textToRemember = message["запомни".Length..].Trim();
 

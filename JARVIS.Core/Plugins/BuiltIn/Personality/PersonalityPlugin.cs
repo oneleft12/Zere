@@ -19,7 +19,7 @@ public class PersonalityPlugin : BasePlugin, IPersonalityPlugin
             Ты — JARVIS, дружелюбный AI-ассистент.
             Общайся тепло, используй смайлики occasionally.
             Будь как друг — помогай с радостью.
-            Говори简单 и понятно.
+            Говори просто и понятно.
             """,
 
         [PersonalityStyle.Formal] = """

@@ -4,7 +4,12 @@ namespace JARVIS.Core.Handlers;
 
 public class MemoryQueryHandler : IJarvisHandler
 {
-    private readonly MemoryRepository _memory = new();
+    private readonly MemoryRepository _memory;
+
+    public MemoryQueryHandler(MemoryRepository memory)
+    {
+        _memory = memory;
+    }
 
     public bool CanHandle(string message)
     {
@@ -14,7 +19,10 @@ public class MemoryQueryHandler : IJarvisHandler
                lower.Contains("какой у меня проект") ||
                lower.Contains("что ты знаешь обо мне") ||
                lower.Contains("какая у меня видеокарта") ||
-               lower.Contains("какая у меня windows");
+               lower.Contains("какая у меня windows") ||
+               lower.StartsWith("что такое ") ||
+               lower.StartsWith("кто такой ") ||
+               lower.StartsWith("кто такая ");
     }
 
     public Task<string> HandleAsync(string message)
@@ -44,18 +52,56 @@ public class MemoryQueryHandler : IJarvisHandler
             lower.Contains("windows") ? "windows" :
             "";
 
-        var memory = _memory.Get(key);
-
-        if (memory == null)
-            return "Я пока не знаю ответ.";
-
-        return key switch
+        if (!string.IsNullOrEmpty(key))
         {
-            "имя" => $"Вас зовут {memory.Value}.",
-            "проект" => $"Ваш проект называется {memory.Value}.",
-            "видеокарта" => $"У вас видеокарта {memory.Value}.",
-            "windows" => $"Вы используете {memory.Value}.",
-            _ => memory.Value
+            var memory = _memory.Get(key);
+
+            if (memory != null)
+            {
+                return key switch
+                {
+                    "имя" => $"Вас зовут {memory.Value}.",
+                    "проект" => $"Ваш проект называется {memory.Value}.",
+                    "видеокарта" => $"У вас видеокарта {memory.Value}.",
+                    "windows" => $"Вы используете {memory.Value}.",
+                    _ => memory.Value
+                };
+            }
+        }
+
+        var searchQuery = ExtractSearchQuery(lower);
+
+        if (!string.IsNullOrEmpty(searchQuery))
+        {
+            var results = _memory.Search(searchQuery);
+
+            if (results.Count > 0)
+            {
+                var best = results.First();
+                return $"Из памяти: {best.Key} = {best.Value}";
+            }
+        }
+
+        return "Я пока не знаю ответ.";
+    }
+
+    private static string ExtractSearchQuery(string lower)
+    {
+        var prefixes = new[]
+        {
+            "что такое ", "кто такой ", "кто такая ",
+            "что значит ", "расскажи про ", "расскажи о "
         };
+
+        foreach (var prefix in prefixes)
+        {
+            if (lower.Contains(prefix))
+            {
+                var idx = lower.IndexOf(prefix);
+                return lower[(idx + prefix.Length)..].Trim();
+            }
+        }
+
+        return "";
     }
 }

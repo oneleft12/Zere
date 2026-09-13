@@ -4,7 +4,7 @@ namespace JARVIS.Core.Configuration;
 
 public class JarvisConfig
 {
-    public string Version { get; set; } = "1.5.0";
+    public string Version { get; set; } = "1.7.0";
     public string AssistantName { get; set; } = "JARVIS";
     public string Language { get; set; } = "ru";
     public string Model { get; set; } = "qwen3.5:2b";

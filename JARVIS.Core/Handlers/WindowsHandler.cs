@@ -5,9 +5,15 @@ namespace JARVIS.Core.Handlers;
 
 public class WindowsHandler : IJarvisHandler
 {
-    private readonly ApplicationLauncher _launcher = new();
+    private readonly ApplicationLauncher _launcher;
     private readonly WindowsCommandRouter _router = new();
-    private readonly SafeActionManager _safeActions = new();
+    private readonly SafeActionManager _safeActions;
+
+    public WindowsHandler(ApplicationLauncher launcher, SafeActionManager safeActions)
+    {
+        _launcher = launcher;
+        _safeActions = safeActions;
+    }
 
     public bool CanHandle(string message)
     {
@@ -33,8 +39,6 @@ public class WindowsHandler : IJarvisHandler
     {
         var lower = message.ToLower().Trim();
 
-        // ===== Подтверждение опасных действий =====
-
         if (lower == "да")
         {
             return _safeActions.Confirm()
@@ -47,8 +51,6 @@ public class WindowsHandler : IJarvisHandler
             _safeActions.Cancel();
             return "Команда отменена.";
         }
-
-        // ===== Индекс приложений =====
 
         if (lower == "обнови индекс")
         {
@@ -78,8 +80,6 @@ public class WindowsHandler : IJarvisHandler
                 : result;
         }
 
-        // ===== Запуск приложения =====
-
         if (lower.StartsWith("открой "))
         {
             var app = message["открой".Length..].Trim();
@@ -88,8 +88,6 @@ public class WindowsHandler : IJarvisHandler
                 ? $"Открываю {app}."
                 : $"Не удалось найти приложение «{app}».";
         }
-
-        // ===== Команды Windows =====
 
         var command = _router.Parse(message);
 

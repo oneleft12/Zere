@@ -4,8 +4,13 @@ namespace JARVIS.Core.Handlers;
 
 public class VolumeHandler : IJarvisHandler
 {
-    private readonly VolumeService _service = new();
+    private readonly VolumeService _service;
     private readonly VolumeCommandRouter _router = new();
+
+    public VolumeHandler(VolumeService service)
+    {
+        _service = service;
+    }
 
     public bool CanHandle(string message)
     {

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json;
+using JARVIS.AI;
 using JARVIS.Core.Configuration;
 using Microsoft.Data.Sqlite;
 
@@ -14,17 +15,10 @@ public class DependencyChecker
 
     private string _ollamaUrl = "http://localhost:11434";
 
-    private static readonly string[] OllamaCandidates =
-    [
-        "http://localhost:11434",
-        "http://127.0.0.1:11434",
-        "http://host.docker.internal:11434"
-    ];
-
     public DependencyChecker(JarvisConfig config)
     {
         _config = config;
-        _ollamaUrl = ResolveOllama() ?? _ollamaUrl;
+        _ollamaUrl = OllamaUrlResolver.Resolve() ?? _ollamaUrl;
         _http.BaseAddress = new Uri(_ollamaUrl);
         _http.Timeout = TimeSpan.FromSeconds(3);
     }
@@ -289,23 +283,6 @@ public class DependencyChecker
             dir = Directory.GetParent(dir)?.FullName;
         }
 
-        return null;
-    }
-
-    private string? ResolveOllama()
-    {
-        foreach (var url in OllamaCandidates)
-        {
-            try
-            {
-                using var test = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
-                test.BaseAddress = new Uri(url);
-                var response = test.GetAsync("/api/tags").Result;
-                if (response.IsSuccessStatusCode)
-                    return url;
-            }
-            catch { }
-        }
         return null;
     }
 

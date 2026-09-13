@@ -5,13 +5,17 @@ namespace JARVIS.Core.Handlers;
 
 public class MemoryExtractor
 {
-    private readonly MemoryRepository _memory = new();
+    private readonly MemoryRepository _memory;
+
+    public MemoryExtractor(MemoryRepository memory)
+    {
+        _memory = memory;
+    }
 
     public bool TryExtract(string message)
     {
         var text = message.Trim();
 
-        // Имя
         var name = Regex.Match(
             text,
             @"меня зовут\s+(.+)$",
@@ -23,7 +27,6 @@ public class MemoryExtractor
             return true;
         }
 
-        // Проект
         var project = Regex.Match(
             text,
             @"мой проект( называется)?\s+(.+)$",
@@ -35,7 +38,6 @@ public class MemoryExtractor
             return true;
         }
 
-        // Видеокарта
         var gpu = Regex.Match(
             text,
             @"(у меня|я использую).*(rtx|gtx|rx)\s*([0-9a-z ]+)",
@@ -47,7 +49,6 @@ public class MemoryExtractor
             return true;
         }
 
-        // Windows
         var windows = Regex.Match(
             text,
             @"windows\s*(10|11)",

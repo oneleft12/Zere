@@ -5,11 +5,15 @@ namespace JARVIS.Core.Handlers;
 
 public class FileHandler : IJarvisHandler
 {
-    private readonly FileManager _files = new();
+    private readonly FileManager _files;
     private readonly FileCommandRouter _router = new();
-    private readonly SafeActionManager _safeActions = new();
+    private readonly SafeActionManager _safeActions;
 
-    private string _pendingDelete = "";
+    public FileHandler(FileManager files, SafeActionManager safeActions)
+    {
+        _files = files;
+        _safeActions = safeActions;
+    }
 
     public bool CanHandle(string message)
     {
@@ -42,7 +46,6 @@ public class FileHandler : IJarvisHandler
                 return _files.FindFile(command.Value);
 
             case FileCommandType.DeleteFile:
-                _pendingDelete = command.Value;
                 _safeActions.Request(PendingAction.None);
 
                 return _files.DeleteFile(command.Value)

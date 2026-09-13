@@ -4,7 +4,12 @@ namespace JARVIS.Core.Handlers;
 
 public class ConversationHandler : IJarvisHandler
 {
-    private readonly ConversationRepository _conversations = new();
+    private readonly ConversationRepository _conversations;
+
+    public ConversationHandler(ConversationRepository conversations)
+    {
+        _conversations = conversations;
+    }
 
     public bool CanHandle(string message)
     {

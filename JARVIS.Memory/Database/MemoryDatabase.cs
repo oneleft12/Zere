@@ -2,7 +2,7 @@ using Microsoft.Data.Sqlite;
 
 namespace JARVIS.Memory.Database;
 
-public class MemoryDatabase
+public class MemoryDatabase : IDisposable
 {
     private readonly string _databasePath;
 
@@ -59,5 +59,10 @@ public class MemoryDatabase
         """;
 
         command.ExecuteNonQuery();
+    }
+
+    public void Dispose()
+    {
+        // Connections are opened/closed per operation, nothing to dispose
     }
 }

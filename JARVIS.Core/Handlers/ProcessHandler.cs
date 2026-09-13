@@ -4,8 +4,13 @@ namespace JARVIS.Core.Handlers;
 
 public class ProcessHandler : IJarvisHandler
 {
-    private readonly ProcessService _service = new();
+    private readonly ProcessService _service;
     private readonly ProcessCommandRouter _router = new();
+
+    public ProcessHandler(ProcessService service)
+    {
+        _service = service;
+    }
 
     public bool CanHandle(string message)
     {

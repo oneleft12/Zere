@@ -4,8 +4,14 @@ namespace JARVIS.Core.Handlers;
 
 public class GameHandler : IJarvisHandler
 {
-    private readonly GameGuardian _guardian = new();
-    private readonly GameTracker _tracker = new();
+    private readonly GameGuardian _guardian;
+    private readonly GameTracker _tracker;
+
+    public GameHandler(GameGuardian guardian, GameTracker tracker)
+    {
+        _guardian = guardian;
+        _tracker = tracker;
+    }
 
     public bool CanHandle(string message)
     {
