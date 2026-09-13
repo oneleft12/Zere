@@ -1,18 +1,11 @@
 {
-  "version": "1.6.0",
+  "version": "1.7.0",
   "assistantName": "JARVIS",
   "language": "ru",
   "model": "qwen3.5:2b",
-
-  "voice": {
-    "enabled": false,
-    "wakeWord": "джарвис",
-    "language": "ru",
-    "whisperModel": "ggml-base.bin",
-    "piperVoice": "ru_RU-irina-medium"
-  },
-
+  "voiceEnabled": true,
   "autoMemory": true,
   "debugMode": true,
+  "ollamaTimeoutMinutes": 10,
   "logLevel": "Info"
 }

@@ -169,6 +169,11 @@ while (true)
             Console.WriteLine();
             Console.WriteLine($"JARVIS: {answer}");
             Console.WriteLine();
+
+            if (config.VoiceEnabled)
+            {
+                await voiceManager.SpeakAsync(answer);
+            }
         }
         catch (Exception ex)
         {
