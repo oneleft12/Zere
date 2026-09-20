@@ -33,7 +33,14 @@ public class ProcessManager
         if (process == null)
             return false;
 
-        process.Kill(true);
+        try
+        {
+            process.Kill(true);
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
 
         return true;
     }

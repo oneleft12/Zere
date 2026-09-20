@@ -45,7 +45,29 @@ public class VolumeService
 
     public bool Mute() => SendAppCommand(APPCOMMAND_VOLUME_MUTE);
 
-    public bool UnMute() => SendAppCommand(APPCOMMAND_VOLUME_MUTE);
+    public bool UnMute()
+    {
+        try
+        {
+            var deviceEnumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+            deviceEnumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia, out var device);
+
+            var volumeInterface = device.Activate(typeof(IAudioEndpointVolume).GUID, 0, IntPtr.Zero, out var volumePtr);
+            var volume = (IAudioEndpointVolume)Marshal.GetObjectForIUnknown(volumeInterface);
+
+            volume.SetMute(false, Guid.Empty);
+
+            Marshal.ReleaseComObject(volume);
+            Marshal.ReleaseComObject(device);
+            Marshal.ReleaseComObject(deviceEnumerator);
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     public bool SetVolume(int value)
     {

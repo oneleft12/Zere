@@ -7,8 +7,8 @@ public class WindowsCommandRouter
         var text = message.ToLower().Trim();
 
         // Команды звука не относятся к Windows Power.
-if (text.Contains("звук") || text.Contains("громкость"))
-    return WindowsCommandType.None;
+        if (text.Contains("звук") || text.Contains("громкость"))
+            return WindowsCommandType.None;
 
         if (text.Contains("выключи компьютер") ||
             text.Contains("выключить компьютер"))

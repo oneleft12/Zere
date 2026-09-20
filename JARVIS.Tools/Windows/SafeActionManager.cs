@@ -16,16 +16,28 @@ public class SafeActionManager
         switch (_pending)
         {
             case PendingAction.Shutdown:
-                Process.Start("shutdown", "/s /t 0");
+                Process.Start(new ProcessStartInfo("shutdown", "/s /t 0")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
                 break;
 
             case PendingAction.Restart:
-                Process.Start("shutdown", "/r /t 0");
+                Process.Start(new ProcessStartInfo("shutdown", "/r /t 0")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
                 break;
 
             case PendingAction.Sleep:
-                Process.Start("rundll32.exe",
-                    "powrprof.dll,SetSuspendState 0,1,0");
+                Process.Start(new ProcessStartInfo("rundll32.exe",
+                    "powrprof.dll,SetSuspendState 0,1,0")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                });
                 break;
 
             default:

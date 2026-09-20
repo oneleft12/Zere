@@ -7,10 +7,10 @@ public class FileCommandRouter
         var text = message.Trim();
 
         if (text.Equals("удали его", StringComparison.OrdinalIgnoreCase) ||
-        text.Equals("удалить его", StringComparison.OrdinalIgnoreCase))
-{
-    return (FileCommandType.DeleteLastFile, "");
-}
+            text.Equals("удалить его", StringComparison.OrdinalIgnoreCase))
+        {
+            return (FileCommandType.DeleteLastFile, "");
+        }
 
         if (text.StartsWith("создай папку ", StringComparison.OrdinalIgnoreCase))
             return (
