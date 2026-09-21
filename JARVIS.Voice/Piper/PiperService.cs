@@ -79,18 +79,18 @@ public class PiperService
 
         try
         {
-            // Параметры для максимального качества:
-            // --length_scale 1.05 — чуть медленнее = более естественная речь
-            // --noise_scale 0.667 — стандартный шум (модель по умолчанию)
-            // --noise_w 0.8 — стандартный параметр вариативности
+            // Кинематографичный баритон:
+            // --length_scale 1.15 — медленная, уверенная подача
+            // --noise_scale 0.45 — чистый голос, минимум шума
+            // --noise_w 0.7 — стабильная интонация, без дрожания
             var psi = new ProcessStartInfo
             {
                 FileName = _piperExe,
                 Arguments = $"--model \"{_cachedModelPath}\" " +
                            $"--output_file \"{outputFile}\" " +
-                           $"--length_scale 1.05 " +
-                           $"--noise_scale 0.667 " +
-                           $"--noise_w 0.8",
+                           $"--length_scale 1.15 " +
+                           $"--noise_scale 0.45 " +
+                           $"--noise_w 0.7",
                 UseShellExecute = false,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,

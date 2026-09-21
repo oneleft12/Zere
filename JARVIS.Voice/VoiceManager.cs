@@ -16,11 +16,11 @@ public class VoiceManager : IDisposable
 
     private readonly Dictionary<string, string> _personalityVoices = new()
     {
-        ["Friendly"] = "ru_RU-irina-medium",
-        ["Formal"] = "ru_RU-irina-medium",
-        ["Sarcastic"] = "ru_RU-dmitri-medium",
+        ["Friendly"] = "ru_RU-ruslan-medium",
+        ["Formal"] = "ru_RU-dmitri-medium",
+        ["Sarcastic"] = "ru_RU-ruslan-medium",
         ["Professional"] = "ru_RU-dmitri-medium",
-        ["Casual"] = "ru_RU-irina-medium"
+        ["Casual"] = "ru_RU-ruslan-medium"
     };
 
     public bool IsVoiceAvailable => _whisper.IsInstalled();

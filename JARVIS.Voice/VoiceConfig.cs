@@ -12,7 +12,7 @@ public class VoiceConfig
     /// </summary>
     public string WhisperModel { get; set; } = "medium";
 
-    public string PiperVoice { get; set; } = "ru_RU-irina-medium";
+    public string PiperVoice { get; set; } = "ru_RU-ruslan-medium";
 
     public int MicrophoneIndex { get; set; } = 0;
 
@@ -30,7 +30,7 @@ public class VoiceConfig
 
     /// <summary>
     /// Множитель скорости речи (1.0 = норма, меньше = быстрее, больше = медленнее).
-    /// Значение 1.05 даёт более естественную, «размеренную» подачу.
+    /// 1.15 — медленная, уверенная подача для кинематографичного стиля.
     /// </summary>
-    public float SpeechSpeed { get; set; } = 1.05f;
+    public float SpeechSpeed { get; set; } = 1.15f;
 }

@@ -31,22 +31,29 @@ public static class AudioProcessor
             if (inputRate != targetRate)
                 samples = Resample(samples, inputRate, targetRate);
 
-            // === DSP-цепочка ===
+            // === Кинематографичная DSP-цепочка (баритон) ===
 
-            // 1. HPF: убираем гул ниже 80 Гц
-            ApplyHighPass(samples, targetRate, 80.0);
+            // 1. HPF: убираем гул ниже 60 Гц (сохраняем глубину баса)
+            ApplyHighPass(samples, targetRate, 60.0);
 
-            // 2. EQ: бас (180 Гц +3.5 dB), присутствие (3.2 кГц +2.8 dB), воздух (10 кГц +1.5 dB)
-            ApplyEq(samples, targetRate);
+            // 2. Кинематографичный EQ:
+            //    - Низкий бас (120 Гц +4.5 dB) — «бархатистость»
+            //    - Тепло (250 Гц +2.0 dB) — наполненность
+            //    - Присутствие (2.8 кГц +2.0 dB) — чёткая дикция
+            //    - Воздух (9 кГц +1.0 dB) — лёгкость
+            ApplyCinematicEq(samples, targetRate);
 
-            // 3. Компрессор: ratio 4:1, threshold -18 dBFS
-            ApplyCompressor(samples, targetRate, thresholdDb: -18.0, ratio: 4.0);
+            // 3. Мульти-компрессор: два слоя для «давления»
+            //    - Мягкий: 3:1, -20 dBFS (выравнивает)
+            //    - Жёсткий: 6:1, -12 dBFS (сжимает пики)
+            ApplyCompressor(samples, targetRate, thresholdDb: -20.0, ratio: 3.0);
+            ApplyCompressor(samples, targetRate, thresholdDb: -12.0, ratio: 6.0);
 
-            // 4. Нормализация пика -2 dBFS
-            Normalize(samples, targetPeakDb: -2.0);
+            // 4. Нормализация пика -1.5 dBFS (максимальная громкость)
+            Normalize(samples, targetPeakDb: -1.5);
 
-            // 5. Мягкий лимитер -0.5 dBFS
-            ApplySoftLimiter(samples, ceilingDb: -0.5);
+            // 5. Мягкий лимитер -0.3 dBFS
+            ApplySoftLimiter(samples, ceilingDb: -0.3);
 
             // Запись в WAV
             var outputFormat = new WaveFormat(targetRate, 16, 1);
@@ -128,14 +135,15 @@ public static class AudioProcessor
         }
     }
 
-    private static void ApplyEq(float[] samples, int sampleRate)
+    private static void ApplyCinematicEq(float[] samples, int sampleRate)
     {
-        // Упрощённый EQ: 3 пика через Biquad
+        // Кинематографичный EQ: 4 полосы для глубокого баритона
         var bands = new (double hz, double gainDb, double q)[]
         {
-            (180.0,  3.5, 1.2),  // Тёплый бас
-            (3200.0, 2.8, 1.5),  // Присутствие
-            (10000.0, 1.5, 1.0)  // Воздух
+            (120.0,   4.5, 1.0),  // Низкий бас — «бархатистость»
+            (250.0,   2.0, 1.2),  // Тепло — наполненность голоса
+            (2800.0,  2.0, 1.4),  // Присутствие — чёткая дикция
+            (9000.0,  1.0, 0.8)   // Воздух — лёгкость
         };
 
         foreach (var (hz, gainDb, q) in bands)
