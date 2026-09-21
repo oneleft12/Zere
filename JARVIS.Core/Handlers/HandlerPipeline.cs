@@ -13,9 +13,16 @@ public class HandlerPipeline
     {
         foreach (var handler in _handlers)
         {
-            if (handler.CanHandle(message))
+            try
             {
-                return await handler.HandleAsync(message);
+                if (handler.CanHandle(message))
+                {
+                    return await handler.HandleAsync(message);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Pipeline] Ошибка в обработчике {handler.GetType().Name}: {ex.Message}");
             }
         }
 

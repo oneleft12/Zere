@@ -20,10 +20,18 @@ public class JarvisEngine
 
     public async Task<string> ProcessAsync(string message)
     {
-        _extractor.TryExtract(message);
+        try
+        {
+            _extractor.TryExtract(message);
 
-        var result = await _pipeline.HandleAsync(message);
+            var result = await _pipeline.HandleAsync(message);
 
-        return result ?? "Команда не распознана.";
+            return result ?? "Команда не распознана.";
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[JarvisEngine] Ошибка: {ex.Message}");
+            return $"Произошла ошибка: {ex.Message}";
+        }
     }
 }

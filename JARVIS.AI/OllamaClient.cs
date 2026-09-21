@@ -5,7 +5,7 @@ using JARVIS.AI.Models;
 
 namespace JARVIS.AI;
 
-public class OllamaClient
+public class OllamaClient : IDisposable
 {
     private readonly HttpClient _httpClient;
     private readonly string _model;
@@ -118,5 +118,11 @@ public class OllamaClient
         }
 
         return sb.ToString();
+    }
+
+    public void Dispose()
+    {
+        _httpClient.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

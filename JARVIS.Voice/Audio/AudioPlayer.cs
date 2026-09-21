@@ -4,8 +4,10 @@ namespace JARVIS.Voice.Audio;
 
 public class AudioPlayer : IDisposable
 {
+    private readonly object _lock = new();
     private WaveOutEvent? _output;
     private AudioFileReader? _reader;
+    private bool _cleaningUp;
 
     public bool IsPlaying { get; private set; }
 
@@ -16,6 +18,9 @@ public class AudioPlayer : IDisposable
             Console.WriteLine($"[AudioPlayer] Файл не найден: {wavFile}");
             return;
         }
+
+        // Ensure any previous playback is cleaned up before starting new instance.
+        Cleanup();
 
         try
         {
@@ -57,10 +62,25 @@ public class AudioPlayer : IDisposable
 
     private void Cleanup()
     {
-        _output?.Dispose();
-        _reader?.Dispose();
-        _output = null;
-        _reader = null;
+        lock (_lock)
+        {
+            if (_cleaningUp)
+                return;
+
+            _cleaningUp = true;
+
+            try
+            {
+                _output?.Dispose();
+                _reader?.Dispose();
+                _output = null;
+                _reader = null;
+            }
+            finally
+            {
+                _cleaningUp = false;
+            }
+        }
     }
 
     public void Dispose()

@@ -64,7 +64,7 @@ public class ConversationRepository
 
         command.Parameters.AddWithValue("$count", count);
 
-        var reader = command.ExecuteReader();
+        using var reader = command.ExecuteReader();
 
         var conversations = new List<Conversation>();
 

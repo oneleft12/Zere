@@ -11,13 +11,17 @@ public static class OllamaUrlResolver
 
     public static string? Resolve()
     {
+        // Reuse a single HttpClient across all candidate checks to avoid socket exhaustion.
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+
         foreach (var url in Candidates)
         {
             try
             {
-                using var test = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
-                test.BaseAddress = new Uri(url);
-                var response = test.GetAsync("/api/tags").Result;
+                client.BaseAddress = new Uri(url);
+                // .GetAwaiter().GetResult() is used here because Resolve() is called from
+                // synchronous contexts (constructor) where no async/await is available.
+                var response = client.GetAsync("/api/tags").GetAwaiter().GetResult();
 
                 if (response.IsSuccessStatusCode)
                     return url;

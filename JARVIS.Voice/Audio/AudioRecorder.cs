@@ -3,7 +3,7 @@ using System.IO;
 
 namespace JARVIS.Voice.Audio;
 
-public class AudioRecorder
+public class AudioRecorder : IDisposable
 {
     private WaveInEvent? _waveIn;
     private WaveFileWriter? _writer;
@@ -29,25 +29,37 @@ public class AudioRecorder
 
         _writer = new WaveFileWriter(file, _waveIn.WaveFormat);
 
-        _waveIn.DataAvailable += (_, e) =>
+        try
         {
-            _writer.Write(e.Buffer, 0, e.BytesRecorded);
-            _writer.Flush();
-        };
+            _waveIn.DataAvailable += (_, e) =>
+            {
+                _writer.Write(e.Buffer, 0, e.BytesRecorded);
+                _writer.Flush();
+            };
 
-        Console.WriteLine($"🎤 Слушаю {seconds} секунд...");
+            Console.WriteLine($"🎤 Слушаю {seconds} секунд...");
 
-        _waveIn.StartRecording();
+            _waveIn.StartRecording();
 
-        await Task.Delay(seconds * 1000);
+            await Task.Delay(seconds * 1000);
 
-        _waveIn.StopRecording();
-
-        _writer.Dispose();
-        _waveIn.Dispose();
+            _waveIn.StopRecording();
+        }
+        finally
+        {
+            _writer.Dispose();
+            _waveIn.Dispose();
+        }
 
         Console.WriteLine("✅ Запись завершена.");
 
         return file;
+    }
+
+    public void Dispose()
+    {
+        _waveIn?.Dispose();
+        _writer?.Dispose();
+        GC.SuppressFinalize(this);
     }
 }

@@ -75,7 +75,7 @@ public class MemoryRepository
 
         command.Parameters.AddWithValue("$key", key);
 
-        var reader = command.ExecuteReader();
+        using var reader = command.ExecuteReader();
 
         if (!reader.Read())
             return null;
@@ -104,7 +104,7 @@ public class MemoryRepository
         ORDER BY Category, Key
         """;
 
-        var reader = command.ExecuteReader();
+        using var reader = command.ExecuteReader();
 
         var list = new List<MemoryItem>();
 
@@ -140,7 +140,7 @@ public class MemoryRepository
 
         command.Parameters.AddWithValue($"$query", $"%{query.ToLower()}%");
 
-        var reader = command.ExecuteReader();
+        using var reader = command.ExecuteReader();
 
         var list = new List<MemoryItem>();
 

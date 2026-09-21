@@ -12,50 +12,19 @@ public class GameStatsRepository
 
         var today = DateTime.Today.ToString("yyyy-MM-dd");
 
-        var check = connection.CreateCommand();
-        check.CommandText =
+        var command = connection.CreateCommand();
+        command.CommandText =
         """
-        SELECT Minutes
-        FROM GameStats
-        WHERE Game=$game AND Date=$date
+        INSERT INTO GameStats(Game, Date, Minutes)
+        VALUES($game, $date, 1)
+        ON CONFLICT(Game, Date)
+        DO UPDATE SET Minutes = Minutes + 1
         """;
 
-        check.Parameters.AddWithValue("$game", game);
-        check.Parameters.AddWithValue("$date", today);
+        command.Parameters.AddWithValue("$game", game);
+        command.Parameters.AddWithValue("$date", today);
 
-        var result = check.ExecuteScalar();
-
-        if (result == null)
-        {
-            var insert = connection.CreateCommand();
-
-            insert.CommandText =
-            """
-            INSERT INTO GameStats(Game, Date, Minutes)
-            VALUES($game,$date,1)
-            """;
-
-            insert.Parameters.AddWithValue("$game", game);
-            insert.Parameters.AddWithValue("$date", today);
-
-            insert.ExecuteNonQuery();
-        }
-        else
-        {
-            var update = connection.CreateCommand();
-
-            update.CommandText =
-            """
-            UPDATE GameStats
-            SET Minutes=Minutes+1
-            WHERE Game=$game AND Date=$date
-            """;
-
-            update.Parameters.AddWithValue("$game", game);
-            update.Parameters.AddWithValue("$date", today);
-
-            update.ExecuteNonQuery();
-        }
+        command.ExecuteNonQuery();
     }
 
     public List<GameStat> GetToday()
@@ -76,7 +45,7 @@ public class GameStatsRepository
             "$date",
             DateTime.Today.ToString("yyyy-MM-dd"));
 
-        var reader = command.ExecuteReader();
+        using var reader = command.ExecuteReader();
 
         var list = new List<GameStat>();
 

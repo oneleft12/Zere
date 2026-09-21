@@ -98,6 +98,7 @@ public class VoiceManager : IDisposable
 
     public void Dispose()
     {
+        _recorder.Dispose();
         _player.Dispose();
         GC.SuppressFinalize(this);
     }

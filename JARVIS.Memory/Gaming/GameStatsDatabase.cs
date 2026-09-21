@@ -27,7 +27,8 @@ public class GameStatsDatabase
             Id INTEGER PRIMARY KEY AUTOINCREMENT,
             Game TEXT NOT NULL,
             Date TEXT NOT NULL,
-            Minutes INTEGER NOT NULL
+            Minutes INTEGER NOT NULL,
+            UNIQUE(Game, Date)
         );
         """;
 

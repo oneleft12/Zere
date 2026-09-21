@@ -7,7 +7,7 @@ using Microsoft.Data.Sqlite;
 
 namespace JARVIS.Core.Dependencies;
 
-public class DependencyChecker
+public class DependencyChecker : IDisposable
 {
     private readonly JarvisConfig _config;
     private readonly HttpClient _http = new();
@@ -154,13 +154,14 @@ public class DependencyChecker
                 RedirectStandardError = true
             };
 
-            Process.Start(psi);
+            using var process = Process.Start(psi);
 
             Thread.Sleep(3000);
 
             try
             {
-                var response = _http.GetAsync("/api/tags").Result;
+                // .GetAwaiter().GetResult() is used because this is called from synchronous context.
+                var response = _http.GetAsync("/api/tags").GetAwaiter().GetResult();
                 if (response.IsSuccessStatusCode)
                 {
                     Console.WriteLine("  Ollama запущена.");
@@ -200,7 +201,7 @@ public class DependencyChecker
                 RedirectStandardError = true
             };
 
-            var process = Process.Start(psi);
+            using var process = Process.Start(psi);
 
             if (process != null)
             {
@@ -256,7 +257,7 @@ public class DependencyChecker
                 RedirectStandardError = true
             };
 
-            var process = Process.Start(psi);
+            using var process = Process.Start(psi);
             process?.WaitForExit();
 
             if (process?.ExitCode == 0)
@@ -290,7 +291,8 @@ public class DependencyChecker
     {
         try
         {
-            var response = _http.GetAsync("/api/tags").Result;
+            // .GetAwaiter().GetResult() is used because this is called from synchronous context.
+            var response = _http.GetAsync("/api/tags").GetAwaiter().GetResult();
 
             if (response.IsSuccessStatusCode)
             {
@@ -328,7 +330,8 @@ public class DependencyChecker
     {
         try
         {
-            var response = _http.GetAsync("/api/tags").Result;
+            // .GetAwaiter().GetResult() is used because this is called from synchronous context.
+            var response = _http.GetAsync("/api/tags").GetAwaiter().GetResult();
 
             if (!response.IsSuccessStatusCode)
             {
@@ -342,7 +345,7 @@ public class DependencyChecker
                 return;
             }
 
-            var json = response.Content.ReadAsStringAsync().Result;
+            var json = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
             var doc = JsonDocument.Parse(json);
 
             var models = doc.RootElement
@@ -540,7 +543,7 @@ public class DependencyChecker
                 CreateNoWindow = true
             };
 
-            var process = Process.Start(psi);
+            using var process = Process.Start(psi);
             process?.WaitForExit(3000);
             return process?.ExitCode == 0;
         }
@@ -548,6 +551,12 @@ public class DependencyChecker
         {
             return false;
         }
+    }
+
+    public void Dispose()
+    {
+        _http.Dispose();
+        GC.SuppressFinalize(this);
     }
 }
 
