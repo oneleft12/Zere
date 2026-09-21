@@ -35,7 +35,7 @@ public static class AudioProcessor
                 var targetFormat = new WaveFormat(44100, inputFormat.BitsPerSample, inputFormat.Channels);
                 var resampler = new MediaFoundationResampler(reader, targetFormat);
                 resampler.ResamplerQuality = 60;
-                chain = SampleProviderConverters.ConvertWaveProviderSamples(resampler);
+                chain = new WaveToSampleProvider(resampler);
             }
 
             // === 2. Высокочастотный фильтр: убираем гул ниже 80 Гц ===

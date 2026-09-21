@@ -35,7 +35,7 @@ public static class AudioPreprocessor
                 var targetFormat = new WaveFormat(16000, format.BitsPerSample, format.Channels);
                 var resampler = new MediaFoundationResampler(reader, targetFormat);
                 resampler.ResamplerQuality = 60;
-                chain = SampleProviderConverters.ConvertWaveProviderSamples(resampler);
+                chain = new WaveToSampleProvider(resampler);
             }
 
             // === 2. Шумовой门: убираем фон и шум питания ===
