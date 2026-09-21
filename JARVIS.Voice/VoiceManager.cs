@@ -1,5 +1,6 @@
 using JARVIS.Voice.Audio;
 using JARVIS.Voice.Piper;
+using JARVIS.Voice.WakeWord;
 using JARVIS.Voice.Whisper;
 
 namespace JARVIS.Voice;
@@ -11,6 +12,7 @@ public class VoiceManager : IDisposable
     private readonly WhisperService _whisper = new();
     private readonly PiperService _piper = new();
     private readonly VoiceConfig _config = new();
+    private WakeWordDetector? _wakeWordDetector;
 
     private readonly Dictionary<string, string> _personalityVoices = new()
     {
@@ -107,10 +109,73 @@ public class VoiceManager : IDisposable
         _player.Stop();
     }
 
+    #region Wake Word
+
+    /// <summary>
+    /// Включает режим wake word и возвращает детектор.
+    /// </summary>
+    public WakeWordDetector EnableWakeWord()
+    {
+        _wakeWordDetector?.Dispose();
+        _wakeWordDetector = new WakeWordDetector(_config);
+        return _wakeWordDetector;
+    }
+
+    /// <summary>
+    /// Ожидает произнесения ключевого слова.
+    /// Возвращает true если обнаружено, false если отмена.
+    /// </summary>
+    public async Task<bool> WaitForWakeWordAsync(CancellationToken ct = default)
+    {
+        if (_wakeWordDetector == null)
+            return false;
+
+        var result = await _wakeWordDetector.WaitForWakeWordAsync(ct);
+        return !string.IsNullOrEmpty(result);
+    }
+
+    /// <summary>
+    /// Слушает голосовую команду после wake word.
+    /// Записывает до тишины (1.5 сек) или максимум 10 секунд.
+    /// </summary>
+    public async Task<string> ListenCommandAsync()
+    {
+        if (!_whisper.IsInstalled())
+        {
+            Console.WriteLine("[Voice] Whisper не установлен.");
+            return "";
+        }
+
+        var wav = await _recorder.RecordWithVadAsync(maxSeconds: 10, silenceMs: 1500);
+
+        if (string.IsNullOrEmpty(wav) || !File.Exists(wav))
+            return "";
+
+        // Проверяем что файл не пустой
+        var fileInfo = new FileInfo(wav);
+        if (fileInfo.Length < 2000)
+        {
+            try { File.Delete(wav); } catch { }
+            return "";
+        }
+
+        Console.WriteLine("🧠 Распознаю команду...");
+
+        var result = await _whisper.TranscribeAsync(wav);
+
+        // Очищаем
+        try { File.Delete(wav); } catch { }
+
+        return result;
+    }
+
+    #endregion
+
     public void Dispose()
     {
         _recorder.Dispose();
         _player.Dispose();
+        _wakeWordDetector?.Dispose();
         GC.SuppressFinalize(this);
     }
 }

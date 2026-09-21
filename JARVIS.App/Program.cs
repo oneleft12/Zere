@@ -6,6 +6,7 @@ using JARVIS.Core.Plugins;
 using JARVIS.Core.Plugins.Settings;
 using JARVIS.Memory.Database;
 using JARVIS.Voice;
+using JARVIS.Voice.WakeWord;
 using Microsoft.Extensions.DependencyInjection;
 
 var config = JarvisConfig.Load();
@@ -82,42 +83,140 @@ while (true)
 {
     if (voiceMode)
     {
-        Console.Write("[ГОЛОС] Скажите команду... ");
-
-        var voiceInput = await voiceManager.ListenAsync();
-
-        if (string.IsNullOrWhiteSpace(voiceInput))
+        // Режим с ключевым словом
+        if (voiceManager.Config.WakeWordEnabled)
         {
-            Console.WriteLine("Не удалось распознать речь.\n");
-            continue;
-        }
+            var wakeDetector = voiceManager.EnableWakeWord();
 
-        Console.WriteLine($"Вы (голос): {voiceInput}\n");
+            Console.WriteLine("\n💤 Спящий режим. Скажите 'Джарвис' для активации.");
+            Console.WriteLine("   Скажите 'выход' для отключения голосового режима.\n");
 
-        if (voiceInput.ToLower() == "выход" || voiceInput.ToLower() == "стоп")
-        {
-            voiceMode = false;
-            Console.WriteLine("[Голос] Текстовый режим.\n");
-            continue;
-        }
+            using var cts = new CancellationTokenSource();
 
-        try
-        {
-            var answer = await jarvis.ProcessAsync(voiceInput);
-
-            logger.Info($"JARVIS: {answer}");
-
-            Console.WriteLine($"\nJARVIS: {answer}\n");
-
-            if (config.VoiceEnabled)
+            // Обработка Ctrl+C для выхода из sleep mode
+            ConsoleCancelEventHandler cancelHandler = (_, e) =>
             {
-                await voiceManager.SpeakAsync(answer);
+                e.Cancel = true;
+                cts.Cancel();
+            };
+            Console.CancelKeyPress += cancelHandler;
+
+            try
+            {
+                while (voiceMode)
+                {
+                    Console.Write("💤 ");
+                    Console.Out.Flush();
+
+                    // Ожидаем ключевое слово
+                    var wakeDetected = await voiceManager.WaitForWakeWordAsync(cts.Token);
+
+                    if (!wakeDetected)
+                    {
+                        // Отмена или выход
+                        if (cts.IsCancellationRequested)
+                        {
+                            voiceMode = false;
+                            Console.WriteLine("\n[Голос] Текстовый режим.\n");
+                            break;
+                        }
+                        continue;
+                    }
+
+                    // Ключевое слово обнаружено!
+                    Console.WriteLine("🎧 Слушаю вашу команду...\n");
+
+                    // Слушаем команду
+                    var voiceInput = await voiceManager.ListenCommandAsync();
+
+                    if (string.IsNullOrWhiteSpace(voiceInput))
+                    {
+                        Console.WriteLine("⚠️ Не удалось распознать команду.\n");
+                        Console.WriteLine("💤 Возвращаюсь в спящий режим.\n");
+                        continue;
+                    }
+
+                    Console.WriteLine($"Вы (голос): {voiceInput}\n");
+
+                    if (voiceInput.ToLower() == "выход" || voiceInput.ToLower() == "стоп")
+                    {
+                        voiceMode = false;
+                        Console.WriteLine("[Голос] Текстовый режим.\n");
+                        break;
+                    }
+
+                    try
+                    {
+                        var answer = await jarvis.ProcessAsync(voiceInput);
+
+                        logger.Info($"JARVIS: {answer}");
+
+                        Console.WriteLine($"\nJARVIS: {answer}\n");
+
+                        if (config.VoiceEnabled)
+                        {
+                            await voiceManager.SpeakAsync(answer);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Error(ex.Message);
+                        Console.WriteLine($"\nОшибка: {ex.Message}\n");
+                    }
+
+                    Console.WriteLine("💤 Возвращаюсь в спящий режим.\n");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                voiceMode = false;
+                Console.WriteLine("\n[Голос] Текстовый режим.\n");
+            }
+            finally
+            {
+                Console.CancelKeyPress -= cancelHandler;
             }
         }
-        catch (Exception ex)
+        else
         {
-            logger.Error(ex.Message);
-            Console.WriteLine($"\nОшибка: {ex.Message}\n");
+            // Обычный режим без ключевого слова (старый вариант)
+            Console.Write("[ГОЛОС] Скажите команду... ");
+
+            var voiceInput = await voiceManager.ListenAsync();
+
+            if (string.IsNullOrWhiteSpace(voiceInput))
+            {
+                Console.WriteLine("Не удалось распознать речь.\n");
+                continue;
+            }
+
+            Console.WriteLine($"Вы (голос): {voiceInput}\n");
+
+            if (voiceInput.ToLower() == "выход" || voiceInput.ToLower() == "стоп")
+            {
+                voiceMode = false;
+                Console.WriteLine("[Голос] Текстовый режим.\n");
+                continue;
+            }
+
+            try
+            {
+                var answer = await jarvis.ProcessAsync(voiceInput);
+
+                logger.Info($"JARVIS: {answer}");
+
+                Console.WriteLine($"\nJARVIS: {answer}\n");
+
+                if (config.VoiceEnabled)
+                {
+                    await voiceManager.SpeakAsync(answer);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex.Message);
+                Console.WriteLine($"\nОшибка: {ex.Message}\n");
+            }
         }
     }
     else
