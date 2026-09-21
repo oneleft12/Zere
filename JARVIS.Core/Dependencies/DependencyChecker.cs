@@ -886,6 +886,49 @@ public class DependencyChecker : IDisposable
         }
     }
 
+    public void OfferVoiceInstall()
+    {
+        var voiceMissing = _results.Where(r =>
+            r.Status != CheckStatus.Ok &&
+            (r.Name.Contains("Whisper") || r.Name.Contains("Piper"))).ToList();
+
+        if (voiceMissing.Count == 0)
+            return;
+
+        Console.WriteLine("Голосовые компоненты не установлены:");
+        foreach (var dep in voiceMissing)
+            Console.WriteLine($"  - {dep.Name} — {dep.Message}");
+
+        Console.Write("\nУстановить голосовые компоненты? (д/н): ");
+        var answer = Console.ReadLine()?.Trim().ToLower();
+
+        if (answer != "д" && answer != "да" && answer != "y" && answer != "yes")
+            return;
+
+        Console.WriteLine();
+
+        foreach (var dep in voiceMissing)
+        {
+            Console.Write($"  Установить {dep.Name}? (д/н): ");
+            var choice = Console.ReadLine()?.Trim().ToLower();
+
+            if (choice == "д" || choice == "да" || choice == "y" || choice == "yes")
+            {
+                Console.WriteLine();
+                InstallDependency(dep);
+                Console.WriteLine();
+            }
+            else
+            {
+                Console.WriteLine($"  Пропущено: {dep.Name}\n");
+            }
+        }
+
+        Console.WriteLine("Повторная проверка...\n");
+        RunAll();
+        PrintReport();
+    }
+
     public void Dispose()
     {
         _http.Dispose();

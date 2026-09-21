@@ -1,4 +1,4 @@
-﻿using JARVIS.Core;
+using JARVIS.Core;
 using JARVIS.Core.Configuration;
 using JARVIS.Core.Dependencies;
 using JARVIS.Core.Logging;
@@ -43,6 +43,12 @@ if (!checker.AllCriticalPassed())
 }
 
 Console.WriteLine("Все зависимости в порядке.\n");
+
+// Предложить установку голосовых компонентов (не критичные)
+if (config.VoiceEnabled)
+{
+    checker.OfferVoiceInstall();
+}
 
 var services = ServiceRegistration.Create();
 
