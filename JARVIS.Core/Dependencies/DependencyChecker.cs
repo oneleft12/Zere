@@ -1004,14 +1004,32 @@ public class DependencyChecker : IDisposable
 
         var piperDir = Path.Combine(root, "JARVIS.Voice", "Piper");
 
-        if (Directory.Exists(piperDir) &&
-            Directory.GetFiles(piperDir, "*.onnx").Length > 0)
+        // Check for piper executable
+        var hasPiperExe = File.Exists(Path.Combine(piperDir, "piper.exe")) ||
+                          File.Exists(Path.Combine(piperDir, "piper"));
+
+        // Check for voice models
+        var hasOnnx = Directory.Exists(piperDir) &&
+                      Directory.GetFiles(piperDir, "*.onnx").Length > 0;
+
+        if (hasPiperExe && hasOnnx)
         {
             _results.Add(new DependencyResult
             {
                 Name = "Piper (TTS)",
                 Status = CheckStatus.Ok,
                 Critical = false
+            });
+        }
+        else if (!hasPiperExe)
+        {
+            _results.Add(new DependencyResult
+            {
+                Name = "Piper (TTS)",
+                Status = CheckStatus.Missing,
+                Critical = false,
+                Message = $"Исполняемый файл piper не найден в {piperDir}",
+                InstallUrl = "https://github.com/rhasspy/piper/releases"
             });
         }
         else
@@ -1022,7 +1040,7 @@ public class DependencyChecker : IDisposable
                 Status = CheckStatus.Missing,
                 Critical = false,
                 Message = $"Голосовые модели не найдены в {piperDir}",
-                InstallUrl = "https://github.com/rhasspy/piper/releases"
+                InstallUrl = "https://huggingface.co/rhasspy/piper-voices"
             });
         }
     }
