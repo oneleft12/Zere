@@ -5,24 +5,34 @@ namespace JARVIS.Voice.Whisper;
 
 public class WhisperService
 {
-    private readonly string _modelPath;
+    private readonly string _mediumModelPath;
+    private readonly string _baseModelPath;
     private readonly Lazy<WhisperFactory> _factory;
+
+    public string CurrentModel { get; private set; } = "medium";
 
     public WhisperService()
     {
         // Путь строится относительно AppContext.BaseDirectory с учётом структуры проекта:
         // bin/Debug/net10.0/ → ../../.. → корень решения, затем JARVIS.Voice/Models.
-        // Если структура проекта изменится, этот путь нужно обновить.
         var root = Path.GetFullPath(
             Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
 
-        _modelPath = Path.Combine(root, "JARVIS.Voice", "Models", "ggml-base.bin");
-        _factory = new Lazy<WhisperFactory>(() => WhisperFactory.FromPath(_modelPath));
+        var modelsDir = Path.Combine(root, "JARVIS.Voice", "Models");
+
+        _mediumModelPath = Path.Combine(modelsDir, "ggml-medium.bin");
+        _baseModelPath = Path.Combine(modelsDir, "ggml-base.bin");
+
+        // Используем medium если доступна, иначе base
+        var modelPath = File.Exists(_mediumModelPath) ? _mediumModelPath : _baseModelPath;
+        CurrentModel = File.Exists(_mediumModelPath) ? "medium" : "base";
+
+        _factory = new Lazy<WhisperFactory>(() => WhisperFactory.FromPath(modelPath));
     }
 
     public bool IsInstalled()
     {
-        return File.Exists(_modelPath);
+        return File.Exists(_mediumModelPath) || File.Exists(_baseModelPath);
     }
 
     public async Task<string> TranscribeAsync(string wavFile)
@@ -30,22 +40,45 @@ public class WhisperService
         if (!IsInstalled())
             return "Модель Whisper не найдена.";
 
-        var factory = _factory.Value;
+        // Предобработка аудио для лучшего распознавания
+        var processedFile = AudioPreprocessor.ProcessForWhisper(wavFile);
 
-        using var processor = factory.CreateBuilder()
-            .WithLanguage("ru")
-            .Build();
-
-        await using var stream = File.OpenRead(wavFile);
-
-        var result = new StringBuilder();
-
-        await foreach (var segment in processor.ProcessAsync(stream))
+        try
         {
-            result.Append(segment.Text);
-            result.Append(' ');
-        }
+            var factory = _factory.Value;
 
-        return result.ToString().Trim();
+            using var processor = factory.CreateBuilder()
+                .WithLanguage("ru")
+                .WithWordTimestamps()        // Точность на уровне слов
+                .Build();
+
+            await using var stream = File.OpenRead(processedFile);
+
+            var result = new StringBuilder();
+
+            await foreach (var segment in processor.ProcessAsync(stream))
+            {
+                var text = segment.Text.Trim();
+
+                // Фильтруем пустые сегменты и артефакты
+                if (!string.IsNullOrWhiteSpace(text) &&
+                    text.Length > 1 &&
+                    !text.All(c => c == ' ' || c == '.' || c == ','))
+                {
+                    result.Append(text);
+                    result.Append(' ');
+                }
+            }
+
+            return result.ToString().Trim();
+        }
+        finally
+        {
+            // Удаляем обработанный файл
+            if (processedFile != wavFile)
+            {
+                try { File.Delete(processedFile); } catch { }
+            }
+        }
     }
 }

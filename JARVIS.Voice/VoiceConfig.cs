@@ -6,7 +6,11 @@ public class VoiceConfig
 
     public string Language { get; set; } = "ru";
 
-    public string WhisperModel { get; set; } = "ggml-base.bin";
+    /// <summary>
+    /// Модель Whisper для распознавания: "base" (142 MB) или "medium" (1.5 GB).
+    /// medium значительно точнее для русского языка.
+    /// </summary>
+    public string WhisperModel { get; set; } = "medium";
 
     public string PiperVoice { get; set; } = "ru_RU-irina-medium";
 
