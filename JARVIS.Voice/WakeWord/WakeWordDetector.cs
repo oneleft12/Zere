@@ -51,7 +51,7 @@ public class WakeWordDetector : IDisposable
         {
             while (!ct.IsCancellationRequested)
             {
-                // Ждём появления речи
+                // Ждём появления речи (показываем RMS для отладки)
                 while (!_recorder.IsSpeechDetected && !ct.IsCancellationRequested)
                 {
                     await Task.Delay((int)ScanIntervalMs, ct);

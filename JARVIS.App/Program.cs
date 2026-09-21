@@ -89,11 +89,11 @@ while (true)
             var wakeDetector = voiceManager.EnableWakeWord();
 
             Console.WriteLine("\n💤 Спящий режим. Скажите 'Джарвис' для активации.");
-            Console.WriteLine("   Скажите 'выход' для отключения голосового режима.\n");
+            Console.WriteLine("   Или напишите 'выход' для отключения голосового режима.\n");
 
             using var cts = new CancellationTokenSource();
 
-            // Обработка Ctrl+C для выхода из sleep mode
+            // Обработка Ctrl+C
             ConsoleCancelEventHandler cancelHandler = (_, e) =>
             {
                 e.Cancel = true;
@@ -105,26 +105,50 @@ while (true)
             {
                 while (voiceMode)
                 {
-                    Console.Write("💤 ");
+                    Console.Write("💬 Напишите 'выход' или скажите 'Джарвис': ");
                     Console.Out.Flush();
 
-                    // Ожидаем ключевое слово
-                    var wakeDetected = await voiceManager.WaitForWakeWordAsync(cts.Token);
+                    // Параллельно: слушаем микрофон И ждём ввод текста
+                    var wakeTask = voiceManager.WaitForWakeWordAsync(cts.Token);
 
-                    if (!wakeDetected)
+                    // Ждём либо wake word, либо текстовый ввод
+                    while (!wakeTask.IsCompleted && !cts.IsCancellationRequested)
                     {
-                        // Отмена или выход
-                        if (cts.IsCancellationRequested)
+                        // Проверяем, есть ли текст в консоли (без блокировки)
+                        if (Console.KeyAvailable)
                         {
-                            voiceMode = false;
-                            Console.WriteLine("\n[Голос] Текстовый режим.\n");
-                            break;
+                            var textInput = Console.ReadLine()?.Trim().ToLower();
+                            if (textInput == "выход" || textInput == "стоп" || textInput == "exit")
+                            {
+                                cts.Cancel();
+                                break;
+                            }
                         }
-                        continue;
+
+                        await Task.Delay(100);
                     }
 
+                    // Ждём завершения задачи wake word
+                    var wakeDetected = false;
+                    try
+                    {
+                        wakeDetected = await wakeTask;
+                    }
+                    catch (OperationCanceledException) { }
+
+                    if (cts.IsCancellationRequested)
+                    {
+                        voiceMode = false;
+                        Console.WriteLine("\n[Голос] Текстовый режим.\n");
+                        break;
+                    }
+
+                    if (!wakeDetected)
+                        continue;
+
                     // Ключевое слово обнаружено!
-                    Console.WriteLine("🎧 Слушаю вашу команду...\n");
+                    Console.WriteLine("\n🎧 Слушаю вашу команду...");
+                    Console.WriteLine("   (или напишите 'выход')\n");
 
                     // Слушаем команду
                     var voiceInput = await voiceManager.ListenCommandAsync();

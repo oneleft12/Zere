@@ -1,12 +1,11 @@
 using NAudio.Wave;
-using System.Collections.Concurrent;
 
 namespace JARVIS.Voice.Audio;
 
 /// <summary>
 /// Непрерывный записывающий устройство с круговым буфером и VAD.
 /// Не пересоздаёт WaveInEvent — одна запись на весь сеанс.
-/// Буфер хранит последние N секунд аудио для извлечения сегментов.
+/// Адаптивный VAD: первый 2 сек замеряет шум, затем порог = шум × 2.5.
 /// </summary>
 public class ContinuousAudioRecorder : IDisposable
 {
@@ -19,11 +18,19 @@ public class ContinuousAudioRecorder : IDisposable
     private int _totalSamplesWritten;
     private int _bufferCapacity;
 
-    // VAD
-    private float _speechThreshold = 0.015f; // ~-36 dBFS
+    // VAD — адаптивный порог
+    private float _noiseFloor = 0.005f;    // Уровень шума (замеряется при старте)
+    private float _speechThreshold = 0.010f; // Порог = noiseFloor × 2.5
     private bool _isSpeech;
+    private bool _calibrated;
     private DateTime _speechStartTime;
     private DateTime _lastSpeechTime;
+
+    // Быстрый RMS — инкрементальный расчёт без пересканирования буфера
+    private double _rmsSum;
+    private int _rmsWindowSamples;
+    private const int RmsWindowMs = 400; // Окно RMS 400ms
+    private DateTime _rmsWindowStart;
 
     // Состояние
     private volatile bool _isRecording;
@@ -31,12 +38,11 @@ public class ContinuousAudioRecorder : IDisposable
 
     public bool IsRecording => _isRecording;
     public bool IsSpeechDetected => _isSpeech;
+    public float LastRms { get; private set; }
 
     /// <summary>
     /// Запуск непрерывной записи в круговой буфер.
     /// </summary>
-    /// <param name="bufferSeconds">Размер буфера в секундах (по умолчанию 10)</param>
-    /// <param name="sampleRate">Частота дискретизации (16kHz для Whisper)</param>
     public void StartContinuousRecording(int bufferSeconds = 10, int sampleRate = 16000)
     {
         lock (_lock)
@@ -48,6 +54,14 @@ public class ContinuousAudioRecorder : IDisposable
             _writePos = 0;
             _totalSamplesWritten = 0;
             _isSpeech = false;
+            _calibrated = false;
+            _noiseFloor = 0.005f;
+            _speechThreshold = 0.010f;
+
+            // Сброс окна RMS
+            _rmsSum = 0;
+            _rmsWindowSamples = 0;
+            _rmsWindowStart = DateTime.Now;
 
             var waveFormat = new WaveFormat(sampleRate, 16, 1);
 
@@ -76,10 +90,7 @@ public class ContinuousAudioRecorder : IDisposable
         {
             if (!_isRecording || _waveIn == null) return;
 
-            try
-            {
-                _waveIn.StopRecording();
-            }
+            try { _waveIn.StopRecording(); }
             catch { }
 
             _isRecording = false;
@@ -105,25 +116,20 @@ public class ContinuousAudioRecorder : IDisposable
             var readPos = (_writePos - samplesToExtract + _bufferCapacity) % _bufferCapacity;
 
             for (int i = 0; i < samplesToExtract; i++)
-            {
                 result[i] = _ringBuffer[(readPos + i) % _bufferCapacity];
-            }
 
             return result;
         }
     }
 
     /// <summary>
-    /// Извлекает аудио как массив byte (WAV-формат) для сохранения в файл.
+    /// Извлекает аудио как byte[] (16-bit PCM) для WAV.
     /// </summary>
     public byte[] ExtractRecentAudioBytes(float seconds)
     {
         var samples = ExtractRecentAudio(seconds);
         if (samples.Length == 0) return Array.Empty<byte>();
 
-        var sampleRate = _waveIn?.WaveFormat.SampleRate ?? 16000;
-
-        // Конвертируем float[] в byte[] (16-bit PCM)
         var byteCount = samples.Length * 2;
         var bytes = new byte[byteCount];
 
@@ -139,7 +145,7 @@ public class ContinuousAudioRecorder : IDisposable
     }
 
     /// <summary>
-    /// Сохраняет последние N секунд аудио в WAV-файл и возвращает путь.
+    /// Сохраняет последние N секунд аудио в WAV-файл.
     /// </summary>
     public string SaveRecentAudio(float seconds, string? filePath = null)
     {
@@ -150,74 +156,93 @@ public class ContinuousAudioRecorder : IDisposable
         var waveFormat = new WaveFormat(sampleRate, 16, 1);
 
         filePath ??= Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "voice", "input",
+            Directory.GetCurrentDirectory(), "voice", "input",
             $"wake_{DateTime.Now:yyyyMMdd_HHmmss}.wav");
 
         Directory.CreateDirectory(Path.GetDirectoryName(filePath)!);
 
         using (var writer = new WaveFileWriter(filePath, waveFormat))
-        {
             writer.Write(bytes, 0, bytes.Length);
-        }
 
         return filePath;
     }
 
     /// <summary>
-    /// Вычисляет RMS энергии последних N секунд.
+    /// Ручная установка порога (перезаписывает адаптивный).
     /// </summary>
-    public float GetRecentEnergy(float seconds)
+    public void SetThreshold(float threshold)
     {
-        var samples = ExtractRecentAudio(seconds);
-        if (samples.Length == 0) return 0f;
-
-        double sum = 0;
-        for (int i = 0; i < samples.Length; i++)
-            sum += samples[i] * samples[i];
-
-        return (float)Math.Sqrt(sum / samples.Length);
-    }
-
-    /// <summary>
-    /// Порог能量 для определения речи.
-    /// </summary>
-    public float SpeechThreshold
-    {
-        get => _speechThreshold;
-        set => _speechThreshold = value;
+        _speechThreshold = threshold;
+        _calibrated = true; // Блокирует адаптивную подстройку
     }
 
     private void OnDataAvailable(object? sender, WaveInEventArgs e)
     {
         if (_disposed || !_isRecording) return;
 
-        var sampleCount = e.BytesRecorded / 2; // 16-bit = 2 bytes
+        var sampleCount = e.BytesRecorded / 2;
+        var now = DateTime.Now;
 
         lock (_lock)
         {
+            // Пишем в круговой буфер + считаем инкрементальный RMS
             for (int i = 0; i < sampleCount; i++)
             {
                 var sample = BitConverter.ToInt16(e.Buffer, i * 2) / 32768f;
                 _ringBuffer[_writePos] = sample;
                 _writePos = (_writePos + 1) % _bufferCapacity;
                 _totalSamplesWritten++;
+
+                // Инкрементальный RMS
+                _rmsSum += sample * sample;
+                _rmsWindowSamples++;
             }
         }
 
-        // VAD: вычисляем RMS последних 500ms
-        var rms = GetRecentEnergy(0.5f);
+        // Проверяем окно RMS каждые ~400ms
+        var elapsed = (now - _rmsWindowStart).TotalMilliseconds;
+        if (elapsed < RmsWindowMs) return;
 
+        float rms;
+        lock (_lock)
+        {
+            rms = _rmsWindowSamples > 0
+                ? (float)Math.Sqrt(_rmsSum / _rmsWindowSamples)
+                : 0f;
+
+            _rmsSum = 0;
+            _rmsWindowSamples = 0;
+            _rmsWindowStart = now;
+        }
+
+        LastRms = rms;
+
+        // === Адаптивная калибровка (первые 2 сек — замер шума) ===
+        if (!_calibrated && _totalSamplesWritten < 32000) // 2 сек при 16kHz
+        {
+            if (rms > _noiseFloor)
+                _noiseFloor = rms;
+
+            // После 2 сек устанавливаем порог
+            if (_totalSamplesWritten >= 30000)
+            {
+                _speechThreshold = Math.Max(_noiseFloor * 2.5f, 0.005f);
+                _calibrated = true;
+            }
+            return; // Ещё калибруемся — не триггерим
+        }
+
+        // === VAD логика ===
         if (rms > _speechThreshold)
         {
             if (!_isSpeech)
             {
                 _isSpeech = true;
-                _speechStartTime = DateTime.Now;
+                _speechStartTime = now;
             }
-            _lastSpeechTime = DateTime.Now;
+            _lastSpeechTime = now;
         }
-        else if (_isSpeech && (DateTime.Now - _lastSpeechTime).TotalMilliseconds > 1500)
+        else if (_isSpeech && (now - _lastSpeechTime).TotalMilliseconds > 1500)
         {
             _isSpeech = false;
         }
