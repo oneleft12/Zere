@@ -32,27 +32,26 @@ public static class AudioPreprocessor
             // === 1. Ресемплинг до 16 kHz (стандарт Whisper) ===
             if (format.SampleRate != 16000)
             {
-                var resampler = new MediaFoundationResampler(
-                    new WaveToSampleProvider(reader), 16000);
+                var targetFormat = new WaveFormat(16000, format.BitsPerSample, format.Channels);
+                var resampler = new MediaFoundationResampler(reader, targetFormat);
                 resampler.ResamplerQuality = 60;
-                chain = resampler;
+                chain = SampleProviderConverters.ConvertWaveProviderSamples(resampler);
             }
 
-            // === 2. Высокочастотный фильтр: убираем гул и шум питания (50/60 Гц) ===
+            // === 2. Шумовой门: убираем фон и шум питания ===
             chain = new NoiseGateFilter(chain, 16000,
-                gateThresholdDb: -40.0,   // Порог шумового门
-                attackMs: 1.0,            // Быстрое открытие
-                releaseMs: 50.0);         // Медленное закрытие
+                gateThresholdDb: -40.0,
+                attackMs: 1.0,
+                releaseMs: 50.0);
 
             // === 3. AGC (Automatic Gain Control) ===
-            chain = new AgcFilter(chain,
-                targetLevelDb: -3.0,      // Целевой уровень
-                maxGainDb: 30.0,          // Максимальное усиление
+            chain = new AgcFilter(chain, 16000,
+                targetLevelDb: -3.0,
+                maxGainDb: 30.0,
                 attackMs: 5.0,
                 releaseMs: 200.0);
 
             // === 4. Эквализация для речи ===
-            // Усиливаем полосу речи (300-3000 Гц) для лучшей разборчивости
             chain = new PeakingEqFilter(chain, 16000, 1000.0, 2.0, 1.0);
 
             // === 5. Лимитер: предотвращаем клиппинг ===
@@ -66,7 +65,6 @@ public static class AudioPreprocessor
                 int samplesRead;
                 while ((samplesRead = chain.Read(floatBuffer, 0, floatBuffer.Length)) > 0)
                 {
-                    // Конвертируем float → short
                     var shortBuffer = new short[samplesRead];
                     for (int i = 0; i < samplesRead; i++)
                     {
@@ -118,21 +116,19 @@ internal class NoiseGateFilter : ISampleProvider
             var input = buffer[offset + i];
             var abs = Math.Abs(input);
 
-            // Обновляем огибающую
             var coeff = abs > _envelope ? _attackCoeff : _releaseCoeff;
             _envelope = coeff * _envelope + (1.0f - coeff) * abs;
 
-            // Управление воротами
             if (_envelope > _threshold)
             {
                 _gateOpen = true;
             }
-            else if (_envelope < _threshold * 0.5f) // Гистерезис
+            else if (_envelope < _threshold * 0.5f)
             {
                 _gateOpen = false;
             }
 
-            buffer[offset + i] = _gateOpen ? input : input * 0.01f; // Мягкое закрытие
+            buffer[offset + i] = _gateOpen ? input : input * 0.01f;
         }
         return samplesRead;
     }
@@ -172,17 +168,14 @@ internal class AgcFilter : ISampleProvider
             var input = buffer[offset + i];
             var abs = Math.Abs(input);
 
-            // Обновляем огибающую
             var coeff = abs > _envelope ? _attackCoeff : _releaseCoeff;
             _envelope = coeff * _envelope + (1.0f - coeff) * abs;
 
-            // Вычисляем необходимое усиление
             if (_envelope > 0.001f)
             {
                 var desiredGain = _targetLevel / _envelope;
                 desiredGain = Math.Min(desiredGain, _maxGain);
 
-                // Плавное изменение усиления
                 var gainCoeff = abs > _targetLevel ? _attackCoeff : _releaseCoeff;
                 _currentGain = gainCoeff * _currentGain + (1.0f - gainCoeff) * desiredGain;
             }

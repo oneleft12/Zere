@@ -1,4 +1,5 @@
 using System.Text;
+using JARVIS.Voice.Audio;
 using Whisper.net;
 
 namespace JARVIS.Voice.Whisper;
@@ -49,7 +50,6 @@ public class WhisperService
 
             using var processor = factory.CreateBuilder()
                 .WithLanguage("ru")
-                .WithWordTimestamps()        // Точность на уровне слов
                 .Build();
 
             await using var stream = File.OpenRead(processedFile);
