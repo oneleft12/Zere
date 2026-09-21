@@ -136,7 +136,8 @@ public class VoiceManager : IDisposable
 
     /// <summary>
     /// Слушает голосовую команду после wake word.
-    /// Записывает до тишины (1.5 сек) или максимум 10 секунд.
+    /// Использует тот же ContinuousAudioRecorder что и детектор — без пересоздания.
+    /// Ждёт речи, записывает, останавливается при тишине.
     /// </summary>
     public async Task<string> ListenCommandAsync()
     {
@@ -146,27 +147,91 @@ public class VoiceManager : IDisposable
             return "";
         }
 
-        var wav = await _recorder.RecordWithVadAsync(maxSeconds: 10, silenceMs: 1500);
+        // Используем рекордер из детектора (непрерывная запись)
+        var recorder = _wakeWordDetector?.Recorder;
 
-        if (string.IsNullOrEmpty(wav) || !File.Exists(wav))
-            return "";
-
-        // Проверяем что файл не пустой
-        var fileInfo = new FileInfo(wav);
-        if (fileInfo.Length < 2000)
+        if (recorder == null || !recorder.IsRecording)
         {
+            // Fallback: используем обычный рекордер
+            var wav = await _recorder.RecordWithVadAsync(maxSeconds: 10, silenceMs: 1500);
+
+            if (string.IsNullOrEmpty(wav) || !File.Exists(wav))
+                return "";
+
+            var fileInfo = new FileInfo(wav);
+            if (fileInfo.Length < 2000)
+            {
+                try { File.Delete(wav); } catch { }
+                return "";
+            }
+
+            Console.WriteLine("🧠 Распознаю команду...");
+            var result = await _whisper.TranscribeAsync(wav);
             try { File.Delete(wav); } catch { }
+            return result;
+        }
+
+        // Ждём начала речи
+        var waitStart = DateTime.Now;
+        while (!recorder.IsSpeechDetected &&
+               (DateTime.Now - waitStart).TotalSeconds < 8)
+        {
+            await Task.Delay(200);
+        }
+
+        if (!recorder.IsSpeechDetected)
+        {
+            Console.WriteLine("⚠️ Речь не обнаружена.");
             return "";
+        }
+
+        // Речь обнаружена — ждём окончания
+        var lastSpeechTime = DateTime.Now;
+        var speechStart = DateTime.Now;
+
+        while ((DateTime.Now - lastSpeechTime).TotalMilliseconds < 1500 &&
+               (DateTime.Now - speechStart).TotalSeconds < 10)
+        {
+            await Task.Delay(200);
+
+            if (recorder.IsSpeechDetected)
+                lastSpeechTime = DateTime.Now;
+        }
+
+        // Извлекаем аудио с буфером до речи
+        var totalSeconds = (float)(DateTime.Now - speechStart).TotalSeconds + 1.5f;
+        totalSeconds = Math.Min(totalSeconds, 12f);
+
+        var audioBytes = recorder.ExtractRecentAudioBytes(totalSeconds);
+
+        if (audioBytes.Length < 2000)
+        {
+            Console.WriteLine("⚠️ Запись слишком короткая.");
+            return "";
+        }
+
+        // Сохраняем во временный файл
+        var cmdFile = Path.Combine(
+            Directory.GetCurrentDirectory(),
+            "voice", "input",
+            $"cmd_{DateTime.Now:yyyyMMdd_HHmmss}.wav");
+
+        Directory.CreateDirectory(Path.GetDirectoryName(cmdFile)!);
+
+        var sampleRate = 16000;
+        var waveFormat = new NAudio.Wave.WaveFormat(sampleRate, 16, 1);
+        using (var writer = new NAudio.Wave.WaveFileWriter(cmdFile, waveFormat))
+        {
+            writer.Write(audioBytes, 0, audioBytes.Length);
         }
 
         Console.WriteLine("🧠 Распознаю команду...");
 
-        var result = await _whisper.TranscribeAsync(wav);
+        var cmdResult = await _whisper.TranscribeAsync(cmdFile);
 
-        // Очищаем
-        try { File.Delete(wav); } catch { }
+        try { File.Delete(cmdFile); } catch { }
 
-        return result;
+        return cmdResult;
     }
 
     #endregion

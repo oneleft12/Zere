@@ -5,22 +5,27 @@ namespace JARVIS.Voice.WakeWord;
 
 /// <summary>
 /// Детектор ключевого слова "Джарвис".
-/// Непрерывно записывает короткие аудио-сегменты, распознаёт речь
-/// и проверяет наличие ключевого слова в тексте.
+/// Использует непрерывную запись с круговым буфером и энергетический VAD.
+/// Отправляет аудио в Whisper ТОЛЬКО при обнаружении речи — без лишних вызовов.
 /// </summary>
 public class WakeWordDetector : IDisposable
 {
-    private readonly AudioRecorder _recorder = new();
+    private readonly ContinuousAudioRecorder _recorder = new();
     private readonly WhisperService _whisper = new();
     private readonly VoiceConfig _config;
 
     private readonly string[] _wakeWordVariants;
 
+    // Настройки
+    private const float ListenChunkSeconds = 3f;    // Длина сегмента для анализа
+    private const float PreSpeechBufferSeconds = 1f; // Буфер до начала речи
+    private const float MinSpeechSeconds = 0.5f;     // Минимальная длительность речи
+    private const float ScanIntervalMs = 500;        // Интервал проверки энергии
+
     public WakeWordDetector(VoiceConfig config)
     {
         _config = config;
 
-        // Варианты ключевого слова (с учётом возможных ошибок распознавания)
         _wakeWordVariants = new[]
         {
             config.WakeWord.ToLower(),
@@ -34,29 +39,69 @@ public class WakeWordDetector : IDisposable
 
     /// <summary>
     /// Ожидает произнесения ключевого слова.
-    /// Записывает сегменты по 2.5 секунды и проверяет каждый на наличие wake word.
+    /// Непрерывно записывает аудио, определяет речь по энергии,
+    /// и отправляет в Whisper только сегменты с речью.
     /// </summary>
-    /// <param name="ct">Токен отмены</param>
-    /// <returns>Текст сегмента, в котором обнаружено ключевое слово</returns>
     public async Task<string> WaitForWakeWordAsync(CancellationToken ct = default)
     {
-        const int segmentSeconds = 3; // Длина сегмента для сканирования
+        // Запускаем непрерывную запись (10-секундный буфер)
+        _recorder.StartContinuousRecording(bufferSeconds: 10);
 
-        while (!ct.IsCancellationRequested)
+        try
         {
-            try
+            while (!ct.IsCancellationRequested)
             {
-                // Записываем короткий сегмент (3 секунды)
-                var wavFile = await _recorder.RecordAsync(segmentSeconds);
+                // Ждём появления речи
+                while (!_recorder.IsSpeechDetected && !ct.IsCancellationRequested)
+                {
+                    await Task.Delay((int)ScanIntervalMs, ct);
+                }
+
+                if (ct.IsCancellationRequested) break;
+
+                // Речь обнаружена — ждём окончания (тишина 1.5 сек)
+                var speechStartTime = DateTime.Now;
+                var lastSpeechTime = DateTime.Now;
+
+                while (!ct.IsCancellationRequested)
+                {
+                    await Task.Delay(200, ct);
+
+                    if (_recorder.IsSpeechDetected)
+                    {
+                        lastSpeechTime = DateTime.Now;
+                    }
+
+                    // Тишина > 1.5 сек после речи
+                    var silenceDuration = (DateTime.Now - lastSpeechTime).TotalMilliseconds;
+                    var speechDuration = (DateTime.Now - speechStartTime).TotalSeconds;
+
+                    if (silenceDuration > 1500 && speechDuration >= MinSpeechSeconds)
+                        break;
+
+                    // Слишком длинная речь (>8 сек) — обрезаем
+                    if (speechDuration > 8)
+                        break;
+                }
+
+                if (ct.IsCancellationRequested) break;
+
+                // Извлекаем сегмент: буфер до речи + вся речь + хвост
+                var totalSeconds = (float)(DateTime.Now - speechStartTime).TotalSeconds
+                                   + PreSpeechBufferSeconds + 0.5f;
+                totalSeconds = Math.Min(totalSeconds, ListenChunkSeconds + 2f);
+
+                // Сохраняем во временный файл
+                var wavFile = _recorder.SaveRecentAudio(totalSeconds);
 
                 if (string.IsNullOrEmpty(wavFile) || !File.Exists(wavFile))
                     continue;
 
-                // Проверяем размер файла — слишком маленький = тишина
+                // Проверяем размер — слишком маленький = проблема
                 var fileInfo = new FileInfo(wavFile);
                 if (fileInfo.Length < 2000)
                 {
-                    try { File.Delete(wavFile); } catch { }
+                    TryDelete(wavFile);
                     continue;
                 }
 
@@ -64,7 +109,7 @@ public class WakeWordDetector : IDisposable
                 var text = await _whisper.TranscribeAsync(wavFile);
 
                 // Удаляем временный файл
-                try { File.Delete(wavFile); } catch { }
+                TryDelete(wavFile);
 
                 if (string.IsNullOrWhiteSpace(text))
                     continue;
@@ -76,24 +121,33 @@ public class WakeWordDetector : IDisposable
                 {
                     if (lowerText.Contains(variant))
                     {
-                        Console.WriteLine($"🔔 Обнаружено ключевое слово: \"{text.Trim()}\"");
+                        Console.WriteLine($"🔔 Обнаружено: \"{text.Trim()}\"");
                         return text;
                     }
                 }
             }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                // Логируем ошибку, но продолжаем работу
-                Console.WriteLine($"⚠️ Ошибка при сканировании: {ex.Message}");
-                await Task.Delay(500, ct);
-            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"⚠️ Ошибка детектора: {ex.Message}");
+        }
+        finally
+        {
+            _recorder.StopContinuousRecording();
         }
 
         return string.Empty;
+    }
+
+    /// <summary>
+    /// Получает ссылку на рекордер для записи команды после wake word.
+    /// </summary>
+    public ContinuousAudioRecorder Recorder => _recorder;
+
+    private static void TryDelete(string path)
+    {
+        try { File.Delete(path); } catch { }
     }
 
     public void Dispose()
