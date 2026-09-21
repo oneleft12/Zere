@@ -7,6 +7,7 @@ public class PiperService
     public bool IsLoaded { get; private set; }
 
     private readonly string _piperDir;
+    private readonly string _espeakDataPath;
     private string _currentVoice = "ru_RU-irina-medium";
     private string? _piperExe;
     private string? _cachedModelPath;
@@ -22,6 +23,7 @@ public class PiperService
             Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
 
         _piperDir = Path.Combine(root, "JARVIS.Voice", "Piper");
+        _espeakDataPath = Path.Combine(_piperDir, "espeak-ng-data");
     }
 
     public bool Initialize(string? voiceName = null)
@@ -53,6 +55,12 @@ public class PiperService
         CleanupOldOutputs();
 
         IsLoaded = true;
+
+        if (Directory.Exists(_espeakDataPath))
+            Console.WriteLine($"[Piper] espeak-ng-data: {_espeakDataPath}");
+        else
+            Console.WriteLine($"[Piper] ⚠ espeak-ng-data не найден: {_espeakDataPath}");
+
         Console.WriteLine($"[Piper] Загружен. Голос: {_currentVoice}");
         return true;
     }
@@ -81,6 +89,13 @@ public class PiperService
                 RedirectStandardError = true,
                 CreateNoWindow = true
             };
+
+            // Указываем путь к данным espeak-ng, чтобы piper мог найти phoneme данные
+            if (Directory.Exists(_espeakDataPath))
+            {
+                psi.EnvironmentVariables["ESPEAKDATA_PATH"] = _espeakDataPath;
+                psi.EnvironmentVariables["ESPEAK_DATA_PATH"] = _espeakDataPath;
+            }
 
             using var process = Process.Start(psi);
 
