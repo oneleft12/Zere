@@ -138,4 +138,4 @@ JARVIS.Voice/Piper/pkgconfig/
 
 # Если есть папка с бинарными моделями ML (Whisper, Piper и т.д.)
 JARVIS.Voice/Models/
-JARVIS.AI/Models/
+JARVIS.AI/Models/voice/input/record.wav

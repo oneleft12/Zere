@@ -85,8 +85,19 @@ public class VoiceManager : IDisposable
 
         if (!string.IsNullOrEmpty(wavFile))
         {
-            await _player.PlayAsync(wavFile, _config.Volume);
+            string fileToPlay = wavFile;
 
+            // Профессиональная DSP-обработка: EQ, компрессия, нормализация
+            if (_config.AudioProcessing)
+            {
+                var processedFile = AudioProcessor.Process(wavFile);
+                fileToPlay = processedFile;
+            }
+
+            await _player.PlayAsync(fileToPlay, _config.Volume);
+
+            // Удаляем обработанный файл (если он отличается от оригинального)
+            try { if (fileToPlay != wavFile) File.Delete(fileToPlay); } catch { }
             try { File.Delete(wavFile); } catch { }
         }
     }

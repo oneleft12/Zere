@@ -17,4 +17,16 @@ public class VoiceConfig
     public bool WakeWordEnabled { get; set; } = true;
 
     public string WakeWord { get; set; } = "джарвис";
+
+    /// <summary>
+    /// Включить DSP-обработку голоса (EQ, компрессия, нормализация).
+    /// Делает звук более «кинематографичным».
+    /// </summary>
+    public bool AudioProcessing { get; set; } = true;
+
+    /// <summary>
+    /// Множитель скорости речи (1.0 = норма, меньше = быстрее, больше = медленнее).
+    /// Значение 1.05 даёт более естественную, «размеренную» подачу.
+    /// </summary>
+    public float SpeechSpeed { get; set; } = 1.05f;
 }
