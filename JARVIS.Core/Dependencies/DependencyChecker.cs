@@ -63,6 +63,14 @@ public class DependencyChecker : IDisposable
                 line += $" — {r.Message}";
 
             Console.WriteLine(line);
+
+            if (r.Status != CheckStatus.Ok)
+            {
+                if (!string.IsNullOrEmpty(r.InstallCommand))
+                    Console.WriteLine($"    Команда: {r.InstallCommand}");
+                if (!string.IsNullOrEmpty(r.InstallUrl))
+                    Console.WriteLine($"    Ссылка: {r.InstallUrl}");
+            }
         }
 
         Console.WriteLine();
@@ -107,6 +115,91 @@ public class DependencyChecker : IDisposable
         PrintReport();
     }
 
+    private static bool AskConfirmation(string prompt)
+    {
+        Console.Write($"  {prompt} (д/н): ");
+        var answer = Console.ReadLine()?.Trim().ToLower();
+        return answer == "д" || answer == "да" || answer == "y" || answer == "yes";
+    }
+
+    private static bool CheckWinget()
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "winget",
+                Arguments = "--version",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(psi);
+            process?.WaitForExit(3000);
+            return process?.ExitCode == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void ExecuteCommandWithConfirmation(string command, string description)
+    {
+        Console.WriteLine($"  {description}");
+        Console.WriteLine($"  Команда: {command}");
+
+        if (!AskConfirmation("Выполнить?"))
+        {
+            Console.WriteLine("  Пропущено.");
+            return;
+        }
+
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c {command}",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(psi);
+
+            if (process != null)
+            {
+                process.OutputDataReceived += (s, e) =>
+                {
+                    if (!string.IsNullOrEmpty(e.Data))
+                        Console.WriteLine($"    {e.Data}");
+                };
+                process.ErrorDataReceived += (s, e) =>
+                {
+                    if (!string.IsNullOrEmpty(e.Data))
+                        Console.WriteLine($"    {e.Data}");
+                };
+
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+                process.WaitForExit();
+
+                if (process.ExitCode == 0)
+                    Console.WriteLine("  Готово.");
+                else
+                    Console.WriteLine($"  Ошибка (код {process.ExitCode}).");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  Ошибка: {ex.Message}");
+        }
+    }
+
     private void InstallDependency(DependencyResult dep)
     {
         if (dep.Name == "Ollama")
@@ -115,6 +208,10 @@ public class DependencyChecker : IDisposable
             InstallModel();
         else if (dep.Name.StartsWith("SQLite"))
             InstallSQLite();
+        else if (dep.Name.Contains("Whisper"))
+            InstallWhisper();
+        else if (dep.Name.Contains("Piper"))
+            InstallPiper();
         else
             Console.WriteLine($"  Нет способа автоматической установки: {dep.Name}");
     }
@@ -131,10 +228,44 @@ public class DependencyChecker : IDisposable
         }
 
         Console.WriteLine("  Ollama не найдена.");
-        Console.WriteLine("  Скачайте с https://ollama.com/download");
-        Console.WriteLine("  и установите вручную.\n");
-        Console.WriteLine("  После установки нажмите Enter...");
-        Console.ReadLine();
+
+        if (CheckWinget())
+        {
+            Console.WriteLine("  winget доступен. Предлагаю автоматическую установку.");
+            ExecuteCommandWithConfirmation(
+                "winget install Ollama.Ollama --accept-source-agreements --accept-package-agreements",
+                "Устанавливаю Ollama через winget...");
+        }
+        else
+        {
+            Console.WriteLine("  winget недоступен.");
+            Console.WriteLine("  Скачайте Ollama вручную:");
+            Console.WriteLine("  https://ollama.com/download\n");
+
+            if (!AskConfirmation("Открыть страницу загрузки в браузере?"))
+            {
+                Console.WriteLine("  Установите Ollama вручную и нажмите Enter...");
+                Console.ReadLine();
+            }
+            else
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "https://ollama.com/download",
+                        UseShellExecute = true
+                    });
+                }
+                catch
+                {
+                    Console.WriteLine("  Не удалось открыть браузер. Перейдите по ссылке вручную.");
+                }
+
+                Console.WriteLine("  После установки нажмите Enter...");
+                Console.ReadLine();
+            }
+        }
 
         Console.WriteLine("  Запускаю Ollama...");
         StartOllama();
@@ -192,7 +323,16 @@ public class DependencyChecker : IDisposable
             return;
         }
 
+        var command = $"ollama pull {_config.Model}";
         Console.WriteLine($"  Скачиваю модель {_config.Model}...");
+        Console.WriteLine($"  Команда: {command}");
+
+        if (!AskConfirmation("Выполнить?"))
+        {
+            Console.WriteLine("  Пропущено.");
+            return;
+        }
+
         Console.WriteLine("  Это может занять несколько минут.\n");
 
         try
@@ -277,6 +417,59 @@ public class DependencyChecker : IDisposable
         }
     }
 
+    private void InstallWhisper()
+    {
+        Console.WriteLine("  Whisper (модель ggml-base.bin) не найдена.");
+
+        var root = Path.GetFullPath(
+            Path.Combine(AppContext.BaseDirectory,
+                "..", "..", "..", ".."));
+
+        var modelsDir = Path.Combine(root, "JARVIS.Voice", "Models");
+
+        var url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin";
+        Console.WriteLine($"  Ссылка для скачивания: {url}");
+        Console.WriteLine($"  Сохраните в: {modelsDir}\n");
+
+        ExecuteCommandWithConfirmation(
+            $"curl -L -o \"{Path.Combine(modelsDir, "ggml-base.bin")}\" \"{url}\"",
+            "Скачиваю модель Whisper...");
+    }
+
+    private void InstallPiper()
+    {
+        Console.WriteLine("  Piper (TTS) не найден.");
+
+        var root = Path.GetFullPath(
+            Path.Combine(AppContext.BaseDirectory,
+                "..", "..", "..", ".."));
+
+        var piperDir = Path.Combine(root, "JARVIS.Voice", "Piper");
+
+        Console.WriteLine("  Скачайте Piper вручную:");
+        Console.WriteLine("  https://github.com/rhasspy/piper/releases");
+        Console.WriteLine($"  Установите в: {piperDir}\n");
+
+        if (AskConfirmation("Открыть страницу загрузки Piper в браузере?"))
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "https://github.com/rhasspy/piper/releases",
+                    UseShellExecute = true
+                });
+            }
+            catch
+            {
+                Console.WriteLine("  Не удалось открыть браузер.");
+            }
+        }
+
+        Console.WriteLine("  После установки нажмите Enter...");
+        Console.ReadLine();
+    }
+
     private string? FindProjectRoot()
     {
         var dir = Directory.GetCurrentDirectory();
@@ -326,7 +519,9 @@ public class DependencyChecker : IDisposable
                 Name = "Ollama",
                 Status = CheckStatus.Missing,
                 Critical = true,
-                Message = $"Сервер недоступен ({_ollamaUrl})"
+                Message = $"Сервер недоступен ({_ollamaUrl})",
+                InstallUrl = "https://ollama.com/download",
+                InstallCommand = CheckWinget() ? "winget install Ollama.Ollama" : null
             });
         }
     }
@@ -382,7 +577,8 @@ public class DependencyChecker : IDisposable
                     Name = $"Модель ({_config.Model})",
                     Status = CheckStatus.Missing,
                     Critical = true,
-                    Message = $"Не найдена. Доступные: {available}"
+                    Message = $"Не найдена. Доступные: {available}",
+                    InstallCommand = $"ollama pull {_config.Model}"
                 });
             }
         }
@@ -487,7 +683,8 @@ public class DependencyChecker : IDisposable
                 Name = "Whisper (модель)",
                 Status = CheckStatus.Missing,
                 Critical = false,
-                Message = $"Файл не найден: {modelPath}"
+                Message = $"Файл не найден: {modelPath}",
+                InstallUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin"
             });
         }
     }
@@ -529,7 +726,8 @@ public class DependencyChecker : IDisposable
                 Name = "Piper (TTS)",
                 Status = CheckStatus.Missing,
                 Critical = false,
-                Message = $"Голосовые модели не найдены в {piperDir}"
+                Message = $"Голосовые модели не найдены в {piperDir}",
+                InstallUrl = "https://github.com/rhasspy/piper/releases"
             });
         }
     }
@@ -577,6 +775,8 @@ public class DependencyResult
     public CheckStatus Status { get; set; }
     public bool Critical { get; set; }
     public string Message { get; set; } = "";
+    public string? InstallUrl { get; set; }
+    public string? InstallCommand { get; set; }
 }
 
 public enum CheckStatus

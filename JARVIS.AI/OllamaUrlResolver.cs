@@ -18,10 +18,12 @@ public static class OllamaUrlResolver
         {
             try
             {
-                client.BaseAddress = new Uri(url);
+                // Construct full URL directly instead of using BaseAddress,
+                // because BaseAddress cannot be changed after the first request.
+                var requestUrl = url + "/api/tags";
                 // .GetAwaiter().GetResult() is used here because Resolve() is called from
                 // synchronous contexts (constructor) where no async/await is available.
-                var response = client.GetAsync("/api/tags").GetAwaiter().GetResult();
+                var response = client.GetAsync(requestUrl).GetAwaiter().GetResult();
 
                 if (response.IsSuccessStatusCode)
                     return url;
