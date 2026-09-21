@@ -23,9 +23,44 @@ public class WindowsHandler : IJarvisHandler
                lower == "обнови индекс" ||
                lower == "сколько приложений" ||
                lower.StartsWith("найди ") ||
-               lower == "выключи компьютер" ||
-               lower == "перезагрузи компьютер" ||
+               // Shutdown
+               lower.Contains("выключи компьютер") ||
+               lower.Contains("выключить компьютер") ||
+               lower.Contains("выруби компьютер") ||
+               lower.Contains("выключай компьютер") ||
+               lower.Contains("выключи комп") ||
+               lower.Contains("выключить комп") ||
+               lower.Contains("выруби комп") ||
+               lower.Contains("выключай комп") ||
+               lower.Contains("заверши работу") ||
+               lower.Contains("shutdown") ||
+               lower.Contains("power off") ||
+               lower.Contains("выключи пк") ||
+               lower.Contains("выключить пк") ||
+               lower.Contains("выруби пк") ||
+               // Restart
+               lower.Contains("перезагрузи компьютер") ||
+               lower.Contains("перезагрузить компьютер") ||
+               lower.Contains("перезагрузи комп") ||
+               lower.Contains("перезагрузить комп") ||
+               lower.Contains("перезагрузка") ||
+               lower.Contains("reboot") ||
+               lower.Contains("restart") ||
+               lower.Contains("рестарт") ||
+               lower.Contains("перезагрузи пк") ||
+               lower.Contains("перезагрузить пк") ||
+               lower.Contains("перезапусти компьютер") ||
+               lower.Contains("перезапусти комп") ||
+               // Sleep
                lower == "сон" ||
+               lower.Contains("режим сна") ||
+               lower.Contains("спящий режим") ||
+               lower.Contains("компьютер в сон") ||
+               lower.Contains("комп в сон") ||
+               lower.Contains("заморозь") ||
+               lower.Contains("hibernate") ||
+               lower.Contains("уходи спать") ||
+               // Confirmations
                lower == "да" ||
                lower == "нет" ||
                lower == "подтверди" ||

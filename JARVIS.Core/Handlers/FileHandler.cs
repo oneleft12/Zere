@@ -20,9 +20,27 @@ public class FileHandler : IJarvisHandler
         var lower = message.ToLower();
 
         return lower.StartsWith("создай папку") ||
+               lower.StartsWith("создай директорию") ||
+               lower.StartsWith("новая папка") ||
+               lower.StartsWith("замокай папку") ||
+               lower.StartsWith("папка ") ||
                lower.StartsWith("создай файл") ||
+               lower.StartsWith("новый файл") ||
+               lower.StartsWith("создай документ") ||
+               lower.StartsWith("замокай файл") ||
+               lower.StartsWith("документ ") ||
                lower.StartsWith("найди файл") ||
-               lower.StartsWith("удали файл");
+               lower.StartsWith("найти файл") ||
+               lower.StartsWith("поищи файл") ||
+               lower.StartsWith("где файл") ||
+               lower.StartsWith("розыск файла") ||
+               lower.StartsWith("удали файл") ||
+               lower.StartsWith("убери файл") ||
+               lower.StartsWith("удалить файл") ||
+               lower.StartsWith("стереть ") ||
+               lower.StartsWith("удали ") ||
+               lower.StartsWith("удали его") ||
+               lower.StartsWith("удалить его");
     }
 
     public Task<string> HandleAsync(string message)

@@ -17,7 +17,17 @@ public class ConversationHandler : IJarvisHandler
 
         return lower == "покажи историю" ||
                lower == "история" ||
-               lower == "очисти историю";
+               lower == "история разговоров" ||
+               lower == "наши диалоги" ||
+               lower == "диалоги" ||
+               lower == "разговоры" ||
+               lower == "что мы обсуждали" ||
+               lower == "о чём мы говорили" ||
+               lower == "история чата" ||
+               lower == "очисти историю" ||
+               lower == "очисти диалоги" ||
+               lower == "очисть разговоры" ||
+               lower == "сбрось историю";
     }
 
     public Task<string> HandleAsync(string message)
@@ -29,7 +39,16 @@ public class ConversationHandler : IJarvisHandler
     {
         var lower = message.ToLower().Trim();
 
-        if (lower == "покажи историю" || lower == "история")
+        // === Показать историю ===
+        if (lower == "покажи историю" ||
+            lower == "история" ||
+            lower == "история разговоров" ||
+            lower == "наши диалоги" ||
+            lower == "диалоги" ||
+            lower == "разговоры" ||
+            lower == "что мы обсуждали" ||
+            lower == "о чём мы говорили" ||
+            lower == "история чата")
         {
             var history = _conversations.GetLast(20);
 
@@ -42,7 +61,11 @@ public class ConversationHandler : IJarvisHandler
                     $"Вы: {h.UserMessage}\nJARVIS: {h.JarvisResponse}"));
         }
 
-        if (lower == "очисти историю")
+        // === Очистить историю ===
+        if (lower == "очисти историю" ||
+            lower == "очисти диалоги" ||
+            lower == "очисть разговоры" ||
+            lower == "сбрось историю")
         {
             _conversations.ClearHistory();
             return "История очищена.";

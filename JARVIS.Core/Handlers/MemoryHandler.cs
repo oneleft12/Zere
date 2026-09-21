@@ -16,10 +16,26 @@ public class MemoryHandler : IJarvisHandler
         var lower = message.ToLower().Trim();
 
         return lower.StartsWith("запомни") ||
+               lower.StartsWith("сохрани") ||
+               lower.StartsWith("не забудь") ||
+               lower.StartsWith("запиши") ||
+               lower.StartsWith("remember") ||
                lower.StartsWith("обнови память") ||
+               lower.StartsWith("измени память") ||
                lower.StartsWith("забудь") ||
+               lower.StartsWith("забыть") ||
+               lower.StartsWith("очисти запись") ||
+               lower.StartsWith("удали из памяти") ||
                lower == "покажи память" ||
-               lower == "очисти память";
+               lower == "что ты помнишь" ||
+               lower == "что помнишь" ||
+               lower == "воспоминания" ||
+               lower == "все воспоминания" ||
+               lower == "память" ||
+               lower == "очисти память" ||
+               lower == "очистить память" ||
+               lower == "сбрось память" ||
+               lower == "reset memory";
     }
 
     public Task<string> HandleAsync(string message)
@@ -31,7 +47,13 @@ public class MemoryHandler : IJarvisHandler
     {
         var lower = message.ToLower().Trim();
 
-        if (lower == "покажи память")
+        // === Показать память ===
+        if (lower == "покажи память" ||
+            lower == "что ты помнишь" ||
+            lower == "что помнишь" ||
+            lower == "воспоминания" ||
+            lower == "все воспоминания" ||
+            lower == "память")
         {
             var memories = _memory.GetAll();
 
@@ -43,15 +65,22 @@ public class MemoryHandler : IJarvisHandler
                        memories.Select(m => $"• {m.Key} = {m.Value}"));
         }
 
-        if (lower == "очисти память")
+        // === Очистить память ===
+        if (lower == "очисти память" ||
+            lower == "очистить память" ||
+            lower == "сбрось память" ||
+            lower == "reset memory")
         {
             _memory.Clear();
             return "Память полностью очищена.";
         }
 
-        if (lower.StartsWith("забудь "))
+        // === Забыть конкретное ===
+        if (lower.StartsWith("забудь ") || lower.StartsWith("забыть "))
         {
-            var key = lower["забудь ".Length..].Trim();
+            var key = lower.Contains("забудь ")
+                ? lower["забудь ".Length..].Trim()
+                : lower["забыть ".Length..].Trim();
 
             var deleted = _memory.Forget(key);
 
@@ -60,14 +89,34 @@ public class MemoryHandler : IJarvisHandler
                 : $"Я не нашёл запись «{key}».";
         }
 
-        if (lower.StartsWith("забудь"))
+        if (lower.StartsWith("очисти запись "))
+        {
+            var key = lower["очисти запись ".Length..].Trim();
+            var deleted = _memory.Forget(key);
+            return deleted
+                ? $"Запись «{key}» удалена из памяти."
+                : $"Запись «{key}» не найдена.";
+        }
+
+        if (lower.StartsWith("удали из памяти "))
+        {
+            var key = lower["удали из памяти ".Length..].Trim();
+            var deleted = _memory.Forget(key);
+            return deleted
+                ? $"Удалил из памяти: {key}."
+                : $"Не нашёл в памяти: «{key}».";
+        }
+
+        if (lower.StartsWith("забудь") || lower.StartsWith("забыть"))
         {
             return "Укажите, что забыть. Например: забудь имя";
         }
 
-        if (lower.StartsWith("обнови память "))
+        // === Обновить память ===
+        if (lower.StartsWith("обнови память ") || lower.StartsWith("измени память "))
         {
-            var text = message["обнови память ".Length..].Trim();
+            var prefix = lower.StartsWith("обнови память ") ? "обнови память " : "измени память ";
+            var text = message[prefix.Length..].Trim();
 
             if (!text.Contains('='))
                 return "Например: обнови память проект = AI VOCALPLUS";
@@ -82,7 +131,19 @@ public class MemoryHandler : IJarvisHandler
             return $"Память обновлена: {key} = {value}";
         }
 
-        var textToRemember = message["запомни".Length..].Trim();
+        // === Запомнить ===
+        var textToRemember = "";
+
+        if (lower.StartsWith("запомни"))
+            textToRemember = message["запомни".Length..].Trim();
+        else if (lower.StartsWith("сохрани"))
+            textToRemember = message["сохрани".Length..].Trim();
+        else if (lower.StartsWith("не забудь"))
+            textToRemember = message["не забудь".Length..].Trim();
+        else if (lower.StartsWith("запиши"))
+            textToRemember = message["запиши".Length..].Trim();
+        else if (lower.StartsWith("remember"))
+            textToRemember = message["remember".Length..].Trim();
 
         if (string.IsNullOrWhiteSpace(textToRemember))
             return "Укажите, что запомнить. Например: запомни имя Dan";

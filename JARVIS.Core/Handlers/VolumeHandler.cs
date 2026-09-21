@@ -17,10 +17,31 @@ public class VolumeHandler : IJarvisHandler
         var lower = message.ToLower();
 
         return lower.StartsWith("громкость") ||
-               lower == "сделай громче" ||
-               lower == "сделай тише" ||
-               lower == "выключи звук" ||
-               lower == "включи звук";
+               lower.Contains("сделай громче") ||
+               lower.Contains("сделай тише") ||
+               lower.Contains("выключи звук") ||
+               lower.Contains("включи звук") ||
+               lower.Contains("громче") ||
+               lower.Contains("тише") ||
+               lower.Contains("прибавь") ||
+               lower.Contains("убавь") ||
+               lower.Contains("увеличь громкость") ||
+               lower.Contains("уменьши громкость") ||
+               lower.Contains("погромче") ||
+               lower.Contains("потише") ||
+               lower.Contains("замути") ||
+               lower.Contains("размути") ||
+               lower.Contains("приглуши") ||
+               lower.Contains("mute") ||
+               lower.Contains("unmute") ||
+               lower.Contains("без звука") ||
+               lower.Contains("верни звук") ||
+               lower.Contains("звук вверх") ||
+               lower.Contains("звук вниз") ||
+               lower.Contains("громкость вверх") ||
+               lower.Contains("громкость вниз") ||
+               lower.Contains("больше звука") ||
+               lower.Contains("меньше звука");
     }
 
     public Task<string> HandleAsync(string message)

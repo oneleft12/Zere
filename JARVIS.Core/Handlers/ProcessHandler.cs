@@ -14,11 +14,28 @@ public class ProcessHandler : IJarvisHandler
 
     public bool CanHandle(string message)
     {
-        var lower = message.ToLower();
+        var lower = message.ToLower().Trim();
 
         return lower == "процессы" ||
+               lower == "список процессов" ||
+               lower == "процессы системы" ||
+               lower == "что запущено" ||
+               lower == "задачи" ||
+               lower == "список задач" ||
+               lower == "task list" ||
+               lower == "tasks" ||
                lower.StartsWith("найди процесс") ||
-               lower.StartsWith("закрой процесс");
+               lower.StartsWith("найти процесс") ||
+               lower.StartsWith("поищи процесс") ||
+               lower.StartsWith("есть ли процесс") ||
+               lower.StartsWith("процесс ") ||
+               lower.StartsWith("закрой процесс") ||
+               lower.StartsWith("убей процесс") ||
+               lower.StartsWith("заверши процесс") ||
+               lower.StartsWith("останови процесс") ||
+               lower.StartsWith("kill ") ||
+               lower.StartsWith("закрой ") ||
+               lower.StartsWith("убей ");
     }
 
     public Task<string> HandleAsync(string message)
