@@ -1,3 +1,4 @@
+using System.Text;
 using Whisper.net;
 
 namespace JARVIS.Voice.Whisper;
@@ -9,6 +10,9 @@ public class WhisperService
 
     public WhisperService()
     {
+        // Путь строится относительно AppContext.BaseDirectory с учётом структуры проекта:
+        // bin/Debug/net10.0/ → ../../.. → корень решения, затем JARVIS.Voice/Models.
+        // Если структура проекта изменится, этот путь нужно обновить.
         var root = Path.GetFullPath(
             Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
 
@@ -34,13 +38,14 @@ public class WhisperService
 
         await using var stream = File.OpenRead(wavFile);
 
-        var result = "";
+        var result = new StringBuilder();
 
         await foreach (var segment in processor.ProcessAsync(stream))
         {
-            result += segment.Text + " ";
+            result.Append(segment.Text);
+            result.Append(' ');
         }
 
-        return result.Trim();
+        return result.ToString().Trim();
     }
 }

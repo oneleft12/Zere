@@ -27,7 +27,11 @@ public class WindowsHandler : IJarvisHandler
                lower == "перезагрузи компьютер" ||
                lower == "сон" ||
                lower == "да" ||
-               lower == "нет";
+               lower == "нет" ||
+               lower == "подтверди" ||
+               lower == "выполни" ||
+               lower == "сделай" ||
+               lower == "выполняй";
     }
 
     public Task<string> HandleAsync(string message)
@@ -39,7 +43,7 @@ public class WindowsHandler : IJarvisHandler
     {
         var lower = message.ToLower().Trim();
 
-        if (lower == "да")
+        if (lower == "да" || lower == "подтверди" || lower == "выполни" || lower == "сделай" || lower == "выполняй")
         {
             return _safeActions.Confirm()
                 ? "Выполняю команду."
@@ -95,15 +99,15 @@ public class WindowsHandler : IJarvisHandler
         {
             case WindowsCommandType.Shutdown:
                 _safeActions.Request(PendingAction.Shutdown);
-                return "Вы уверены, что хотите выключить компьютер? Напишите «да» или «нет».";
+                return "Вы уверены, что хотите выключить компьютер? Напишите «да», «подтверди», «выполни» или «нет».";
 
             case WindowsCommandType.Restart:
                 _safeActions.Request(PendingAction.Restart);
-                return "Вы уверены, что хотите перезагрузить компьютер? Напишите «да» или «нет».";
+                return "Вы уверены, что хотите перезагрузить компьютер? Напишите «да», «подтверди», «выполни» или «нет».";
 
             case WindowsCommandType.Sleep:
                 _safeActions.Request(PendingAction.Sleep);
-                return "Перевести компьютер в сон? Напишите «да» или «нет».";
+                return "Перевести компьютер в сон? Напишите «да», «подтверди», «выполни» или «нет».";
         }
 
         return "Команда Windows не распознана.";

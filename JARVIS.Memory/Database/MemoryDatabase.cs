@@ -63,6 +63,7 @@ public class MemoryDatabase : IDisposable
 
     public void Dispose()
     {
-        // Connections are opened/closed per operation, nothing to dispose
+        // IDisposable implemented for interface consistency; no unmanaged resources to release.
+        // Connections are opened/closed per operation via CreateConnection().
     }
 }

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.Data.Sqlite;
 
 namespace JARVIS.Memory.Gaming;
@@ -55,7 +56,7 @@ public class GameStatsRepository
             {
                 Id = reader.GetInt64(0),
                 Game = reader.GetString(1),
-                Date = DateTime.Parse(reader.GetString(2)),
+                Date = DateTime.Parse(reader.GetString(2), CultureInfo.InvariantCulture),
                 Minutes = reader.GetInt32(3)
             });
         }

@@ -89,6 +89,9 @@ public class PluginManager
 
     private void LoadPlugin(string dllPath)
     {
+        // Assembly.LoadFrom locks the DLL file on disk — this prevents hot-reload of
+        // plugin assemblies at runtime. A full solution would use AssemblyLoadContext
+        // with collectible=true, but that adds significant complexity.
         var assembly = Assembly.LoadFrom(dllPath);
 
         var pluginTypes = assembly.GetTypes()

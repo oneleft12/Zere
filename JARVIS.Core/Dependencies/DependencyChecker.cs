@@ -154,7 +154,9 @@ public class DependencyChecker : IDisposable
                 RedirectStandardError = true
             };
 
-            using var process = Process.Start(psi);
+            // Fire-and-forget: ollama serve process runs in background for the entire JARVIS session.
+            // Using `using` here would kill the process when the scope ends.
+            var process = Process.Start(psi);
 
             Thread.Sleep(3000);
 
@@ -327,7 +329,6 @@ public class DependencyChecker : IDisposable
                 Message = $"Сервер недоступен ({_ollamaUrl})"
             });
         }
-    }
 
     private void CheckModel()
     {

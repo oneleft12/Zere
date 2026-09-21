@@ -1,3 +1,4 @@
+using JARVIS.Core.Configuration;
 using JARVIS.Core.Plugins.Interfaces;
 
 namespace JARVIS.Core.Plugins.Settings;
@@ -19,7 +20,7 @@ public class SettingsMenu
         {
             Console.Clear();
             Console.WriteLine("╔══════════════════════════════════════╗");
-            Console.WriteLine("║       НАСТРОЙКИ JARVIS v1.7        ║");
+            Console.WriteLine($"║       НАСТРОЙКИ JARVIS v{JarvisConfig.Load().Version}        ║");
             Console.WriteLine("╠══════════════════════════════════════╣");
             Console.WriteLine("║  1. Личность ассистента            ║");
             Console.WriteLine("║  2. Плагины                        ║");

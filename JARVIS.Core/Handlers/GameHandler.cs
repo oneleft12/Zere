@@ -53,7 +53,7 @@ public class GameHandler : IJarvisHandler
                    string.Join(
                        "\n",
                        stats.Select(s =>
-                           $"• {s.GameName} — {s.TodayTime:hh\\:mm\\:ss}"));
+                           $"• {s.GameName} — {s.TodayTime:HH\\:mm\\:ss}"));
         }
 
         if (lower == "сбросить игровую статистику")

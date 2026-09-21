@@ -15,6 +15,9 @@ public class PiperService
 
     public PiperService()
     {
+        // Путь строится относительно AppContext.BaseDirectory с учётом структуры проекта:
+        // bin/Debug/net10.0/ → ../../.. → корень решения, затем JARVIS.Voice/Piper.
+        // Если структура проекта изменится, этот путь нужно обновить.
         var root = Path.GetFullPath(
             Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
 
