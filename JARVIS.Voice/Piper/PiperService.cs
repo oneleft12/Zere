@@ -83,6 +83,7 @@ public class PiperService
             // --length_scale 1.15 — медленная, уверенная подача
             // --noise_scale 0.45 — чистый голос, минимум шума
             // --noise_w 0.7 — стабильная интонация, без дрожания
+            // --sentence_silence 0.4 — тишина после предложения (не обрезает окончания)
             var psi = new ProcessStartInfo
             {
                 FileName = _piperExe,
@@ -90,7 +91,8 @@ public class PiperService
                            $"--output_file \"{outputFile}\" " +
                            $"--length_scale 1.15 " +
                            $"--noise_scale 0.45 " +
-                           $"--noise_w 0.7",
+                           $"--noise_w 0.7 " +
+                           $"--sentence_silence 0.4",
                 UseShellExecute = false,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,

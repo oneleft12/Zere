@@ -181,8 +181,8 @@ public static class AudioProcessor
         double thresholdDb, double ratio)
     {
         var threshold = Math.Pow(10, thresholdDb / 20.0);
-        var attackCoeff = Math.Exp(-1.0 / (0.005 * sampleRate));
-        var releaseCoeff = Math.Exp(-1.0 / (0.100 * sampleRate));
+        var attackCoeff = Math.Exp(-1.0 / (0.003 * sampleRate));  // Быстрый attack 3ms
+        var releaseCoeff = Math.Exp(-1.0 / (0.250 * sampleRate)); // Медленный release 250ms — сохраняет хвост слов
         double envelope = 0;
 
         for (int i = 0; i < samples.Length; i++)
