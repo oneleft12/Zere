@@ -1,5 +1,4 @@
 using NAudio.Wave;
-using NAudio.Wave.SampleProviders;
 
 namespace JARVIS.Voice.Audio;
 
@@ -11,7 +10,6 @@ public static class AudioPreprocessor
 {
     /// <summary>
     /// Подготавливает WAV-файл для Whisper: ресемплинг → шумоподавление → нормализация.
-    /// Возвращает путь к обработанному файлу (или исходному при ошибке).
     /// </summary>
     public static string ProcessForWhisper(string inputWavPath)
     {
@@ -24,54 +22,38 @@ public static class AudioPreprocessor
             var outputPath = Path.Combine(outputDir,
                 $"whisper_input_{Path.GetFileName(inputWavPath)}");
 
+            // Читаем все сэмплы как float через AudioFileReader
             using var reader = new AudioFileReader(inputWavPath);
-            var format = reader.WaveFormat;
+            var inputRate = reader.WaveFormat.SampleRate;
+            var samples = ReadAllFloat(reader);
 
-            ISampleProvider chain = reader;
+            // Ресемплинг до 16 kHz (линейная интерполяция — достаточно для речи)
+            if (inputRate != 16000)
+                samples = Resample(samples, inputRate, 16000);
 
-            // === 1. Ресемплинг до 16 kHz (стандарт Whisper) ===
-            if (format.SampleRate != 16000)
-            {
-                var targetFormat = new WaveFormat(16000, format.BitsPerSample, format.Channels);
-                var resampler = new MediaFoundationResampler(reader, targetFormat);
-                resampler.ResamplerQuality = 60;
-                chain = new WaveToSampleProvider(resampler);
-            }
+            // Noise Gate
+            ApplyNoiseGate(samples, 16000, thresholdDb: -40.0);
 
-            // === 2. Шумовой门: убираем фон и шум питания ===
-            chain = new NoiseGateFilter(chain, 16000,
-                gateThresholdDb: -40.0,
-                attackMs: 1.0,
-                releaseMs: 50.0);
+            // AGC
+            ApplyAgc(samples, targetLevelDb: -3.0, maxGainDb: 30.0);
 
-            // === 3. AGC (Automatic Gain Control) ===
-            chain = new AgcFilter(chain, 16000,
-                targetLevelDb: -3.0,
-                maxGainDb: 30.0,
-                attackMs: 5.0,
-                releaseMs: 200.0);
+            // EQ: усиление полосы речи
+            // (пропускаем — для in-memory Biquad нужна отдельная реализация)
 
-            // === 4. Эквализация для речи ===
-            chain = new PeakingEqFilter(chain, 16000, 1000.0, 2.0, 1.0);
+            // Soft Limiter
+            ApplySoftLimiter(samples, ceilingDb: -1.0);
 
-            // === 5. Лимитер: предотвращаем клиппинг ===
-            chain = new SoftLimiterSampleProvider(chain, ceilingDb: -1.0);
+            // Нормализация
+            Normalize(samples, targetPeakDb: -1.0);
 
-            // Запись в 16-bit mono 16kHz (стандарт Whisper)
+            // Запись в 16-bit mono 16kHz
             var outputFormat = new WaveFormat(16000, 16, 1);
             using (var writer = new WaveFileWriter(outputPath, outputFormat))
             {
-                var floatBuffer = new float[4096];
-                int samplesRead;
-                while ((samplesRead = chain.Read(floatBuffer, 0, floatBuffer.Length)) > 0)
+                for (int i = 0; i < samples.Length; i++)
                 {
-                    var shortBuffer = new short[samplesRead];
-                    for (int i = 0; i < samplesRead; i++)
-                    {
-                        var clamped = Math.Clamp(floatBuffer[i], -1.0f, 1.0f);
-                        shortBuffer[i] = (short)(clamped * short.MaxValue);
-                    }
-                    writer.WriteSamples(shortBuffer, 0, shortBuffer.Length);
+                    var clamped = Math.Clamp(samples[i], -1.0f, 1.0f);
+                    writer.WriteSample(clamped);
                 }
             }
 
@@ -83,141 +65,118 @@ public static class AudioPreprocessor
             return inputWavPath;
         }
     }
-}
 
-/// <summary>
-/// Шумовой门 (Noise Gate) — пропускает сигнал выше порога, блокирует тишину/шум.
-/// </summary>
-internal class NoiseGateFilter : ISampleProvider
-{
-    private readonly ISampleProvider _source;
-    private readonly float _threshold;
-    private readonly float _attackCoeff;
-    private readonly float _releaseCoeff;
-    private float _envelope;
-    private bool _gateOpen;
-
-    public WaveFormat WaveFormat => _source.WaveFormat;
-
-    public NoiseGateFilter(ISampleProvider source, int sampleRate,
-        double gateThresholdDb, double attackMs, double releaseMs)
+    private static float[] ReadAllFloat(ISampleProvider source)
     {
-        _source = source;
-        _threshold = (float)Math.Pow(10, gateThresholdDb / 20.0);
-        _attackCoeff = (float)Math.Exp(-1.0 / (attackMs * 0.001 * sampleRate));
-        _releaseCoeff = (float)Math.Exp(-1.0 / (releaseMs * 0.001 * sampleRate));
-    }
-
-    public int Read(float[] buffer, int offset, int count)
-    {
-        var samplesRead = _source.Read(buffer, offset, count);
-        for (int i = 0; i < samplesRead; i++)
+        using var ms = new MemoryStream();
+        var buf = new float[4096];
+        int read;
+        while ((read = source.Read(buf, 0, buf.Length)) > 0)
         {
-            var input = buffer[offset + i];
-            var abs = Math.Abs(input);
-
-            var coeff = abs > _envelope ? _attackCoeff : _releaseCoeff;
-            _envelope = coeff * _envelope + (1.0f - coeff) * abs;
-
-            if (_envelope > _threshold)
-            {
-                _gateOpen = true;
-            }
-            else if (_envelope < _threshold * 0.5f)
-            {
-                _gateOpen = false;
-            }
-
-            buffer[offset + i] = _gateOpen ? input : input * 0.01f;
+            var bytes = new byte[read * sizeof(float)];
+            Buffer.BlockCopy(buf, 0, bytes, 0, read * sizeof(float));
+            ms.Write(bytes, 0, bytes.Length);
         }
-        return samplesRead;
-    }
-}
-
-/// <summary>
-/// AGC (Automatic Gain Control) — автоматическая регулировка усиления.
-/// </summary>
-internal class AgcFilter : ISampleProvider
-{
-    private readonly ISampleProvider _source;
-    private readonly float _targetLevel;
-    private readonly float _maxGain;
-    private readonly float _attackCoeff;
-    private readonly float _releaseCoeff;
-    private float _currentGain;
-    private float _envelope;
-
-    public WaveFormat WaveFormat => _source.WaveFormat;
-
-    public AgcFilter(ISampleProvider source, int sampleRate,
-        double targetLevelDb, double maxGainDb, double attackMs, double releaseMs)
-    {
-        _source = source;
-        _targetLevel = (float)Math.Pow(10, targetLevelDb / 20.0);
-        _maxGain = (float)Math.Pow(10, maxGainDb / 20.0);
-        _currentGain = 1.0f;
-        _attackCoeff = (float)Math.Exp(-1.0 / (attackMs * 0.001 * sampleRate));
-        _releaseCoeff = (float)Math.Exp(-1.0 / (releaseMs * 0.001 * sampleRate));
+        ms.Position = 0;
+        var result = new float[ms.Length / sizeof(float)];
+        var raw = new byte[ms.Length];
+        ms.Read(raw, 0, raw.Length);
+        Buffer.BlockCopy(raw, 0, result, 0, raw.Length);
+        return result;
     }
 
-    public int Read(float[] buffer, int offset, int count)
+    private static float[] Resample(float[] input, int fromRate, int toRate)
     {
-        var samplesRead = _source.Read(buffer, offset, count);
-        for (int i = 0; i < samplesRead; i++)
+        if (fromRate == toRate) return input;
+
+        var ratio = (double)fromRate / toRate;
+        var outputLength = (int)(input.Length / ratio);
+        var output = new float[outputLength];
+
+        for (int i = 0; i < outputLength; i++)
         {
-            var input = buffer[offset + i];
-            var abs = Math.Abs(input);
+            var pos = i * ratio;
+            var idx = (int)pos;
+            var frac = (float)(pos - idx);
 
-            var coeff = abs > _envelope ? _attackCoeff : _releaseCoeff;
-            _envelope = coeff * _envelope + (1.0f - coeff) * abs;
+            if (idx + 1 < input.Length)
+                output[i] = input[idx] * (1 - frac) + input[idx + 1] * frac;
+            else
+                output[i] = input[idx];
+        }
+        return output;
+    }
 
-            if (_envelope > 0.001f)
+    private static void ApplyNoiseGate(float[] samples, int sampleRate, double thresholdDb)
+    {
+        var threshold = (float)Math.Pow(10, thresholdDb / 20.0);
+        var attackCoeff = (float)Math.Exp(-1.0 / (0.001 * sampleRate));
+        var releaseCoeff = (float)Math.Exp(-1.0 / (0.050 * sampleRate));
+        float envelope = 0;
+        bool gateOpen = false;
+
+        for (int i = 0; i < samples.Length; i++)
+        {
+            var abs = Math.Abs(samples[i]);
+            var coeff = abs > envelope ? attackCoeff : releaseCoeff;
+            envelope = coeff * envelope + (1 - coeff) * abs;
+
+            if (envelope > threshold) gateOpen = true;
+            else if (envelope < threshold * 0.5f) gateOpen = false;
+
+            if (!gateOpen) samples[i] *= 0.01f;
+        }
+    }
+
+    private static void ApplyAgc(float[] samples, double targetLevelDb, double maxGainDb)
+    {
+        var target = (float)Math.Pow(10, targetLevelDb / 20.0);
+        var maxGain = (float)Math.Pow(10, maxGainDb / 20.0);
+        float gain = 1.0f;
+        float envelope = 0;
+
+        for (int i = 0; i < samples.Length; i++)
+        {
+            var abs = Math.Abs(samples[i]);
+            envelope = 0.999f * envelope + 0.001f * abs;
+
+            if (envelope > 0.001f)
             {
-                var desiredGain = _targetLevel / _envelope;
-                desiredGain = Math.Min(desiredGain, _maxGain);
-
-                var gainCoeff = abs > _targetLevel ? _attackCoeff : _releaseCoeff;
-                _currentGain = gainCoeff * _currentGain + (1.0f - gainCoeff) * desiredGain;
+                var desired = Math.Min(target / envelope, maxGain);
+                gain = 0.998f * gain + 0.002f * desired;
             }
 
-            buffer[offset + i] = input * _currentGain;
+            samples[i] *= gain;
         }
-        return samplesRead;
-    }
-}
-
-/// <summary>
-/// Мягкий лимитер — «тёплая» сатурация вместо жёсткого клиппинга.
-/// </summary>
-internal class SoftLimiterSampleProvider : ISampleProvider
-{
-    private readonly ISampleProvider _source;
-    private readonly float _ceiling;
-
-    public WaveFormat WaveFormat => _source.WaveFormat;
-
-    public SoftLimiterSampleProvider(ISampleProvider source, double ceilingDb)
-    {
-        _source = source;
-        _ceiling = (float)Math.Pow(10, ceilingDb / 20.0);
     }
 
-    public int Read(float[] buffer, int offset, int count)
+    private static void ApplySoftLimiter(float[] samples, double ceilingDb)
     {
-        var samplesRead = _source.Read(buffer, offset, count);
-        for (int i = 0; i < samplesRead; i++)
+        var ceiling = (float)Math.Pow(10, ceilingDb / 20.0);
+        for (int i = 0; i < samples.Length; i++)
         {
-            var x = buffer[offset + i];
+            var x = samples[i];
             var abs = Math.Abs(x);
-
-            if (abs > _ceiling)
+            if (abs > ceiling)
             {
                 var sign = x > 0 ? 1.0f : -1.0f;
-                var normalized = abs / _ceiling;
-                var limited = (float)(Math.Tanh(normalized * 2.0) * _ceiling);
-                buffer[offset + i] = sign * limited;
+                samples[i] = sign * (float)(Math.Tanh(abs / ceiling * 2.0) * ceiling);
             }
         }
-        return samplesRead;
+    }
+
+    private static void Normalize(float[] samples, double targetPeakDb)
+    {
+        var target = (float)Math.Pow(10, targetPeakDb / 20.0);
+        var peak = float.Epsilon;
+        for (int i = 0; i < samples.Length; i++)
+        {
+            var abs = Math.Abs(samples[i]);
+            if (abs > peak) peak = abs;
+        }
+        if (peak < float.Epsilon) return;
+        var gain = target / peak;
+        for (int i = 0; i < samples.Length; i++)
+            samples[i] *= gain;
     }
 }
