@@ -110,6 +110,39 @@ public class DependencyChecker : IDisposable
             }
         }
 
+        // Offer to install non-critical voice dependencies
+        var voiceMissing = _results.Where(r =>
+            r.Status != CheckStatus.Ok && !r.Critical &&
+            (r.Name.Contains("Whisper") || r.Name.Contains("Piper"))).ToList();
+
+        if (voiceMissing.Count > 0)
+        {
+            Console.WriteLine("\nГолосовые компоненты не установлены:");
+            foreach (var dep in voiceMissing)
+                Console.WriteLine($"  - {dep.Name}");
+
+            if (AskConfirmation("\nУстановить голосовые компоненты?"))
+            {
+                Console.WriteLine();
+                foreach (var dep in voiceMissing)
+                {
+                    Console.Write($"  Установить {dep.Name}? (д/н): ");
+                    var choice = Console.ReadLine()?.Trim().ToLower();
+
+                    if (choice == "д" || choice == "да" || choice == "y" || choice == "yes")
+                    {
+                        Console.WriteLine();
+                        InstallDependency(dep);
+                        Console.WriteLine();
+                    }
+                    else
+                    {
+                        Console.WriteLine($"  Пропущено: {dep.Name}\n");
+                    }
+                }
+            }
+        }
+
         Console.WriteLine("Повторная проверка...\n");
         RunAll();
         PrintReport();
@@ -419,21 +452,60 @@ public class DependencyChecker : IDisposable
 
     private void InstallWhisper()
     {
-        Console.WriteLine("  Whisper (модель ggml-base.bin) не найдена.");
+        Console.WriteLine("  Модель Whisper (ggml-base.bin) не найдена.");
 
         var root = Path.GetFullPath(
-            Path.Combine(AppContext.BaseDirectory,
-                "..", "..", "..", ".."));
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
 
         var modelsDir = Path.Combine(root, "JARVIS.Voice", "Models");
+        Directory.CreateDirectory(modelsDir);
+
+        var targetFile = Path.Combine(modelsDir, "ggml-base.bin");
+
+        if (File.Exists(targetFile))
+        {
+            Console.WriteLine("  Модель уже скачана.");
+            return;
+        }
 
         var url = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin";
-        Console.WriteLine($"  Ссылка для скачивания: {url}");
-        Console.WriteLine($"  Сохраните в: {modelsDir}\n");
+        Console.WriteLine($"  Скачиваю модель Whisper (~150 МБ)...");
+        Console.WriteLine($"  Источник: {url}");
+        Console.WriteLine($"  Куда: {targetFile}\n");
 
-        ExecuteCommandWithConfirmation(
-            $"curl -L -o \"{Path.Combine(modelsDir, "ggml-base.bin")}\" \"{url}\"",
-            "Скачиваю модель Whisper...");
+        if (!AskConfirmation("Скачать?"))
+        {
+            Console.WriteLine("  Пропущено.");
+            return;
+        }
+
+        // Try curl first (available on most Windows 10+)
+        if (CommandExists("curl"))
+        {
+            ExecuteCommandWithConfirmation(
+                $"curl -L -o \"{targetFile}\" \"{url}\"",
+                "Скачиваю через curl...");
+        }
+        // Fallback to PowerShell Invoke-WebRequest
+        else if (CommandExists("powershell"))
+        {
+            ExecuteCommandWithConfirmation(
+                $"powershell -Command \"Invoke-WebRequest -Uri '{url}' -OutFile '{targetFile}'\"",
+                "Скачиваю через PowerShell...");
+        }
+        else
+        {
+            Console.WriteLine("  Neither curl nor PowerShell found.");
+            Console.WriteLine("  Скачайте вручную:");
+            Console.WriteLine($"  {url}");
+            Console.WriteLine($"  Сохраните в: {targetFile}");
+            return;
+        }
+
+        if (File.Exists(targetFile))
+            Console.WriteLine("  Модель Whisper установлена.");
+        else
+            Console.WriteLine("  Ошибка: файл не был скачан.");
     }
 
     private void InstallPiper()
@@ -441,33 +513,85 @@ public class DependencyChecker : IDisposable
         Console.WriteLine("  Piper (TTS) не найден.");
 
         var root = Path.GetFullPath(
-            Path.Combine(AppContext.BaseDirectory,
-                "..", "..", "..", ".."));
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
 
         var piperDir = Path.Combine(root, "JARVIS.Voice", "Piper");
+        Directory.CreateDirectory(piperDir);
 
-        Console.WriteLine("  Скачайте Piper вручную:");
-        Console.WriteLine("  https://github.com/rhasspy/piper/releases");
-        Console.WriteLine($"  Установите в: {piperDir}\n");
+        // Check if piper.exe exists
+        var piperExe = Path.Combine(piperDir, "piper.exe");
+        var piperLinux = Path.Combine(piperDir, "piper");
 
-        if (AskConfirmation("Открыть страницу загрузки Piper в браузере?"))
+        if (!File.Exists(piperExe) && !File.Exists(piperLinux))
         {
-            try
+            Console.WriteLine("  Piper не установлен. Нужно скачать piper.exe.");
+            Console.WriteLine("  Источник: https://github.com/rhasspy/piper/releases\n");
+
+            if (AskConfirmation("Открыть страницу загрузки Piper в браузере?"))
             {
-                Process.Start(new ProcessStartInfo
+                try
                 {
-                    FileName = "https://github.com/rhasspy/piper/releases",
-                    UseShellExecute = true
-                });
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = "https://github.com/rhasspy/piper/releases",
+                        UseShellExecute = true
+                    });
+                }
+                catch
+                {
+                    Console.WriteLine("  Не удалось открыть браузер.");
+                }
             }
-            catch
-            {
-                Console.WriteLine("  Не удалось открыть браузер.");
-            }
+
+            Console.WriteLine("\n  Скачайте piper_windows_amd64.zip");
+            Console.WriteLine("  Распакуйте piper.exe в:");
+            Console.WriteLine($"  {piperDir}\n");
+            Console.WriteLine("  После установки нажмите Enter...");
+            Console.ReadLine();
         }
 
-        Console.WriteLine("  После установки нажмите Enter...");
-        Console.ReadLine();
+        // Check for voice models
+        var onnxFiles = Directory.GetFiles(piperDir, "*.onnx");
+        if (onnxFiles.Length == 0)
+        {
+            Console.WriteLine("  Голосовые модели не найдены.");
+            Console.WriteLine("  Нужна модель ru_RU-irina-medium.onnx\n");
+
+            if (AskConfirmation("Скачать русскую голосовую модель?"))
+            {
+                var voiceUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx";
+                var voiceTarget = Path.Combine(piperDir, "ru_RU-irina-medium.onnx");
+
+                if (CommandExists("curl"))
+                {
+                    ExecuteCommandWithConfirmation(
+                        $"curl -L -o \"{voiceTarget}\" \"{voiceUrl}\"",
+                        "Скачиваю голосовую модель...");
+                }
+                else if (CommandExists("powershell"))
+                {
+                    ExecuteCommandWithConfirmation(
+                        $"powershell -Command \"Invoke-WebRequest -Uri '{voiceUrl}' -OutFile '{voiceTarget}'\"",
+                        "Скачиваю голосовую модель через PowerShell...");
+                }
+
+                // Also download the JSON config for the voice
+                var configUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx.json";
+                var configTarget = Path.Combine(piperDir, "ru_RU-irina-medium.onnx.json");
+
+                if (CommandExists("curl"))
+                {
+                    ExecuteCommandWithConfirmation(
+                        $"curl -L -o \"{configTarget}\" \"{configUrl}\"",
+                        "Скачиваю конфигурацию голоса...");
+                }
+
+                if (File.Exists(voiceTarget))
+                    Console.WriteLine("  Голосовая модель установлена.");
+                else
+                    Console.WriteLine("  Ошибка: модель не была скачана.");
+            }
+        }
     }
 
     private string? FindProjectRoot()
