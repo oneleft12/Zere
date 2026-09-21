@@ -524,30 +524,33 @@ public class DependencyChecker : IDisposable
 
         if (!File.Exists(piperExe) && !File.Exists(piperLinux))
         {
-            Console.WriteLine("  Piper не установлен. Нужно скачать piper.exe.");
-            Console.WriteLine("  Источник: https://github.com/rhasspy/piper/releases\n");
+            Console.WriteLine("  Piper не установлен.");
 
-            if (AskConfirmation("Открыть страницу загрузки Piper в браузере?"))
+            // Try to find piper_windows_amd64.zip in common locations
+            var zipPath = FindPiperZip();
+
+            if (zipPath != null)
             {
-                try
+                Console.WriteLine($"  Найден архив: {zipPath}");
+                Console.WriteLine("  Распаковываю...");
+
+                if (ExtractPiperZip(zipPath, piperDir))
                 {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = "https://github.com/rhasspy/piper/releases",
-                        UseShellExecute = true
-                    });
+                    Console.WriteLine("  Piper установлен.");
                 }
-                catch
+                else
                 {
-                    Console.WriteLine("  Не удалось открыть браузер.");
+                    Console.WriteLine("  Ошибка распаковки. Установите вручную.");
+                    OfferManualPiperInstall(piperDir);
                 }
             }
+            else
+            {
+                Console.WriteLine("  Архив piper_windows_amd64.zip не найден.");
+                Console.WriteLine("  Источник: https://github.com/rhasspy/piper/releases\n");
 
-            Console.WriteLine("\n  Скачайте piper_windows_amd64.zip");
-            Console.WriteLine("  Распакуйте piper.exe в:");
-            Console.WriteLine($"  {piperDir}\n");
-            Console.WriteLine("  После установки нажмите Enter...");
-            Console.ReadLine();
+                OfferManualPiperInstall(piperDir);
+            }
         }
 
         // Check for voice models
@@ -592,6 +595,174 @@ public class DependencyChecker : IDisposable
                     Console.WriteLine("  Ошибка: модель не была скачана.");
             }
         }
+    }
+
+    private string? FindPiperZip()
+    {
+        // Search common locations for piper_windows_amd64.zip
+        var searchPaths = new[]
+        {
+            // Downloads folder
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "Downloads"),
+            // Desktop
+            Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+            // Current directory
+            Directory.GetCurrentDirectory(),
+            // Project root
+            FindProjectRoot() ?? ""
+        };
+
+        var zipNames = new[]
+        {
+            "piper_windows_amd64.zip",
+            "piper-windows-amd64.zip",
+            "piper_windows.zip"
+        };
+
+        foreach (var dir in searchPaths)
+        {
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+                continue;
+
+            foreach (var name in zipNames)
+            {
+                var path = Path.Combine(dir, name);
+                if (File.Exists(path))
+                    return path;
+            }
+
+            // Also search for any piper*.zip
+            try
+            {
+                var piperZips = Directory.GetFiles(dir, "piper*.zip", SearchOption.TopDirectoryOnly);
+                if (piperZips.Length > 0)
+                    return piperZips[0];
+            }
+            catch
+            {
+                // Ignore access errors
+            }
+        }
+
+        return null;
+    }
+
+    private bool ExtractPiperZip(string zipPath, string targetDir)
+    {
+        try
+        {
+            // Use PowerShell to extract (available on all Windows 10+)
+            var extractDir = Path.Combine(targetDir, "_temp_piper");
+            Directory.CreateDirectory(extractDir);
+
+            Console.WriteLine($"  Распаковываю в {extractDir}...");
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = "powershell",
+                Arguments = $"-NoProfile -Command \"Expand-Archive -Path '{zipPath}' -DestinationPath '{extractDir}' -Force\"",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(psi);
+            process?.WaitForExit(30000);
+
+            if (process?.ExitCode != 0)
+            {
+                var error = process?.StandardError.ReadToEnd();
+                Console.WriteLine($"  Ошибка распаковки: {error}");
+                return false;
+            }
+
+            // Find piper.exe in extracted files
+            var piperExe = FindFileRecursive(extractDir, "piper.exe");
+
+            if (piperExe == null)
+            {
+                Console.WriteLine("  piper.exe не найден в архиве.");
+                return false;
+            }
+
+            // Move piper.exe to target directory
+            var targetExe = Path.Combine(targetDir, "piper.exe");
+            File.Copy(piperExe, targetExe, overwrite: true);
+
+            // Also copy any .dll files from the same directory
+            var exeDir = Path.GetDirectoryName(piperExe);
+            if (exeDir != null)
+            {
+                foreach (var dll in Directory.GetFiles(exeDir, "*.dll"))
+                {
+                    var targetDll = Path.Combine(targetDir, Path.GetFileName(dll));
+                    if (!File.Exists(targetDll))
+                        File.Copy(dll, targetDll);
+                }
+            }
+
+            // Cleanup temp directory
+            try { Directory.Delete(extractDir, recursive: true); } catch { }
+
+            Console.WriteLine("  Piper установлен успешно.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  Ошибка: {ex.Message}");
+            return false;
+        }
+    }
+
+    private string? FindFileRecursive(string dir, string fileName)
+    {
+        try
+        {
+            var file = Path.Combine(dir, fileName);
+            if (File.Exists(file))
+                return file;
+
+            foreach (var subDir in Directory.GetDirectories(dir))
+            {
+                var result = FindFileRecursive(subDir, fileName);
+                if (result != null)
+                    return result;
+            }
+        }
+        catch
+        {
+            // Ignore access errors
+        }
+
+        return null;
+    }
+
+    private void OfferManualPiperInstall(string piperDir)
+    {
+        if (AskConfirmation("Открыть страницу загрузки Piper в браузере?"))
+        {
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "https://github.com/rhasspy/piper/releases",
+                    UseShellExecute = true
+                });
+            }
+            catch
+            {
+                Console.WriteLine("  Не удалось открыть браузер.");
+            }
+        }
+
+        Console.WriteLine("\n  Скачайте piper_windows_amd64.zip");
+        Console.WriteLine("  Положите его в папку Downloads или на Рабочий стол");
+        Console.WriteLine($"  или распакуйте piper.exe в: {piperDir}\n");
+        Console.WriteLine("  После установки нажмите Enter...");
+        Console.ReadLine();
     }
 
     private string? FindProjectRoot()
