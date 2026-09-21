@@ -6,13 +6,9 @@ public class PromptBuilder
 {
     private readonly StringBuilder _builder = new();
 
-    public PromptBuilder SystemPrompt(string assistantName)
+    public PromptBuilder SystemPrompt(string systemPrompt)
     {
-        _builder.AppendLine($"Ты {assistantName} — персональный AI-ассистент пользователя.");
-        _builder.AppendLine("Ты помогаешь с Windows, программированием, файлами и проектами.");
-        _builder.AppendLine("Отвечай только на русском языке.");
-        _builder.AppendLine("Если информация есть в памяти пользователя — используй её.");
-        _builder.AppendLine("Не выдумывай факты.");
+        _builder.AppendLine(systemPrompt);
         _builder.AppendLine();
 
         return this;

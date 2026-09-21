@@ -329,6 +329,7 @@ public class DependencyChecker : IDisposable
                 Message = $"Сервер недоступен ({_ollamaUrl})"
             });
         }
+    }
 
     private void CheckModel()
     {
