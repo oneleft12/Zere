@@ -62,15 +62,15 @@ public static class ServiceRegistration
         services.AddSingleton<FileManager>();
         services.AddSingleton<SafeActionManager>();
 
-        services.AddTransient<MemoryHandler>();
-        services.AddTransient<MemoryQueryHandler>();
-        services.AddTransient<ConversationHandler>();
-        services.AddTransient<ProcessHandler>();
-        services.AddTransient<WindowsHandler>();
-        services.AddTransient<FileHandler>();
-        services.AddTransient<GameHandler>();
-        services.AddTransient<VolumeHandler>();
-        services.AddTransient<AIHandler>();
+        services.AddSingleton<MemoryHandler>();
+        services.AddSingleton<MemoryQueryHandler>();
+        services.AddSingleton<ConversationHandler>();
+        services.AddSingleton<ProcessHandler>();
+        services.AddSingleton<WindowsHandler>();
+        services.AddSingleton<FileHandler>();
+        services.AddSingleton<GameHandler>();
+        services.AddSingleton<VolumeHandler>();
+        services.AddSingleton<AIHandler>();
 
         services.AddSingleton<HandlerPipeline>(sp =>
         {

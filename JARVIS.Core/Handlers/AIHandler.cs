@@ -27,6 +27,7 @@ public class AIHandler : IJarvisHandler
 
     public async Task<string> HandleAsync(string message)
     {
+        var personality = _pluginManager.ActivePersonality;
         var systemPrompt = GetSystemPrompt();
 
         var prompt = new PromptBuilder()
@@ -36,7 +37,7 @@ public class AIHandler : IJarvisHandler
             .UserMessage(message)
             .Build();
 
-        return await _ai.GenerateAsync(prompt);
+        return await _ai.GenerateAsync(prompt, systemPrompt, personality?.Temperature);
     }
 
     private string GetSystemPrompt()

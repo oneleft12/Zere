@@ -60,6 +60,11 @@ public class MemoryHandler : IJarvisHandler
                 : $"Я не нашёл запись «{key}».";
         }
 
+        if (lower.StartsWith("забудь"))
+        {
+            return "Укажите, что забыть. Например: забудь имя";
+        }
+
         if (lower.StartsWith("обнови память "))
         {
             var text = message["обнови память ".Length..].Trim();
@@ -78,6 +83,9 @@ public class MemoryHandler : IJarvisHandler
         }
 
         var textToRemember = message["запомни".Length..].Trim();
+
+        if (string.IsNullOrWhiteSpace(textToRemember))
+            return "Укажите, что запомнить. Например: запомни имя Dan";
 
         foreach (var prefix in new[] { "мое ", "мой ", "моя ", "что " })
         {

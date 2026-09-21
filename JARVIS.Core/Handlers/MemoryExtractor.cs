@@ -18,7 +18,7 @@ public class MemoryExtractor
 
         var name = Regex.Match(
             text,
-            @"меня зовут\s+(.+)$",
+            @"^меня зовут\s+(.+)$",
             RegexOptions.IgnoreCase);
 
         if (name.Success)
@@ -29,7 +29,7 @@ public class MemoryExtractor
 
         var project = Regex.Match(
             text,
-            @"мой проект( называется)?\s+(.+)$",
+            @"^мой проект( называется)?\s+(.+)$",
             RegexOptions.IgnoreCase);
 
         if (project.Success)
@@ -40,7 +40,7 @@ public class MemoryExtractor
 
         var gpu = Regex.Match(
             text,
-            @"(у меня|я использую).*(rtx|gtx|rx)\s*([0-9a-z ]+)",
+            @"^(у меня|я использую).*(rtx|gtx|rx)\s*([0-9a-z ]+)",
             RegexOptions.IgnoreCase);
 
         if (gpu.Success)
@@ -51,7 +51,7 @@ public class MemoryExtractor
 
         var windows = Regex.Match(
             text,
-            @"windows\s*(10|11)",
+            @"^windows\s*(10|11)",
             RegexOptions.IgnoreCase);
 
         if (windows.Success)

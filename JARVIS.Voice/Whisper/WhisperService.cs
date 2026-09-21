@@ -5,6 +5,7 @@ namespace JARVIS.Voice.Whisper;
 public class WhisperService
 {
     private readonly string _modelPath;
+    private readonly Lazy<WhisperFactory> _factory;
 
     public WhisperService()
     {
@@ -12,6 +13,7 @@ public class WhisperService
             Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
 
         _modelPath = Path.Combine(root, "JARVIS.Voice", "Models", "ggml-base.bin");
+        _factory = new Lazy<WhisperFactory>(() => WhisperFactory.FromPath(_modelPath));
     }
 
     public bool IsInstalled()
@@ -24,7 +26,7 @@ public class WhisperService
         if (!IsInstalled())
             return "Модель Whisper не найдена.";
 
-        var factory = WhisperFactory.FromPath(_modelPath);
+        var factory = _factory.Value;
 
         using var processor = factory.CreateBuilder()
             .WithLanguage("ru")

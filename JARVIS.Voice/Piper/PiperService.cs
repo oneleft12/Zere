@@ -9,6 +9,7 @@ public class PiperService
     private readonly string _piperDir;
     private string _currentVoice = "ru_RU-irina-medium";
     private string? _piperExe;
+    private string? _cachedModelPath;
 
     public string CurrentVoice => _currentVoice;
 
@@ -43,6 +44,11 @@ public class PiperService
             return false;
         }
 
+        _cachedModelPath = modelPath;
+
+        // Clean up old output files older than 1 hour
+        CleanupOldOutputs();
+
         IsLoaded = true;
         Console.WriteLine($"[Piper] Загружен. Голос: {_currentVoice}");
         return true;
@@ -65,7 +71,7 @@ public class PiperService
             var psi = new ProcessStartInfo
             {
                 FileName = _piperExe,
-                Arguments = $"--model \"{FindModelPath()}\" --output_file \"{outputFile}\"",
+                Arguments = $"--model \"{_cachedModelPath}\" --output_file \"{outputFile}\"",
                 UseShellExecute = false,
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
@@ -167,8 +173,39 @@ public class PiperService
     public void SetVoice(string voiceName)
     {
         _currentVoice = voiceName;
+        _cachedModelPath = null;
 
         if (IsLoaded)
             Initialize(voiceName);
+    }
+
+    private void CleanupOldOutputs()
+    {
+        try
+        {
+            var cutoff = DateTime.Now.AddHours(-1);
+            var outputFiles = Directory.GetFiles(_piperDir, "output_*.wav");
+
+            foreach (var file in outputFiles)
+            {
+                var fileInfo = new FileInfo(file);
+
+                if (fileInfo.LastWriteTime < cutoff)
+                {
+                    try
+                    {
+                        fileInfo.Delete();
+                    }
+                    catch
+                    {
+                        // Ignore individual file deletion failures during cleanup
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Ignore cleanup failures — not critical
+        }
     }
 }

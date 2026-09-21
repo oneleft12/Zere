@@ -4,11 +4,22 @@ namespace JARVIS.Memory.Gaming;
 
 public class GameStatsDatabase
 {
-    private const string DatabaseName = "jarvis_games.db";
+    private readonly string _databasePath;
+
+    public GameStatsDatabase()
+    {
+        var folder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "JARVIS");
+
+        Directory.CreateDirectory(folder);
+
+        _databasePath = Path.Combine(folder, "jarvis_games.db");
+    }
 
     public SqliteConnection CreateConnection()
     {
-        var connection = new SqliteConnection($"Data Source={DatabaseName}");
+        var connection = new SqliteConnection($"Data Source={_databasePath}");
 
         connection.Open();
 
@@ -19,7 +30,7 @@ public class GameStatsDatabase
 
     private void CreateTables(SqliteConnection connection)
     {
-        var command = connection.CreateCommand();
+        using var command = connection.CreateCommand();
 
         command.CommandText =
         """

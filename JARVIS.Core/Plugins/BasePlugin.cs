@@ -12,5 +12,10 @@ public abstract class BasePlugin : IPlugin
     public abstract PluginType Type { get; }
 
     public virtual void Initialize() { }
+
+    /// <summary>
+    /// Кастомный паттерн очистки ресурсов плагина. Не реализует System.IDisposable напрямую —
+    /// управляется PluginManager.DisposeAll() при перезагрузке/выключении.
+    /// </summary>
     public virtual void Dispose() { }
 }

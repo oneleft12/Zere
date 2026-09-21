@@ -86,7 +86,7 @@ public class MemoryRepository
             Key = reader.GetString(1),
             Value = reader.GetString(2),
             Category = reader.GetString(3),
-            CreatedAt = DateTime.Parse(reader.GetString(4))
+            CreatedAt = DateTime.Parse(reader.GetString(4), System.Globalization.CultureInfo.InvariantCulture)
         };
     }
 
@@ -116,7 +116,7 @@ public class MemoryRepository
                 Key = reader.GetString(1),
                 Value = reader.GetString(2),
                 Category = reader.GetString(3),
-                CreatedAt = DateTime.Parse(reader.GetString(4))
+                CreatedAt = DateTime.Parse(reader.GetString(4), System.Globalization.CultureInfo.InvariantCulture)
             });
         }
 
@@ -152,7 +152,7 @@ public class MemoryRepository
                 Key = reader.GetString(1),
                 Value = reader.GetString(2),
                 Category = reader.GetString(3),
-                CreatedAt = DateTime.Parse(reader.GetString(4))
+                CreatedAt = DateTime.Parse(reader.GetString(4), System.Globalization.CultureInfo.InvariantCulture)
             });
         }
 

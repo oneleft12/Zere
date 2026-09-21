@@ -168,7 +168,10 @@ public class DependencyChecker : IDisposable
                     return;
                 }
             }
-            catch { }
+            catch (HttpRequestException)
+        {
+            // HTTP request failed — Ollama may not be running
+        }
 
             Console.WriteLine("  Ollama запущена, но сервер может ещё стартовать.");
         }
@@ -547,8 +550,14 @@ public class DependencyChecker : IDisposable
             process?.WaitForExit(3000);
             return process?.ExitCode == 0;
         }
-        catch
+        catch (System.ComponentModel.Win32Exception)
         {
+            // Command not found on system PATH
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            // Process start failed (e.g., invalid file name)
             return false;
         }
     }

@@ -16,7 +16,10 @@ public class PluginConfig
 
     public static PluginConfig Load()
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
+        var configDir = Path.GetDirectoryName(ConfigPath);
+
+        if (configDir != null)
+            Directory.CreateDirectory(configDir);
 
         if (!File.Exists(ConfigPath))
         {

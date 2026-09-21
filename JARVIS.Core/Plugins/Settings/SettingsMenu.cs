@@ -94,11 +94,15 @@ public class SettingsMenu
 
                 foreach (var p in personalities)
                 {
-                    p.SetStyle(selectedStyle);
-                    _pluginManager.SetActivePersonality(p.Id);
-                }
+                    var availableStyles = p.GetAvailableStyles();
 
-                _config.ActivePersonalityId = personalities.First().Id;
+                    if (availableStyles.Contains(selectedStyle))
+                    {
+                        p.SetStyle(selectedStyle);
+                        _pluginManager.SetActivePersonality(p.Id);
+                        _config.ActivePersonalityId = p.Id;
+                    }
+                }
                 PluginConfig.Save(_config);
 
                 Console.WriteLine($"\nСтиль изменён на: {selectedStyle}");

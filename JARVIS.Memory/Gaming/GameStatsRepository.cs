@@ -12,7 +12,7 @@ public class GameStatsRepository
 
         var today = DateTime.Today.ToString("yyyy-MM-dd");
 
-        var command = connection.CreateCommand();
+        using var command = connection.CreateCommand();
         command.CommandText =
         """
         INSERT INTO GameStats(Game, Date, Minutes)
@@ -31,7 +31,7 @@ public class GameStatsRepository
     {
         using var connection = _db.CreateConnection();
 
-        var command = connection.CreateCommand();
+        using var command = connection.CreateCommand();
 
         command.CommandText =
         """
@@ -67,7 +67,7 @@ public class GameStatsRepository
     {
         using var connection = _db.CreateConnection();
 
-        var command = connection.CreateCommand();
+        using var command = connection.CreateCommand();
 
         command.CommandText = "DELETE FROM GameStats";
 

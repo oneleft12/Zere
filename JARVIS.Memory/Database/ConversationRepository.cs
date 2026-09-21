@@ -75,7 +75,7 @@ public class ConversationRepository
                 Id = reader.GetInt64(0),
                 UserMessage = reader.GetString(1),
                 JarvisResponse = reader.GetString(2),
-                Timestamp = DateTime.Parse(reader.GetString(3))
+                Timestamp = DateTime.Parse(reader.GetString(3), System.Globalization.CultureInfo.InvariantCulture)
             });
         }
 

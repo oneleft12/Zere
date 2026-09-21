@@ -8,5 +8,5 @@ public class ContextItem
 
     public string Value { get; set; } = "";
 
-    public DateTime Time { get; set; } = DateTime.Now;
+    public DateTime Time { get; set; } = DateTime.UtcNow;
 }

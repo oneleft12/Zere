@@ -1,6 +1,8 @@
 namespace JARVIS.Core.Context;
 
-public static class ContextService
+public class ContextService
 {
-    public static ContextMemory Current { get; } = new();
+    private readonly ContextMemory _memory = new();
+
+    public ContextMemory Current => _memory;
 }

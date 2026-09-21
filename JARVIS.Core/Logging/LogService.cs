@@ -3,6 +3,7 @@ namespace JARVIS.Core.Logging;
 public class LogService
 {
     private readonly string _logPath;
+    private readonly object _lock = new();
 
     public LogService()
     {
@@ -36,6 +37,9 @@ public class LogService
         var line =
             $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{level}] {message}";
 
-        File.AppendAllText(_logPath, line + Environment.NewLine);
+        lock (_lock)
+        {
+            File.AppendAllText(_logPath, line + Environment.NewLine);
+        }
     }
 }

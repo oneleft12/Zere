@@ -26,7 +26,14 @@ public static class OllamaUrlResolver
                 if (response.IsSuccessStatusCode)
                     return url;
             }
-            catch { }
+            catch (HttpRequestException)
+            {
+                // Candidate URL is unreachable or returned an error — try next candidate
+            }
+            catch (TaskCanceledException)
+            {
+                // Request timed out — candidate is not available, try next
+            }
         }
 
         return null;

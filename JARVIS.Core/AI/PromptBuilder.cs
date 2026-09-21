@@ -56,4 +56,9 @@ public class PromptBuilder
     {
         return _builder.ToString();
     }
+
+    public void Reset()
+    {
+        _builder.Clear();
+    }
 }
