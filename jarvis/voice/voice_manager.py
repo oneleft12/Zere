@@ -12,6 +12,7 @@ import wave
 from datetime import datetime
 from pathlib import Path
 
+from jarvis.core.logging.log_service import log_error
 from jarvis.voice.audio.audio_player import AudioPlayer
 from jarvis.voice.audio.audio_processor import AudioProcessor
 from jarvis.voice.audio.audio_recorder import AudioRecorder
@@ -77,6 +78,16 @@ class VoiceManager:
         """Прямая смена голоса Piper (контракт спецификации; в C# — PiperService.SetVoice)."""
         self._piper.set_voice(voice_name)
 
+    def preload_whisper(self) -> None:
+        """Предзагрузка модели Whisper в фоне при старте (ROADMAP 1.3):
+        первый вызов распознавания не ждёт загрузки модели.
+        """
+        try:
+            if self._whisper.preload():
+                print(f"[Voice] Whisper предзагружен ({self._whisper.current_model}).")
+        except Exception as ex:  # noqa: BLE001 — предзагрузка не должна ронять старт
+            log_error("VoiceManager", f"Предзагрузка Whisper: {ex}")
+
     def listen(self) -> str:
         """Записывает речь с микрофона и распознаёт её (порт ListenAsync)."""
         if not self._whisper.is_installed():
@@ -87,25 +98,46 @@ class VoiceManager:
 
         print("Распознаю речь...")
 
-        return self._whisper.transcribe(wav)
+        try:
+            return self._whisper.transcribe(wav)
+        except Exception as ex:  # noqa: BLE001 — fallback: текстовый ввод
+            log_error("VoiceManager", f"listen: {ex}")
+            print(f"[Voice] Ошибка распознавания: {ex}")
+            return ""
 
     def speak(self, text: str) -> None:
-        """Озвучивает текст через Piper (порт SpeakAsync); без TTS — печатает в консоль."""
+        """Озвучивает текст через Piper (порт SpeakAsync); без TTS или при ошибке
+        синтеза — печатает текст в консоль (fallback «Piper не отвечает →
+        текстовый вывод», ROADMAP 1.1).
+        """
         if not self._piper.is_loaded:
             print(f"[JARVIS] {text}")
             return
 
-        wav_file = self._piper.speak(text)
+        try:
+            wav_file = self._piper.speak(text)
+        except Exception as ex:  # noqa: BLE001
+            log_error("VoiceManager", f"speak: {ex}")
+            print(f"[JARVIS] {text}")
+            return
 
-        if wav_file:
-            file_to_play = wav_file
+        if not wav_file:
+            # Синтез не удался (после reconnect в PiperService) — текстовый вывод
+            print(f"[JARVIS] {text}")
+            return
 
+        file_to_play = wav_file
+
+        try:
             # Профессиональная DSP-обработка: EQ, компрессия, нормализация
             if self.config.audio_processing:
                 file_to_play = AudioProcessor.process(wav_file)
 
             self._player.play(file_to_play, self.config.volume)
-
+        except Exception as ex:  # noqa: BLE001 — воспроизведение не должно «резать» вывод
+            log_error("VoiceManager", f"play: {ex}")
+            print(f"[JARVIS] {text}")
+        finally:
             # Удаляем обработанный файл (если он отличается от оригинального)
             try:
                 if file_to_play != wav_file:
@@ -167,7 +199,11 @@ class VoiceManager:
                 return ""
 
             print("🧠 Распознаю команду...")
-            result = self._whisper.transcribe(wav)
+            try:
+                result = self._whisper.transcribe(wav)
+            except Exception as ex:  # noqa: BLE001 — fallback: текстовый ввод
+                log_error("VoiceManager", f"listen_command: {ex}")
+                result = ""
             try:
                 os.remove(wav)
             except OSError:
@@ -229,7 +265,11 @@ class VoiceManager:
 
         print("🧠 Распознаю команду...")
 
-        cmd_result = self._whisper.transcribe(str(cmd_file))
+        try:
+            cmd_result = self._whisper.transcribe(str(cmd_file))
+        except Exception as ex:  # noqa: BLE001 — fallback: текстовый ввод
+            log_error("VoiceManager", f"listen_command: {ex}")
+            cmd_result = ""
 
         try:
             os.remove(cmd_file)

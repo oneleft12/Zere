@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import threading
 
+from jarvis import paths
 from jarvis.core.configuration.jarvis_config import JarvisConfig
 from jarvis.core.dependencies.dependency_checker import DependencyChecker
 from jarvis.core.engine import JarvisEngine
@@ -22,6 +23,9 @@ def main() -> None:
     logger = LogService()
 
     logger.info(f"{config.assistant_name} OS {config.version} запускается.")
+
+    # Очистка voice/input/ при каждом запуске (ROADMAP 1.3)
+    _cleanup_voice_input()
 
     print(f"""
 =================================
@@ -74,6 +78,12 @@ def main() -> None:
     if config.voice_enabled:
         voice_manager.initialize(str(active_personality.style) if active_personality else None)
         print("[Голос] Режим: текст + голос")
+
+        # Предзагрузка Whisper в фоне (ROADMAP 1.3): не блокируем старт
+        threading.Thread(
+            target=voice_manager.preload_whisper,
+            daemon=True,
+        ).start()
     else:
         print("[Голос] Отключен. Только текстовый режим.")
 
@@ -145,6 +155,40 @@ def main() -> None:
 
     voice_manager.close()
     logger.info("JARVIS завершил работу.")
+
+
+def _cleanup_voice_input() -> None:
+    """Удаляет накопленные voice/input/*.wav при каждом запуске (ROADMAP 1.3)."""
+    input_dir = paths.voice_dir() / "input"
+    if not input_dir.is_dir():
+        return
+
+    for file_path in input_dir.glob("*.wav"):
+        try:
+            file_path.unlink()
+        except OSError:
+            pass  # очистка не должна ронять старт
+
+
+def _text_fallback(voice_manager: VoiceManager, jarvis: JarvisEngine, config: JarvisConfig, logger: LogService, keep_running: list[bool]) -> None:
+    """Fallback «Whisper не отвечает → текстовый ввод» (ROADMAP 1.1):
+    предлагает ввести команду текстом, не выходя из голосового режима.
+    """
+    print("⚠️ Не удалось распознать команду.")
+    try:
+        text_input = input("Введите команду текстом (Enter — в спящий режим): ").strip()
+    except EOFError:
+        text_input = ""
+
+    if not text_input:
+        return
+
+    if text_input.lower() in ("выход", "стоп", "exit"):
+        keep_running[0] = False
+        print("[Голос] Текстовый режим.\n")
+        return
+
+    _process_voice(text_input, jarvis, config, logger, voice_manager)
 
 
 def run_voice_mode(
@@ -219,6 +263,9 @@ def run_voice_mode(
 
             if not voice_input or not voice_input.strip():
                 print("⚠️ Не удалось распознать команду.\n")
+                _text_fallback(voice_manager, jarvis, config, logger, keep_running)
+                if not keep_running[0]:
+                    return
                 print("💤 Возвращаюсь в спящий режим.\n")
                 continue
 
@@ -237,7 +284,10 @@ def run_voice_mode(
             voice_input = voice_manager.listen()
 
             if not voice_input or not voice_input.strip():
-                print("Не удалось распознать речь.\n")
+                print("Не удалось распознать речь.")
+                _text_fallback(voice_manager, jarvis, config, logger, keep_running)
+                if not keep_running[0]:
+                    return
                 continue
 
             print(f"Вы (голос): {voice_input}\n")

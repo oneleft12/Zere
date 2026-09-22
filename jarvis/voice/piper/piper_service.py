@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from jarvis import paths
+from jarvis.core.logging.log_service import log_error
 
 # CreateNoWindow в C# (Windows-only; на других платформах — 0)
 _CREATIONFLAGS = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
@@ -71,7 +72,11 @@ class PiperService:
         return True
 
     def speak(self, text: str) -> str:
-        """Синтезирует речь в WAV-файл и возвращает путь к нему (порт SpeakAsync)."""
+        """Синтезирует речь в WAV-файл и возвращает путь к нему (порт SpeakAsync).
+
+        Auto-reconnect (ROADMAP 1.1): при краше/таймауте процесса piper —
+        переинициализация и одна повторная попытка.
+        """
         # Убираем эмодзи, смайлики и «ролевые» пометки — TTS не должен их читать
         text = self.strip_emotions(text)
 
@@ -82,6 +87,22 @@ class PiperService:
             print(f"[Piper] {text}")
             return ""
 
+        output_file = self._speak_once(text)
+
+        if output_file:
+            return output_file
+
+        # Первый запуск упал — reconnect: переинициализируем и пробуем ещё раз
+        log_error("PiperService", "Синтез не удался, reconnect процесса piper")
+        print("[Piper] Повторный запуск синтеза (reconnect)...")
+
+        if not self.initialize(self._current_voice):
+            return ""
+
+        return self._speak_once(text)
+
+    def _speak_once(self, text: str) -> str:
+        """Одна попытка синтеза (общая тело для speak и его reconnect-ретрая)."""
         output_file = str(
             self._piper_dir / f"output_{datetime.now():%Y%m%d_%H%M%S}.wav"
         )
@@ -124,17 +145,28 @@ class PiperService:
 
             # Пишем текст в stdin, читаем stdout/stderr и ждём завершения
             # (аналог WriteAsync + WaitForExitAsync + ReadToEndAsync)
-            _stdout, error = process.communicate(
-                input=text.encode("utf-8"),
-                timeout=300,
-            )
+            try:
+                _stdout, error = process.communicate(
+                    input=text.encode("utf-8"),
+                    timeout=300,
+                )
+            except subprocess.TimeoutExpired:
+                # Таймаут внешнего вызова (ROADMAP 1.1): убиваем зависший процесс
+                process.kill()
+                process.communicate()
+                log_error("PiperService", "Таймаут синтеза (300 с)")
+                print("[Piper] Таймаут синтеза (300 с).")
+                return ""
 
             if process.returncode != 0:
-                print(f"[Piper] Ошибка: {error.decode('utf-8', errors='replace')}")
+                message = error.decode("utf-8", errors="replace") if error else ""
+                log_error("PiperService", f"Код {process.returncode}: {message}")
+                print(f"[Piper] Ошибка: {message}")
                 return ""
 
             return output_file
         except Exception as ex:  # noqa: BLE001 — дословно как в C#
+            log_error("PiperService", str(ex))
             print(f"[Piper] Ошибка: {ex}")
             return ""
 

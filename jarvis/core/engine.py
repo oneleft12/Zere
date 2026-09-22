@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from jarvis.core.handlers.handler_pipeline import HandlerPipeline
 from jarvis.core.handlers.memory_extractor import MemoryExtractor
+from jarvis.core.logging.log_service import log_error
 from jarvis.core.plugins.plugin_manager import PluginManager
 
 
@@ -30,5 +31,7 @@ class JarvisEngine:
 
             return result if result is not None else "Команда не распознана."
         except Exception as ex:
+            # Ошибка не должна ронять приложение — логируем и отвечаем текстом
+            log_error("JarvisEngine", str(ex))
             print(f"[JarvisEngine] Ошибка: {ex}")
             return f"Произошла ошибка: {ex}"

@@ -13,15 +13,22 @@ from __future__ import annotations
 
 import json
 import os
+import threading
+import time
 from pathlib import Path
 
 from faster_whisper import WhisperModel
 
 from jarvis import paths
+from jarvis.core.logging.log_service import log_error
 from jarvis.voice.audio.audio_preprocessor import AudioPreprocessor
 
 # Размеры моделей, которые умеет загружать faster-whisper по имени
 _MODEL_SIZES = ("tiny", "base", "small", "medium", "large-v1", "large-v2", "large-v3", "large")
+
+# Таймаут распознавания одной команды, сек (ROADMAP 1.1 «таймауты на все
+# внешние вызовы»). Короткая команда — секунды; medium на слабом CPU — до минут.
+_TRANSCRIBE_TIMEOUT_S = 120
 
 
 def _load_local_model_path() -> Path | None:
@@ -39,6 +46,21 @@ def _load_local_model_path() -> Path | None:
     return None
 
 
+def _load_model_size_override() -> str | None:
+    """Читает из config/config.json необязательный размер модели (tiny…medium)."""
+    try:
+        config_file = paths.config_path()
+        if not config_file.exists():
+            return None
+        data = json.loads(config_file.read_text(encoding="utf-8"))
+        value = data.get("whisperModelSize") or data.get("WhisperModelSize")
+        if isinstance(value, str) and value in _MODEL_SIZES:
+            return value
+    except Exception:  # noqa: BLE001 — конфиг не должен ронять голос
+        return None
+    return None
+
+
 class WhisperService:
     """Сервис STT: локальная модель faster-whisper (порт WhisperService.cs)."""
 
@@ -51,7 +73,19 @@ class WhisperService:
 
         # Локальный путь к CT2-модели из конфига (иначе — размер по спецификации: "base")
         self._local_model_path = _load_local_model_path()
-        self._model_size = "base"
+
+        # Выбор размера модели (ROADMAP 1.2 «multiple модели, auto-select»):
+        # 1) явный размер из конфига whisperModelSize;
+        # 2) иначе, как в C# (CurrentModel = medium если ggml-medium.bin есть,
+        #    иначе base): тяжёлая скачанная модель → используем её CT2-эквивалент;
+        # 3) иначе "base".
+        override = _load_model_size_override()
+        if override is not None:
+            self._model_size = override
+        elif self._medium_model_path.exists():
+            self._model_size = "medium"
+        else:
+            self._model_size = "base"
 
         # Источник для WhisperModel(...): путь CT2-модели либо имя размера.
         # В C# здесь был Lazy<WhisperFactory> — модель грузится лениво при первом
@@ -87,40 +121,128 @@ class WhisperService:
         return self._model_size in _MODEL_SIZES or self._base_model_path.exists() or self._medium_model_path.exists()
 
     def _get_model(self) -> WhisperModel:
-        """Ленивая загрузка модели (аналог Lazy<WhisperFactory>.Value)."""
-        if self._model is None:
-            # device="cpu", compute_type="int8" — как в спецификации
-            self._model = WhisperModel(
-                self._model_source,
-                device="cpu",
-                compute_type="int8",
-            )
-        return self._model
+        """Ленивая загрузка модели (аналог Lazy<WhisperFactory>.Value)
+        c auto-reconnect: при ошибке загрузки — одна повторная попытка
+        с чистым состоянием (ROADMAP 1.1).
+        """
+        if self._model is not None:
+            return self._model
+
+        last_error: Exception | None = None
+
+        for attempt in range(2):
+            try:
+                # device="cpu", compute_type="int8" — как в спецификации
+                self._model = WhisperModel(
+                    self._model_source,
+                    device="cpu",
+                    compute_type="int8",
+                )
+                return self._model
+            except Exception as ex:  # noqa: BLE001
+                last_error = ex
+                self._model = None
+                log_error(
+                    "WhisperService",
+                    f"Ошибка загрузки модели (попытка {attempt + 1}/2): {ex}",
+                )
+                print(
+                    f"[Whisper] Ошибка загрузки модели "
+                    f"(попытка {attempt + 1}/2): {ex}"
+                )
+                if attempt == 0:
+                    # Небольшая пауза перед reconnect
+                    time.sleep(1.0)
+
+        raise last_error if last_error is not None else RuntimeError("Неизвестная ошибка загрузки модели")
+
+    def preload(self) -> bool:
+        """Предзагрузка модели в память при старте (ROADMAP 1.3):
+        первый вызов распознавания не ждёт загрузки модели.
+        """
+        if not self.is_installed():
+            return False
+        try:
+            self._get_model()
+            return True
+        except Exception as ex:  # noqa: BLE001
+            log_error("WhisperService", f"Предзагрузка модели: {ex}")
+            print(f"[Whisper] Не удалось предзагрузить модель: {ex}")
+            return False
+
+    @staticmethod
+    def _clean_artifacts(parts: list[str]) -> list[str]:
+        """Фильтрация артефактов распознавания (ROADMAP 1.2):
+        схлопывание пробелов/переносов, отбрасывание пустых и повторяющихся
+        подряд сегментов.
+        """
+        cleaned: list[str] = []
+        for text in parts:
+            # Схлопываем пробелы и переносы строк внутри сегмента
+            text = " ".join(text.split())
+            # Пустые и «пунктуационные» сегменты
+            if not text or len(text) < 2 or all(c in " .,!?-…" for c in text):
+                continue
+            # Повтор сразу предыдущего сегмента (артефакт галлюцинации)
+            if cleaned and text.lower() == cleaned[-1].lower():
+                continue
+            cleaned.append(text)
+        return cleaned
 
     def transcribe(self, wav_file: str) -> str:
-        """Распознаёт WAV-файл в строку (порт TranscribeAsync, язык — ru)."""
+        """Распознаёт WAV-файл в строку (порт TranscribeAsync, язык — ru).
+
+        При любой ошибке (нет модели, краш загрузки, таймаут) возвращает "",
+        чтобы голосовой слой ушёл в fallback на текстовый ввод.
+        """
         if not self.is_installed():
-            return "Модель Whisper не найдена."
+            print("[Whisper] Модель Whisper не найдена.")
+            return ""
 
         # Предобработка аудио для лучшего распознавания
         processed_file = AudioPreprocessor.process_for_whisper(wav_file)
 
+        # Результат/ошибка из рабочего потока (таймаут → отвечаем управляемо)
+        result_parts: list[str] = []
+        error_parts: list[BaseException] = []
+
+        def worker() -> None:
+            try:
+                model = self._get_model()
+
+                # WithLanguage("ru") в C#
+                segments, _info = model.transcribe(processed_file, language="ru")
+
+                for segment in segments:
+                    text = segment.text.strip()
+                    if text:
+                        result_parts.append(text)
+            except BaseException as exc:  # noqa: BLE001
+                error_parts.append(exc)
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+        thread.join(timeout=_TRANSCRIBE_TIMEOUT_S)
+
         try:
-            model = self._get_model()
+            if thread.is_alive():
+                # Поток не остановить — он дойдёт до конца в фоне (daemon),
+                # но пользователь получает управляемый ответ.
+                log_error(
+                    "WhisperService",
+                    f"Таймаут распознавания ({_TRANSCRIBE_TIMEOUT_S} с): {wav_file}",
+                )
+                print(f"[Whisper] Распознавание не уложилось в {_TRANSCRIBE_TIMEOUT_S} с.")
+                return ""
 
-            # WithLanguage("ru") в C#
-            segments, _info = model.transcribe(processed_file, language="ru")
+            if error_parts:
+                ex = error_parts[0]
+                log_error("WhisperService", f"Распознавание: {ex}")
+                print(f"[Whisper] Ошибка распознавания: {ex}")
+                return ""
 
-            result_parts: list[str] = []
-            for segment in segments:
-                text = segment.text.strip()
-
-                # Фильтруем пустые сегменты и артефакты
-                if text and len(text) > 1 and not all(c in (" ", ".", ",") for c in text):
-                    result_parts.append(text)
-                    result_parts.append(" ")
-
-            return "".join(result_parts).strip()
+            cleaned = self._clean_artifacts(result_parts)
+            return " ".join(cleaned)
         finally:
             # Удаляем обработанный файл
             if processed_file != wav_file:

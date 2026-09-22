@@ -8,6 +8,31 @@ from pathlib import Path
 
 from jarvis import paths
 
+# Общий замок для записи в постоянный errors.log (межпоточный, межмодульный)
+_ERRORS_LOCK = threading.Lock()
+
+
+def _errors_path() -> Path:
+    """Постоянный файл ошибок logs/errors.log (ROADMAP 1.1)."""
+    folder = paths.logs_dir()
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / "errors.log"
+
+
+def log_error(source: str, message: str) -> None:
+    """Дозапись ошибки в logs/errors.log из любого модуля (best-effort).
+
+    Логирование не должно ронять рабочий процесс: любые сбои записи
+    проглатываются.
+    """
+    try:
+        line = f"[{datetime.now():%Y-%m-%d %H:%M:%S}] [ERROR] [{source}] {message}\n"
+        with _ERRORS_LOCK:
+            with open(_errors_path(), "a", encoding="utf-8") as errors_file:
+                errors_file.write(line)
+    except OSError:
+        pass
+
 
 class LogService:
     def __init__(self) -> None:
@@ -30,6 +55,8 @@ class LogService:
 
     def error(self, message: str) -> None:
         self._write("ERROR", message)
+        # ERROR дублируется в постоянный errors.log между сессиями (ROADMAP 1.1)
+        log_error("LogService", message)
 
     def _write(self, level: str, message: str) -> None:
         line = f"[{datetime.now():%Y-%m-%d %H:%M:%S}] [{level}] {message}"
