@@ -19,8 +19,10 @@ public class ContinuousAudioRecorder : IDisposable
     private int _bufferCapacity;
 
     // VAD — адаптивный порог
-    private float _noiseFloor = 0.005f;    // Уровень шума (замеряется при старте)
-    private float _speechThreshold = 0.010f; // Порог = noiseFloor × 2.5
+    private float _noiseFloor = 0.005f;    // Уровень шума (среднее за калибровку)
+    private float _speechThreshold = 0.010f; // Порог = средний шум × 2
+    private double _calibSum;               // Сумма RMS для среднего при калибровке
+    private int _calibCount;                // Количество замеров при калибровке
     private bool _isSpeech;
     private bool _calibrated;
     private DateTime _speechStartTime;
@@ -57,6 +59,8 @@ public class ContinuousAudioRecorder : IDisposable
             _calibrated = false;
             _noiseFloor = 0.005f;
             _speechThreshold = 0.010f;
+            _calibSum = 0;
+            _calibCount = 0;
 
             // Сброс окна RMS
             _rmsSum = 0;
@@ -220,13 +224,16 @@ public class ContinuousAudioRecorder : IDisposable
         // === Адаптивная калибровка (первые 2 сек — замер шума) ===
         if (!_calibrated && _totalSamplesWritten < 32000) // 2 сек при 16kHz
         {
-            if (rms > _noiseFloor)
-                _noiseFloor = rms;
+            _calibSum += rms;
+            _calibCount++;
 
-            // После 2 сек устанавливаем порог
+            // После 2 сек устанавливаем порог по СРЕДНЕМУ шуму комнаты.
+            // Максимум ломался на случайном всплеске → порог непроходимо высоким.
             if (_totalSamplesWritten >= 30000)
             {
-                _speechThreshold = Math.Max(_noiseFloor * 2.5f, 0.005f);
+                var meanNoise = _calibCount > 0 ? (float)(_calibSum / _calibCount) : 0.005f;
+                _noiseFloor = meanNoise;
+                _speechThreshold = Math.Clamp(meanNoise * 2.0f, 0.005f, 0.04f);
                 _calibrated = true;
             }
             return; // Ещё калибруемся — не триггерим

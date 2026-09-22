@@ -1,5 +1,6 @@
 using JARVIS.Voice.Audio;
 using JARVIS.Voice.Whisper;
+using System.Text.RegularExpressions;
 
 namespace JARVIS.Voice.WakeWord;
 
@@ -7,6 +8,7 @@ namespace JARVIS.Voice.WakeWord;
 /// Детектор ключевого слова "Джарвис".
 /// Использует непрерывную запись с круговым буфером и энергетический VAD.
 /// Отправляет аудио в Whisper ТОЛЬКО при обнаружении речи — без лишних вызовов.
+/// Сопоставление нечёткое (Levenshtein) — ловит «джерви», «джервес», «чарви».
 /// </summary>
 public class WakeWordDetector : IDisposable
 {
@@ -14,13 +16,20 @@ public class WakeWordDetector : IDisposable
     private readonly WhisperService _whisper = new();
     private readonly VoiceConfig _config;
 
+    // Точные варианты (проверка подстрокой)
     private readonly string[] _wakeWordVariants;
 
+    // Ядра для нечёткого сравнения (расстояние Левенштейна)
+    private static readonly string[] FuzzyCores =
+    {
+        "джарвис", "джервис", "джервес", "джервис", "чарвис", "jarvis"
+    };
+
     // Настройки
-    private const float ListenChunkSeconds = 3f;    // Длина сегмента для анализа
-    private const float PreSpeechBufferSeconds = 1f; // Буфер до начала речи
-    private const float MinSpeechSeconds = 0.5f;     // Минимальная длительность речи
-    private const float ScanIntervalMs = 500;        // Интервал проверки энергии
+    private const float PreSpeechBufferSeconds = 1.5f; // Буфер до начала речи
+    private const float MinSpeechSeconds = 0.5f;       // Минимальная длительность речи
+    private const float MaxSegmentSeconds = 9f;        // Макс. окно извлечения (буфер 10 сек)
+    private const float ScanIntervalMs = 400;          // Интервал проверки энергии
 
     public WakeWordDetector(VoiceConfig config)
     {
@@ -30,9 +39,8 @@ public class WakeWordDetector : IDisposable
         {
             config.WakeWord.ToLower(),
             "джарвис",
-            "джэрвис",
             "джервис",
-            "джервис",
+            "джервес",
             "jarvis"
         };
     }
@@ -44,14 +52,17 @@ public class WakeWordDetector : IDisposable
     /// </summary>
     public async Task<string> WaitForWakeWordAsync(CancellationToken ct = default)
     {
-        // Запускаем непрерывную запись (10-секундный буфер)
+        // Запускаем непрерывную запись (если уже идёт — не перезапускаем,
+        // чтобы не терять калибровку VAD на каждом цикле)
         _recorder.StartContinuousRecording(bufferSeconds: 10);
+
+        var completed = false;
 
         try
         {
             while (!ct.IsCancellationRequested)
             {
-                // Ждём появления речи (показываем RMS для отладки)
+                // Ждём появления речи
                 while (!_recorder.IsSpeechDetected && !ct.IsCancellationRequested)
                 {
                     await Task.Delay((int)ScanIntervalMs, ct);
@@ -59,7 +70,7 @@ public class WakeWordDetector : IDisposable
 
                 if (ct.IsCancellationRequested) break;
 
-                // Речь обнаружена — ждём окончания (тишина 1.5 сек)
+                // Речь обнаружена — ждём окончания (тишина после речи)
                 var speechStartTime = DateTime.Now;
                 var lastSpeechTime = DateTime.Now;
 
@@ -72,24 +83,26 @@ public class WakeWordDetector : IDisposable
                         lastSpeechTime = DateTime.Now;
                     }
 
-                    // Тишина > 1.5 сек после речи
                     var silenceDuration = (DateTime.Now - lastSpeechTime).TotalMilliseconds;
                     var speechDuration = (DateTime.Now - speechStartTime).TotalSeconds;
 
-                    if (silenceDuration > 1500 && speechDuration >= MinSpeechSeconds)
+                    if (silenceDuration > 1200 && speechDuration >= MinSpeechSeconds)
                         break;
 
-                    // Слишком длинная речь (>8 сек) — обрезаем
+                    // Слишком длинная речь (>8 сек) — берём всё что есть в буфере
                     if (speechDuration > 8)
                         break;
                 }
 
                 if (ct.IsCancellationRequested) break;
 
-                // Извлекаем сегмент: буфер до речи + вся речь + хвост
+                // Извлекаем сегмент: буфер до речи + вся речь + хвост.
+                // ВАЖНО: окно = вся речь + буфер, ограничено только размером
+                // кольцевого буфера (9 сек) — «Джарвис» в начале длинной речи
+                // больше не обрезается.
                 var totalSeconds = (float)(DateTime.Now - speechStartTime).TotalSeconds
-                                   + PreSpeechBufferSeconds + 0.5f;
-                totalSeconds = Math.Min(totalSeconds, ListenChunkSeconds + 2f);
+                                   + PreSpeechBufferSeconds;
+                totalSeconds = Math.Min(totalSeconds, MaxSegmentSeconds);
 
                 // Сохраняем во временный файл
                 var wavFile = _recorder.SaveRecentAudio(totalSeconds);
@@ -114,17 +127,16 @@ public class WakeWordDetector : IDisposable
                 if (string.IsNullOrWhiteSpace(text))
                     continue;
 
-                // Проверяем наличие ключевого слова
-                var lowerText = text.ToLower().Trim();
-
-                foreach (var variant in _wakeWordVariants)
+                // Проверяем наличие ключевого слова (сначала точно, потом нечётко)
+                if (IsWakeWord(text))
                 {
-                    if (lowerText.Contains(variant))
-                    {
-                        Console.WriteLine($"🔔 Обнаружено: \"{text.Trim()}\"");
-                        return text;
-                    }
+                    Console.WriteLine($"🔔 Обнаружено: \"{text.Trim()}\"");
+                    completed = true;
+                    return text;
                 }
+
+                // Отладочный вывод: что реально распознал Whisper
+                Console.WriteLine($"💤 Распознано: \"{text.Trim()}\" (не ключевое слово)");
             }
         }
         catch (OperationCanceledException) { }
@@ -134,7 +146,11 @@ public class WakeWordDetector : IDisposable
         }
         finally
         {
-            _recorder.StopContinuousRecording();
+            // Останавливаем запись только если не нашли wake word:
+            // при успехе рекордер продолжает работать для записи команды
+            // (и не нужна повторная калибровка VAD на следующем цикле)
+            if (!completed)
+                _recorder.StopContinuousRecording();
         }
 
         return string.Empty;
@@ -144,6 +160,72 @@ public class WakeWordDetector : IDisposable
     /// Получает ссылку на рекордер для записи команды после wake word.
     /// </summary>
     public ContinuousAudioRecorder Recorder => _recorder;
+
+    /// <summary>
+    /// Проверяет текст на ключевое слово: точное совпадение подстроки,
+    /// затем нечёткое сравнение по словам (расстояние Левенштейна ≤ 1–2).
+    /// </summary>
+    private bool IsWakeWord(string text)
+    {
+        var norm = text.ToLowerInvariant().Replace('ё', 'е');
+
+        // 1) Точная проверка подстрокой
+        foreach (var variant in _wakeWordVariants)
+        {
+            if (norm.Contains(variant))
+                return true;
+        }
+
+        // 2) Нечёткое сравнение по словам (ловит «джерви», «джервес», «чарви»)
+        var words = Regex.Split(norm, @"[^\p{L}]+");
+
+        foreach (var word in words)
+        {
+            if (word.Length < 4 || word.Length > 12)
+                continue;
+
+            foreach (var core in FuzzyCores)
+            {
+                if (Math.Abs(word.Length - core.Length) > 2)
+                    continue;
+
+                // Порог зависит от длины: короткие слова — строже (меньше ложных срабатываний)
+                var maxDistance = word.Length >= 6 ? 2 : 1;
+
+                if (Levenshtein(word, core) <= maxDistance)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Расстояние Левенштейна (оптимизированная матрица).</summary>
+    private static int Levenshtein(string a, string b)
+    {
+        var prev = new int[b.Length + 1];
+        var curr = new int[b.Length + 1];
+
+        for (int j = 0; j <= b.Length; j++)
+            prev[j] = j;
+
+        for (int i = 1; i <= a.Length; i++)
+        {
+            curr[0] = i;
+
+            for (int j = 1; j <= b.Length; j++)
+            {
+                var cost = a[i - 1] == b[j - 1] ? 0 : 1;
+                curr[j] = Math.Min(
+                    Math.Min(curr[j - 1] + 1, prev[j] + 1),
+                    prev[j - 1] + cost);
+            }
+
+            (prev, curr) = (curr, prev);
+        }
+
+        return prev[b.Length];
+    }
 
     private static void TryDelete(string path)
     {
