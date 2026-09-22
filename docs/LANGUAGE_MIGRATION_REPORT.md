@@ -28,16 +28,16 @@
 
 **За:**
 - **Нативное соответствие фокусу обучения ИИ на Python.** Код, который ИИ генерирует на Python, будет качественнее, а не «переносом знаний с C#». Это прямой выигрыш в скорости разработки, т.к. почти вся эволюция JARVIS — это генерация/доработка кода ИИ.
-- **Экосистема AI — лучшая в мире:** `faster-whisper` (STT быстрее и легче текущего `Whisper.net`), `piper-tts` (официальный Python-API вместо запуска exe), `openai`/`ollama` клиенты из коробки, `langchain`, `llama-index`, RAG-библиотеки, `sentence-transformers` для эмбеддингов памяти. Граница «просто LLM-клиент» → «агент с инструментами, памятью, эмбеддингами» в Python проходит куда проще.
-- **Web-панель** (`docs/WEB_PANEL_PLAN.md`) — `FastAPI`/`uvicorn` вместо отдельного ASP.NET слоя. Одна экосистема.
+- **Экосистема AI — лучшая в мире:** `faster-whisper` (STT на CTranslate2 — по данным авторов, до 4× быстрее `openai/whisper`, и в сравнениях с `whisper.cpp`, на котором основан `Whisper.net`, чаще выигрывает: 14 с против 46 с на small.en в одном из issue; результаты зависят от конфигурации), `piper1-gpl`/`piper-tts` (официальный Python-API вместо запуска exe), официальный клиент `ollama` с PyPI, `langchain`, `llama-index`, RAG-библиотеки, `sentence-transformers` для эмбеддингов памяти. Граница «просто LLM-клиент» → «агент с инструментами, памятью, эмбеддингами» в Python проходит куда проще. *(Нюанс: для C# тоже существует `FasterWhisper.NET` на CTranslate2 — но это исключение, подтверждающее правило о слабости AI-экосистемы .NET.)*
+- **Web-панель** (`docs/WEB_PANEL_PLAN.md`) — `FastAPI`/`uvicorn` вместо отдельного ASP.NET слоя. Одна экосистема; по сырой производительности ASP.NET Core опережает FastAPI (TechEmpower), но выигрыш здесь — в скорости разработки, а не RPS.
 - **Голос:** `pycaw` (громкость), `sounddevice`/`pyaudio` (запись), `comtypes` (CoreAudio) — всё зрелое. Реестр — `winreg` из стандартной библиотеки. WMI — `wmi`/`pywin32`.
 - **Плагины:** перезагружаемые Python-модули через `importlib` проще, чем работающий поверх `Assembly.LoadFrom` (сейчас в `PluginManager` уже есть костыль с выгрузкой DLL из-за блокировки файла).
 - **Развязывает руки:** меньше ритуала (csproj/slnx/restore/build), быстрее прототипы, REPL для отладки, больше готовых решений «из коробки».
 
 **Против:**
-- **Производительность самого языка** — Python в 30–100× медленнее C# на CPU-коде. Но: конвейер JARVIS — это I/O-нагрузка (HTTP к Ollama, subprocess к Piper, SQLite), реальный CPU-код — пребывание аудио и парсинг — тривиален. **На пользовательском латентном времени переход не заметен.**
+- **Производительность самого языка** — Python медленнее C# в среднем в десятки раз: на базовых операциях — **2–14×** (бенчмарк Python 3.14 vs .NET 10), на числовых задачах — до 30× и больше (некоторые бенчмарки дают и большие разрывы). Но: конвейер JARVIS — это I/O-нагрузка (HTTP к Ollama, subprocess к Piper, SQLite), реальный CPU-код — пребывание аудио и парсинг — тривиален. **На пользовательском латентном времени переход не заметен.**
 - **GIL** — мешает только чистым CPU-потокам; решается `asyncio` (весь I/O) и `multiprocessing`/выносом в нативные библиотеки (Whisper, ONNX уже там).
-- **Упаковка под Windows:** `PyInstaller`/`uv` дают единый дистрибутив, но он крупнее и капризнее, чем self-contained .NET. Риск «не запустилось у пользователя» выше.
+- **Упаковка под Windows:** `PyInstaller`/`uv` дают единый дистрибутив, но он крупнее и капризнее, чем self-contained .NET: типичный exe ~60 МБ и запуск 2–3 с против меньшего и более быстрого `dotnet publish`; главное — известная проблема **ложных срабатываний антивирусов** на exe, собранных PyInstaller (15–18 AV-вендоров на VirusTotal в GitHub-иссью pyinstaller #8164). Риск «не запустилось/удалено у пользователя» выше.
 - **Типобезопасность:** `Nullable`-аннотации C# ловят ошибки на компиляции; Python — только `mypy`/`pyright` на CI, и то частично.
 - **P/Invoke-тонкости** (объём через CoreAudio COM, захват экрана) придётся переписывать на `pycaw`/`comtypes`/`mss` — зрелые, но это не «конвертация», а ручной рерайт ~5–7 файлов.
 - Плагины `.dll` (если они у внешних авторов) станут несовместимы — только Python-плагины.
@@ -53,7 +53,7 @@
 
 ### Вариант D. Остаться на C#
 
-- .NET 10 — отличный, быстрый, типобезопасный, Windows-first. Проблема только одна, но она системная: **ИИ-модель генерирует C# заметно менее уверенно, чем Python.** Поскольку JARVIS развивается силами ИИ, это постоянное трение в каждой задаче.
+- .NET 10 — отличный, быстрый, типобезопасный, Windows-first; выпущен 11 ноября 2025 г. как LTS с поддержкой до ноября 2028 г. Проблема только одна, но она системная: **ИИ-модель генерирует C# заметно менее уверенно, чем Python.** Поскольку JARVIS развивается силами ИИ, это постоянное трение в каждой задаче.
 
 ---
 
@@ -66,8 +66,8 @@
 | `JARVIS.Core` (engine, pipeline, DI, plugins) | 🟡 Средняя | DI → простая фабрика или `dependency-injector`; плагины DLL → `importlib`; логика та же |
 | `JARVIS.Tools/Applications` (реестр, сканеры) | 🟡 Средняя | `winreg` + `pathlib` — прямой аналог, рерайт ~10 файлов |
 | `JARVIS.Tools` Windows (громкость, процессы, экран) | 🟠 Средне-высокая | `pycaw`, `psutil`, `mss`, `comtypes` — зрелое, но P/Invoke-код переписывается вручную |
-| `JARVIS.Voice` (Whisper/Piper/NAudio) | 🟢 Низкая (даже выигрыш) | `faster-whisper` + `sounddevice` + `piper` Python-API; выпадает ручной запуск exe |
-| Web-панель (план) | 🟢 Низкая (выигрыш) | `FastAPI` — быстрее, чем писать ASP.NET |
+| `JARVIS.Voice` (Whisper/Piper/NAudio) | 🟢 Низкая (даже выигрыш) | `faster-whisper` + `sounddevice` + официальный Python-API piper (`OHF-Voice/piper1-gpl`); выпадает ручной запуск exe |
+| Web-панель (план) | 🟢 Низкая (выигрыш) | `FastAPI` — быстрее разрабатывать, чем ASP.NET (по RPS ASP.NET Core впереди, но для внутренней панели это неважно) |
 
 ---
 
@@ -114,3 +114,26 @@
 3. **Безопасно: остаться на C#** — если стабильность текущей базы важнее, чем скорость новых фич; можно сгладить трение ИИ с C# строгими правилами в AGENTS.md (стиль, паттерны, примеры).
 
 Переход на Rust/Go для данного проекта **не рекомендуется** — выигрыш в производительности не нужен, а экосистема AI и удобство работы ИИ с языком хуже, чем у Python.
+
+---
+
+## 7. Проверка данных веб-поиском
+
+Ключевые утверждения отчёта сверены с источниками (поиск, июнь 2026). Итоги:
+
+| Утверждение | Результат | Источник |
+|---|---|---|
+| .NET 10 выпущен 11.11.2025, LTS до 11.2028 | ✅ Подтверждено | [Wikipedia: .NET](https://en.wikipedia.org/wiki/.NET), [InfoQ](https://www.infoq.com/news/2025/10/dotnet-10-rc-2-release) |
+| Python медленнее C# «в 30–100×» | ⚠️ **Исправлено** → «в десятки раз; на базовых операциях 2–14×» | [Бенчмарк Python 3.14 vs .NET 10](https://github.com/mikeckennedy/python-numbers-everyone-should-know/blob/main/code/basic_ops/vs_dotnet/RESULTS.md), [python-vs-csharp benchmarks](https://programming-language-benchmarks.vercel.app/python-vs-csharp) |
+| `faster-whisper` быстрее whisper.cpp (основы Whisper.net) | ✅ В целом подтверждено (уточнена вариативность) | [SYSTRAN/faster-whisper](https://github.com/systran/faster-whisper) (до 4× vs openai/whisper), [issue #1127 whisper.cpp](https://github.com/ggml-org/whisper.cpp/issues/1127) (14 с vs 46 с), [discussion #368](https://github.com/SYSTRAN/faster-whisper/discussions/368) |
+| У официального piper есть Python-API | ✅ Подтверждено (`API_PYTHON.md`) | [OHF-Voice/piper1-gpl](https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/API_PYTHON.md) |
+| У Ollama есть официальный Python-клиент | ✅ Подтверждено (PyPI `ollama`, MIT) | [ollama/ollama-python](https://github.com/ollama/ollama-python), [PyPI](https://www.pypi.org/project/ollama/) |
+| `winreg` входит в stdlib Python; WMI-модуль существует | ✅ Подтверждено | [Документация winreg](https://docs.python.org/3/library/winreg.html), [cloudbase/wmi](https://github.com/cloudbase/wmi) |
+| `pycaw` зрело поддерживается | ✅ Подтверждено (GitHub + PyPI) | [AndreMiras/pycaw](https://github.com/AndreMiras/pycaw) |
+| PyInstaller: крупнее .NET self-contained, проблемы с AV | ✅ Подтверждено (ложные срабатывания 15–18 AV) | [pyinstaller #8164](https://github.com/pyinstaller/pyinstaller/issues/8164), [pyinstaller #8425](https://github.com/pyinstaller/pyinstaller/issues/8425) |
+| Python — главный язык AI-экосистемы, растёт | ✅ Подтверждено (+7 п.п. за 2024→2025) | [Stack Overflow Survey 2025](https://survey.stackoverflow.co/2025/technology) |
+| ASP.NET Core быстрее FastAPI по RPS | ✅ Подтверждено; в отчёт добавлено уточнение про «скорость разработки vs RPS» | [TechEmpower Framework Benchmarks](https://www.techempower.com/blog/2016/11/16/framework-benchmarks-round-13), [сравнение .NET vs Python API](https://python.plainenglish.io/created-the-same-api-in-net-and-python-which-one-performs-better-c81c6309abd2) |
+
+**Единственное существенное исправление по итогам проверки:** множитель «30–100×» был завышен — типичный разрыв на базовых операциях составляет 2–14×, на тяжёлых числовых задачах доходит до 30×+. Вывод раздела 4 («на латентном времени переход не заметен») от этого не меняется, поскольку конвейер JARVIS — I/O-нагрузка.
+
+**Примечание:** часть результатов поиска возвращалась через запасные движки (Tavily/Exa) из-за недоступности основного Bing — на суть утверждений это не влияло.
