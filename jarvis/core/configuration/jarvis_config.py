@@ -27,6 +27,9 @@ class JarvisConfig:
     model: str = "qwen3.5:2b"
 
     voice_enabled: bool = False
+    # Громкость голосового вывода 0.0–1.0 (расширение Python-версии;
+    # C# имел жёсткий дефолт 1.0, DSP нормализует пик до −1.5 dBFS).
+    voice_volume: float = 0.5
     auto_memory: bool = False
     debug_mode: bool = False
     ollama_timeout_minutes: int = 10
@@ -40,6 +43,7 @@ class JarvisConfig:
         "Language": "language",
         "Model": "model",
         "VoiceEnabled": "voice_enabled",
+        "VoiceVolume": "voice_volume",
         "AutoMemory": "auto_memory",
         "DebugMode": "debug_mode",
         "OllamaTimeoutMinutes": "ollama_timeout_minutes",

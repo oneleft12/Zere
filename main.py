@@ -64,6 +64,9 @@ def main() -> None:
     jarvis = services.get(JarvisEngine)
     voice_manager = VoiceManager()
 
+    # Громкость голоса из config.json (voiceVolume, дефолт 0.5)
+    voice_manager.config.volume = float(config.voice_volume)
+
     active_personality = jarvis.plugin_manager.active_personality
     if active_personality is not None:
         print(f"[Личность] {active_personality.name} | Стиль: {active_personality.style}\n")

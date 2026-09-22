@@ -21,7 +21,10 @@ class VoiceConfig:
 
     microphone_index: int = 0
 
-    volume: float = 1.0
+    # Дефолт 0.5 (вместо 1.0 в C#): DSP нормализует пик до −1.5 dBFS, при
+    # 1.0 звук «орёт» на полную. Значение переопределяется из config.json
+    # (ключ voiceVolume) в main.py.
+    volume: float = 0.5
 
     wake_word_enabled: bool = True
 
