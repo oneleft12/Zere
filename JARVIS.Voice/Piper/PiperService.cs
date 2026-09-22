@@ -81,8 +81,8 @@ public class PiperService
         {
             // Кинематографичный баритон:
             // --length_scale 1.15 — медленная, уверенная подача
-            // --noise_scale 0.45 — чистый голос, минимум шума
-            // --noise_w 0.7 — стабильная интонация, без дрожания
+            // --noise_scale 0.35 — минимум шума синтеза (было 0.45, шипело)
+            // --noise_w 0.65 — стабильная интонация, без металличности
             // --sentence_silence 0.4 — тишина после предложения (не обрезает окончания)
             var psi = new ProcessStartInfo
             {
@@ -90,8 +90,8 @@ public class PiperService
                 Arguments = $"--model \"{_cachedModelPath}\" " +
                            $"--output_file \"{outputFile}\" " +
                            $"--length_scale 1.15 " +
-                           $"--noise_scale 0.45 " +
-                           $"--noise_w 0.7 " +
+                           $"--noise_scale 0.35 " +
+                           $"--noise_w 0.65 " +
                            $"--sentence_silence 0.4",
                 UseShellExecute = false,
                 RedirectStandardInput = true,
