@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace JARVIS.Voice.Piper;
 
@@ -67,6 +68,12 @@ public class PiperService
 
     public async Task<string> SpeakAsync(string text)
     {
+        // Убираем эмодзи, смайлики и «ролевые» пометки — TTS не должен их читать
+        text = StripEmotions(text);
+
+        if (string.IsNullOrWhiteSpace(text))
+            return "";
+
         if (!IsLoaded || _piperExe == null)
         {
             Console.WriteLine($"[Piper] {text}");
@@ -135,6 +142,45 @@ public class PiperService
             Console.WriteLine($"[Piper] Ошибка: {ex.Message}");
             return "";
         }
+    }
+
+    /// <summary>
+    /// Убирает из текста всё, что TTS не должен произносить:
+    /// эмодзи, текстовые смайлики, «ролевые» пометки (*улыбается*, (томно)),
+    /// markdown-символы и Markdown-эмодзи вроде :smile:.
+    /// </summary>
+    private static string StripEmotions(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return text;
+
+        // Ролевые пометки в скобках: (улыбается), (смеётся), (задумчиво)
+        text = Regex.Replace(text, @"\([^)]*[а-яёА-ЯЁ]{3,}[^)]*\)", " ");
+
+        // Ролевые пометки в *звёздочках*: *улыбается*, *качает головой*
+        text = Regex.Replace(text, @"\*[^*]*[а-яёА-ЯЁ]{3,}[^*]*\*", " ");
+
+        // Markdown-эмодзи :smile:, :heart:
+        text = Regex.Replace(text, @":[a-z_0-9]+:", " ");
+
+        // Текстовые смайлики: :) ;) :D :( :P <3 =) и т.п.
+        text = Regex.Replace(text, @"[:;=8][\-^']?[)(DPp/\\|]", " ");
+        text = Regex.Replace(text, @"[)(DPp/\\|][\-^']?[:;=8]", " ");
+        text = Regex.Replace(text, @"<3", " ");
+
+        // Юникод-эмодзи и символы (суррогатные пары, Variation Selector, ZWJ)
+        text = Regex.Replace(text,
+            @"[\uD800-\uDBFF][\uDC00-\uDFFF]|\uFE0F|\u200D|[\u2600-\u27BF]|\u2190-\u21FF|\u2B00-\u2BFF|\u2700-\u27BF]",
+            "");
+
+        // Убираем markdown-разметку: **bold**, *italic*, `code`, ## заголовки
+        text = Regex.Replace(text, @"[*_`#]{1,3}([^*_`#]+)[*_`#]{1,3}", "$1");
+        text = Regex.Replace(text, @"[*_`#~>|-]{2,}", " ");
+
+        // Схлопываем пробелы
+        text = Regex.Replace(text, @"\s{2,}", " ").Trim();
+
+        return text;
     }
 
     private string? FindPiperExecutable()
