@@ -9,17 +9,29 @@
 - **Управление компьютером** — запуск приложений, процессы, файлы, громкость
 - **Память** — SQLite-хранилище фактов о пользователе
 - **История диалогов** — сохранение и просмотр
-- **Плагины** — загрузка внешних плагинов (.dll)
+- **Плагины** — загрузка внешних плагинов (.dll в C#-версии, .py в Python-версии)
 - **Личности** — 6 стилей общения (Friendly, Formal, Sarcastic, Professional, Casual, Custom)
 
 ## Требования
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - [Ollama](https://ollama.com/download) — запущенный локальный сервер
 - Модель: `ollama pull qwen3.5:2b`
+- **Для C#-версии:** [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
+- **Для Python-версии:** Python 3.12+ и `pip install -r requirements.txt`
 - **Опционально:** Whisper (модель ggml-base.bin), Piper (TTS)
 
 ## Запуск
+
+### Python-версия (ветка `python-port`)
+
+```bash
+pip install -r requirements.txt
+python main.py
+```
+
+Требуется Python 3.12+. Структура: пакет `jarvis/` (ai, core, memory, tools, voice), точка входа `main.py`. Спецификация порта: `docs/PYTHON_PORT_SPEC.md`.
+
+### C#-версия (.NET 10)
 
 ```bash
 dotnet run --project JARVIS.App
@@ -45,12 +57,14 @@ dotnet run --project JARVIS.App
 ## Структура
 
 ```
-JARVIS.App        — точка входа
-JARVIS.Core       — ядро: engine, обработчики, плагины
-JARVIS.AI         — клиент Ollama
-JARVIS.Memory     — SQLite-память
-JARVIS.Tools      — инструменты: приложения, файлы, процессы
-JARVIS.Voice      — голос: Whisper + Piper
+main.py            — точка входа (Python)
+jarvis/            — Python-порт: ai, core, memory, tools, voice
+JARVIS.App         — точка входа (C#)
+JARVIS.Core        — ядро: engine, обработчики, плагины
+JARVIS.AI          — клиент Ollama
+JARVIS.Memory      — SQLite-память
+JARVIS.Tools       — инструменты: приложения, файлы, процессы
+JARVIS.Voice       — голос: Whisper + Piper
 ```
 
 ## Конфигурация

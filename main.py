@@ -1,0 +1,272 @@
+"""JARVIS — точка входа (Python-порт JARVIS.App/Program.cs)."""
+
+from __future__ import annotations
+
+import sys
+import threading
+
+from jarvis.core.configuration.jarvis_config import JarvisConfig
+from jarvis.core.dependencies.dependency_checker import DependencyChecker
+from jarvis.core.engine import JarvisEngine
+from jarvis.core.logging.log_service import LogService
+from jarvis.core.plugins.plugin_config import PluginConfig
+from jarvis.core.plugins.plugin_manager import PluginManager
+from jarvis.core.plugins.settings.settings_menu import SettingsMenu
+from jarvis.core.services import create_services
+from jarvis.memory.database.memory_database import MemoryDatabase
+from jarvis.voice.voice_manager import VoiceManager
+
+
+def main() -> None:
+    config = JarvisConfig.load()
+    logger = LogService()
+
+    logger.info(f"{config.assistant_name} OS {config.version} запускается.")
+
+    print(f"""
+=================================
+        {config.assistant_name}
+=================================
+
+Версия: {config.version}
+Модель: {config.model}
+Язык: {config.language}
+
+""")
+
+    checker = DependencyChecker(config)
+    checker.run_all()
+    checker.print_report()
+
+    if not checker.all_critical_passed():
+        checker.offer_install()
+
+    if not checker.all_critical_passed():
+        print("Критические зависимости не выполнены.")
+        print("Устраните ошибки выше и запустите снова.")
+        print("Нажмите Enter для выхода...")
+        try:
+            input()
+        except EOFError:
+            pass
+        return
+
+    print("Все зависимости в порядке.\n")
+
+    # Предложить установку голосовых компонентов (не критичные)
+    if config.voice_enabled:
+        checker.offer_voice_install()
+
+    services = create_services()
+
+    services.get(MemoryDatabase)
+
+    jarvis = services.get(JarvisEngine)
+    voice_manager = VoiceManager()
+
+    active_personality = jarvis.plugin_manager.active_personality
+    if active_personality is not None:
+        print(f"[Личность] {active_personality.name} | Стиль: {active_personality.style}\n")
+
+    if config.voice_enabled:
+        voice_manager.initialize(str(active_personality.style) if active_personality else None)
+        print("[Голос] Режим: текст + голос")
+    else:
+        print("[Голос] Отключен. Только текстовый режим.")
+
+    print("Команды: 'настройки' — панель настроек, 'exit' — выход")
+    print("         'голос' / 'voice' — переключить голосовой режим\n")
+
+    voice_mode = False
+
+    while True:
+        if voice_mode:
+            run_voice_mode(voice_manager, jarvis, config, logger, voice_mode_holder := [True])
+            voice_mode = False
+            continue
+
+        try:
+            message = input("Вы: ")
+        except EOFError:
+            break
+
+        if not message or not message.strip():
+            continue
+
+        lowered = message.strip().lower()
+
+        if lowered == "exit":
+            break
+
+        if lowered in ("настройки", "settings"):
+            plugin_manager = services.get(PluginManager)
+            plugin_config = services.get(PluginConfig)
+
+            settings_menu = SettingsMenu(plugin_manager, plugin_config)
+            settings_menu.show()
+
+            active_personality = jarvis.plugin_manager.active_personality
+            if active_personality is not None:
+                print(f"\n[Личность] {active_personality.name} | Стиль: {active_personality.style}\n")
+
+                if config.voice_enabled:
+                    voice_manager.set_personality_voice(str(active_personality.style))
+            continue
+
+        if lowered in ("голос", "voice"):
+            if not config.voice_enabled:
+                print("\nГолос отключен в конфиге.\n")
+                continue
+
+            voice_mode = True
+            print("\n[Голос] Голосовой режим активирован. Скажите 'выход' для отключения.\n")
+            continue
+
+        try:
+            answer = jarvis.process(message)
+
+            logger.info(f"JARVIS: {answer}")
+
+            print()
+            print(f"JARVIS: {answer}")
+            print()
+
+            if config.voice_enabled:
+                voice_manager.speak(answer)
+        except Exception as ex:  # noqa: BLE001 — как в исходнике: ловим всё
+            logger.error(str(ex))
+
+            print()
+            print(f"Ошибка: {ex}")
+            print()
+
+    voice_manager.close()
+    logger.info("JARVIS завершил работу.")
+
+
+def run_voice_mode(
+    voice_manager: VoiceManager,
+    jarvis: JarvisEngine,
+    config: JarvisConfig,
+    logger: LogService,
+    keep_running: list[bool],
+) -> None:
+    """Голосовой режим: wake word + голосовые команды (порт ветки voiceMode)."""
+    try:
+        import msvcrt  # noqa: PLC0415 — Windows-only, как и весь проект
+    except ImportError:
+        msvcrt = None  # type: ignore[assignment]
+
+    while keep_running[0]:
+        if voice_manager.config.wake_word_enabled:
+            voice_manager.enable_wake_word()
+
+            print("\n💤 Спящий режим. Скажите 'Джарвис' для активации.")
+            print("   Или напишите 'выход' для отключения голосового режима.\n")
+
+            cancel_event = threading.Event()
+
+            wake_detected = False
+            wake_result: list[bool] = [False]
+            wake_error: list[BaseException] = []
+
+            def wake_worker() -> None:
+                try:
+                    wake_result[0] = voice_manager.wait_for_wake_word(cancel_event)
+                except BaseException as exc:  # noqa: BLE001
+                    wake_error.append(exc)
+
+            wake_thread = threading.Thread(target=wake_worker, daemon=True)
+            wake_thread.start()
+
+            aborted = False
+            while wake_thread.is_alive() and not cancel_event.is_set():
+                # Неблокирующая проверка консоли (Console.KeyAvailable → msvcrt)
+                if msvcrt is not None and msvcrt.kbhit():
+                    text_input = input().strip().lower()
+                    if text_input in ("выход", "стоп", "exit"):
+                        cancel_event.set()
+                        break
+                wake_thread.join(timeout=0.1)
+
+            cancel_event.set()
+            wake_thread.join()
+
+            if cancel_event.is_set() and not wake_result[0] and not wake_error:
+                # Пользователь ввёл 'выход' — выходим из голосового режима
+                aborted = True
+
+            if aborted:
+                keep_running[0] = False
+                print("\n[Голос] Текстовый режим.\n")
+                return
+
+            if wake_error or not wake_result[0]:
+                if wake_error:
+                    keep_running[0] = False
+                    print("\n[Голос] Текстовый режим.\n")
+                    return
+                continue
+
+            # Ключевое слово обнаружено!
+            print("\n🎧 Слушаю вашу команду...")
+            print("   (или напишите 'выход')\n")
+
+            voice_input = voice_manager.listen_command()
+
+            if not voice_input or not voice_input.strip():
+                print("⚠️ Не удалось распознать команду.\n")
+                print("💤 Возвращаюсь в спящий режим.\n")
+                continue
+
+            print(f"Вы (голос): {voice_input}\n")
+
+            if voice_input.strip().lower() in ("выход", "стоп"):
+                keep_running[0] = False
+                print("[Голос] Текстовый режим.\n")
+                return
+
+            _process_voice(voice_input, jarvis, config, logger, voice_manager)
+            print("💤 Возвращаюсь в спящий режим.\n")
+        else:
+            # Обычный режим без ключевого слова (старый вариант)
+            print("[ГОЛОС] Скажите команду... ")
+            voice_input = voice_manager.listen()
+
+            if not voice_input or not voice_input.strip():
+                print("Не удалось распознать речь.\n")
+                continue
+
+            print(f"Вы (голос): {voice_input}\n")
+
+            if voice_input.strip().lower() in ("выход", "стоп"):
+                keep_running[0] = False
+                print("[Голос] Текстовый режим.\n")
+                return
+
+            _process_voice(voice_input, jarvis, config, logger, voice_manager)
+
+
+def _process_voice(
+    voice_input: str,
+    jarvis: JarvisEngine,
+    config: JarvisConfig,
+    logger: LogService,
+    voice_manager: VoiceManager,
+) -> None:
+    try:
+        answer = jarvis.process(voice_input)
+
+        logger.info(f"JARVIS: {answer}")
+
+        print(f"\nJARVIS: {answer}\n")
+
+        if config.voice_enabled:
+            voice_manager.speak(answer)
+    except Exception as ex:  # noqa: BLE001
+        logger.error(str(ex))
+        print(f"\nОшибка: {ex}\n")
+
+
+if __name__ == "__main__":
+    sys.exit(main())
