@@ -129,7 +129,7 @@
 ### Движок — что добавить к существующему стеку
 | Роль | Кандидат | Почему |
 |---|---|---|
-| **Основной (ru, выразительный)** | **CosyVoice2** (instruct) или **Fish Speech S2** | русский + текстовое управление эмоцией/темпом/громкостью; клонирование |
+| **Основной (ru, выразительный)** | **Fish Speech S2** (приоритет), CosyVoice2 — запасной | Fish: chunked streaming, лучший Time-to-First-Audio; CosyVoice: instruct-эмоции, но требует промпт перед синтезом (задержка) |
 | **Альтернатива ru + emotion** | **XTTS v2** (coqui-tts) | русский, клон, `speed`/`emotion`; тяжёлый и медленный — как «премиум»-режим |
 | **Fallback (текущий)** | **Piper** | 40 мс, дешёвый, полные noise/length-регуляторы |
 | **Клонирование (текущий)** | **PocketTTS** | оставить |
@@ -137,7 +137,7 @@
 | **Постобработка** | FFmpeg RubberBand + NAudio | питч/темп/EQ — «максимальные регулировки» на любом движке |
 
 ### Практические выводы
-1. **Абсолютный максимум регулировок** даёт связка: *CosyVoice-подобный instruct-движок (эмоции словами, ru) + DSP-слой (питч/темп/EQ) + структурные разметки пауз*. По отдельности ни один движок полного набора не даёт.
+1. **Абсолютный максимум регулировок** даёт связка: *выразительный движок с клонированием и эмоциями (Fish Speech S2 / CosyVoice-подобный instruct) + DSP-слой (питч/темп/EQ) + структурные разметки пауз*. По отдельности ни один движок полного набора не даёт.
 2. Для **русского** в первую очередь смотреть на: CosyVoice (9 яз., instruct), XTTS v2 (ru, emotion/speed), Fish Speech (ru tier-2), Bark (ru, медленный), Piper (ru, 4 голоса), Silero (ru, быстрый).
 3. **Latency-бюджет JARVIS**: первый звук должен быть <300 мс → Piper (~40 мс) и Kokoro-класс (~90 мс) укладываются; XTTS/Fish/IndexTTS требуют либо GPU, либо «стриминг попредложенно» (уже реализовано в `StreamPlayer`).
 4. Параллельно с выбором движка — **зашить в `VoiceConfig` универсальную модель параметров**: `speed`, `pitchSemis`, `volumeDb`, `expressiveness`, `emotion`, `sentencePause`, `eqPreset` — и маппить их на конкретный движок (+ DSP-фоллбэк для недостающих). Тогда переключение движка не ломает настройки пользователя.
@@ -145,7 +145,80 @@
 
 ---
 
-## 6. Источники
+## 6. Архитектурные инсайты (после ревью)
+
+### 6.1 DSP-слой и стриминг: Overlap-Add / Cross-fade
+Питч-шифтинг маленьких чанков на лету даёт фазовые сдвиги и щелчки на стыках. Требования к реализации в `StreamPlayer`:
+- **Overlap-Add (OLA)** или cross-fade при склейке чанков;
+- **Плавный переход при изменении параметров на лету** (пользователь крутит слайдер во время речи): fade-in/out старого и нового DSP-потоков на отрезке **~50–100 мс**;
+- Для real-time чанков предпочтительнее **SoundTouch** (быстрее RubberBand, лучше для чанков) в связке с **NAudio**; RubberBand — эталон качества для офлайн-обработки.
+
+### 6.2 Уровень текста: LLM генерирует mini-SSML сам
+Полноценный SSML тяжёлый и LLM его плохо держит. Вместо него — лёгкий токен-синтаксис в самом промпте:
+
+> *«При ответе используй теги: `[emotion=sarcastic]`, `[pause=500ms]`, `[speed=1.2]`. Пример: `[emotion=calm]Сэр, система в порядке.[pause=300ms][emotion=alert]Но я засек аномалию.»*
+
+Pipeline в .NET:
+1. **Regex-парсер** разбивает ответ LLM на массив `SpeechChunk { Text, Emotion, SpeedMultiplier, PauseMs }`;
+2. чанки батчами уходят в движок (Python-сервис или ONNX-раннер), параметры чанка пробрасываются в DSP-слой;
+3. старые чанки с уже начатым синтезом не пересинтезируются — параметры применяются от следующего чанка.
+
+### 6.3 Рейтинг основного движка: Fish Speech S2 — фаворит наравне с CosyVoice2
+- **Fish Speech S2** заточен под **chunked streaming inference** → лучший Time-to-First-Audio, критично для бюджета <300 мс; сильное клонирование с коротких референсов без потери просодии.
+- **CosyVoice2 Instruct** часто требует аудио-/текстовый промпт перед синтезом → добавляет задержку до первого звука.
+- Итог: **Fish S2 — основной кандидат**, CosyVoice2 — запасной (instruct-инструкции).
+
+### 6.4 Альтернатива Python-микросервису: ONNX Runtime in-process
+Вместо «зоопарка» `jarvis_tts_server.py` (Python + FastAPI + PyTorch) для **fallback-движков**:
+- **Piper** и **Silero TTS v5** конвертируются в `.onnx`;
+- в .NET 10 — нативный пакет **`Microsoft.ML.OnnxRuntime`**: запуск прямо в C#-процессе JARVIS, **без IPC-оверхеда** (HTTP/gRPC), выигрыш **20–50 мс**, деплой без Python-окружения и гигабайт весов PyTorch;
+- тяжёлые выразительные движки (Fish/CosyVoice/XTTS) остаются на Python-сервисе — ONNX-путь только для лёгких/фоллбэков.
+
+### 6.5 Universal VoiceProfile: паттерн Strategy + Adapter
+
+```csharp
+public record VoiceProfile
+{
+    // Базовые (уходят в DSP)
+    public float PitchSemitones { get; init; }   // -12 .. +12
+    public float VolumeDb { get; init; }
+
+    // Движковые (маппятся адаптерами)
+    public float SpeedMultiplier { get; init; }  // 0.5 .. 2.0
+    public string Emotion { get; init; }         // "neutral", "happy", "angry"…
+    public float Expressiveness { get; init; }   // 0.0 .. 1.0 → noise_scale (Piper), temperature (Fish)
+}
+
+public interface ITtsEngineAdapter
+{
+    Task<byte[]> SynthesizeAsync(string text, VoiceProfile profile);
+}
+```
+
+Принцип: если движок не умеет параметр (например питч) — адаптер отдаёт чистый PCM, а `AudioStreamPlayer` применяет SoundTouch на уровне .NET. **Пользователь не замечает разницу при переключении движков.**
+
+### 6.6 Лицензии для публичного релиза
+- **Релиз-дружелюбные**: Piper (MIT), CosyVoice2 (MIT), Kokoro (Apache 2.0), Silero;
+- **Только local test mode** (пользователь сам качает веса): XTTS v2 (CPML), Parler-TTS, IndexTTS, ChatTTS — выпилить или изолировать за переключателем «локальное тестирование».
+
+### 6.7 Дорожная карта внедрения
+
+| # | Шаг | Даёт | Зависимости |
+|---|---|---|---|
+| **1** | `VoiceProfile` + `ITtsEngineAdapter` (Strategy+Adapter), маппинг на Piper/PocketTTS | универсальная модель настроек, движки взаимозаменяемы | — |
+| **2** | DSP-слой в `StreamPlayer`: SoundTouch + NAudio, OLA/cross-fade 50–100 мс, live-переключение параметров | **питч/темп/громкость для любого движка — мгновенный UX-вин** ещё до интеграции новых движков | шаг 1 |
+| **3** | Расширить `VoiceConfig`/конфиг: `pitchSemis`, `volumeDb`, `expressiveness`, `emotion`, `sentencePause`; команда «настройки голоса» в консоли | пользователь настраивает голос «под себя» | шаг 1 |
+| **4** | Mini-SSML: regex-парсер `SpeechChunk[]` + системный промпт для LLM (`[emotion=..] [pause=..] [speed=..]`) | эмоции/паузы прямо из ответа LLM | шаг 1 |
+| **5** | Экспозировать Piper-регуляторы (`lengthScale`, `noiseScale`, `noiseScaleW`, `sentenceSilence`) в `jarvis_tts_server.py` | больше контроля на текущем fallback | — |
+| **6** | Интеграция Fish Speech S2 (основной выразительный, Python-сервис) | клонирование + стриминг + ru | шаги 1–4 |
+| **7** | (опц.) ONNX Runtime: Piper/Silero in-process через `Microsoft.ML.OnnxRuntime` | фоллбэк без Python, −20–50 мс | шаг 1 |
+| **8** | (опц.) IndexTTS-2 / dots.tts как экспериментальный «эмоциональный» режим | максимум эмоций | отдельный флаг |
+
+**Самый быстрый вин**: шаги 1+2+3 — уже без единого нового движка пользователь получает питч, темп, громкость и сохранённый профиль голоса.
+
+---
+
+## 7. Источники
 
 - [Kokoro vs Piper vs XTTS v2: Local TTS on M5 Max (2026) — Contra Collective](https://contracollective.com/blog/kokoro-vs-piper-vs-xtts-local-text-to-speech-m5-max-2026)
 - [12 Best Open-Source TTS Models Compared (2025) — Inferless](https://www.inferless.com/learn/comparing-different-text-to-speech---tts--models-part-2)
