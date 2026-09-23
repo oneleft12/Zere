@@ -158,3 +158,5 @@ tools/voice_cache/
 
 # Голосовой референс пользователя (биометрия — не коммитим)
 voice/reference.wav
+tools/uvw.exe
+tools/uvx.exe
