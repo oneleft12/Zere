@@ -31,6 +31,13 @@ public class VoiceConfig
     /// <summary>
     /// Множитель скорости речи (1.0 = норма, меньше = быстрее, больше = медленнее).
     /// 1.15 — медленная, уверенная подача для кинематографичного стиля.
+    /// Передаётся piper как --length_scale.
     /// </summary>
     public float SpeechSpeed { get; set; } = 1.15f;
+
+    /// <summary>
+    /// Пауза (в секундах) после каждого предложения во время синтеза
+    /// (piper --sentence_silence). Меньше — отзывчивее.
+    /// </summary>
+    public float SentenceSilence { get; set; } = 0.2f;
 }

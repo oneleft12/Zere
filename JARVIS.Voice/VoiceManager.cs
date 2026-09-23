@@ -13,6 +13,7 @@ public class VoiceManager : IDisposable
     private readonly PiperService _piper = new();
     private readonly VoiceConfig _config = new();
     private WakeWordDetector? _wakeWordDetector;
+    private CancellationTokenSource? _speakCts;
 
     private readonly Dictionary<string, string> _personalityVoices = new()
     {
@@ -36,6 +37,10 @@ public class VoiceManager : IDisposable
         {
             voiceName = styleVoice;
         }
+
+        // Параметры инференса (скорость речи, пауза после предложения) —
+        // до Initialize, чтобы процесс piper сразу стартовал с ними.
+        _piper.SetInferenceParams(_config.SpeechSpeed, _config.SentenceSilence);
 
         var ttsReady = _piper.Initialize(voiceName);
 
@@ -83,29 +88,75 @@ public class VoiceManager : IDisposable
             return;
         }
 
-        var wavFile = await _piper.SpeakAsync(text);
+        // Новая речь прерывает текущую: отменяем цикл озвучки и сразу глушим плеер,
+        // чтобы не ждать конца текущего предложения.
+        _speakCts?.Cancel();
+        _speakCts?.Dispose();
+        _speakCts = new CancellationTokenSource();
+        _player.Stop();
+        var ct = _speakCts.Token;
 
-        if (!string.IsNullOrEmpty(wavFile))
+        var spoken = 0;
+
+        try
         {
-            string fileToPlay = wavFile;
-
-            // Профессиональная DSP-обработка: EQ, компрессия, нормализация
-            if (_config.AudioProcessing)
+            // Стриминг: первое предложение играет, пока следующее ещё синтезируется.
+            await foreach (var wavFile in _piper.SynthesizeStreamAsync(text, ct))
             {
-                var processedFile = AudioProcessor.Process(wavFile);
-                fileToPlay = processedFile;
+                if (ct.IsCancellationRequested)
+                {
+                    TryDelete(wavFile);
+                    break;
+                }
+
+                string fileToPlay = wavFile;
+
+                // Профессиональная DSP-обработка: EQ, компрессия, нормализация
+                if (_config.AudioProcessing)
+                {
+                    fileToPlay = AudioProcessor.Process(wavFile);
+                }
+
+                await _player.PlayAsync(fileToPlay, _config.Volume);
+
+                TryDelete(fileToPlay);
+                if (fileToPlay != wavFile)
+                    TryDelete(wavFile);
+
+                spoken++;
+
+                if (ct.IsCancellationRequested)
+                    break;
             }
-
-            await _player.PlayAsync(fileToPlay, _config.Volume);
-
-            // Удаляем обработанный файл (если он отличается от оригинального)
-            try { if (fileToPlay != wavFile) File.Delete(fileToPlay); } catch { }
-            try { File.Delete(wavFile); } catch { }
         }
+        catch (OperationCanceledException)
+        {
+            // Озвучка прервана — это нормальный сценарий.
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Voice] Ошибка озвучки: {ex.Message}");
+        }
+
+        // Фолбэк: TTS не выдал ни одного кадра (и это не отмена) — печатаем текст,
+        // чтобы ответ не потерялся.
+        if (spoken == 0 && !ct.IsCancellationRequested)
+        {
+            Console.WriteLine($"[JARVIS] {text}");
+        }
+    }
+
+    private static void TryDelete(string? path)
+    {
+        if (string.IsNullOrEmpty(path))
+            return;
+
+        try { File.Delete(path); } catch { /* файл мог уже удалиться */ }
     }
 
     public void StopSpeaking()
     {
+        _speakCts?.Cancel();
         _player.Stop();
     }
 
@@ -238,6 +289,9 @@ public class VoiceManager : IDisposable
 
     public void Dispose()
     {
+        _speakCts?.Cancel();
+        _speakCts?.Dispose();
+        _piper.Dispose();
         _recorder.Dispose();
         _player.Dispose();
         _wakeWordDetector?.Dispose();
