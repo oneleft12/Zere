@@ -21,7 +21,7 @@
 | **JARVIS.AI** | Клиент Ollama (HTTP) для генерации ответов |
 | **JARVIS.Memory** | SQLite-память: воспоминания + история разговоров |
 | **JARVIS.Tools** | Инструменты: приложения, файлы, игры, Windows, система |
-| **JARVIS.Voice** | Голосовой ввод (Whisper) и вывод (Piper) |
+| **JARVIS.Voice** | Голосовой ввод (Whisper) и вывод (Piper / PocketTTS-клонирование) |
 
 ---
 
@@ -55,12 +55,19 @@
 - **PowerController** — управление питанием (выключение, перезагрузка)
 
 ### Voice (`JARVIS.Voice/`)
-- **VoiceManager** — оркестратор STT (Whisper) + TTS (Piper)
-- **AudioRecorder** — запись с микрофона
+- **VoiceManager** — оркестратор STT (Whisper) + TTS (движок выбирается: PocketTTS с клонированием, откат на Piper)
+- **AudioRecorder** — запись с микрофона (и запись референса голоса для клонирования)
 - **AudioPlayer** — воспроизведение WAV
+- **StreamPlayer** — потоковое воспроизведение PCM (играет, пока TTS ещё синтезирует)
 - **WhisperService** — распознавание речи (speech-to-text)
-- **PiperService** — синтез речи (text-to-speech)
+- **PiperService** — синтез речи (text-to-speech), попредложенное стримирование
+- **PocketTtsService** — клиент к серверу xVibePocketTTS: клонирование голоса, PCM-поток, первый звук через ~150–700 мс
+- **SpeechText** — чистка текста от TTS-мусора + разбивка на предложения
 - **VoiceConfig** — конфигурация голоса
+
+### Tools (`tools/`, в git входит только сервер)
+- **jarvis_tts_server.py** — HTTP-сервер TTS (`/health`, потоковый `/tts`), поднимается PocketTtsService автоматически
+- **uv.exe**, **xVibePocketTTS/** — менеджер Python и репозиторий движка (gitignored, ставятся отдельно)
 
 ---
 
@@ -130,7 +137,7 @@ Pipeline обработки команд (порядок важен):
 
 - **Модель**: qwen3.5:2b (через Ollama)
 - **Язык**: ru
-- **Голос**: Whisper (STT) + Piper (TTS), привязка к личности
+- **Голос**: Whisper (STT) + TTS: `ttsEngine` = `pocket` (xVibePocketTTS, клонирование голоса; при сбоях — автоматический откат на `piper`), `voiceReferencePath` — WAV-референс (записывается командой «записать голос»)
 - **Память**: автоизвлечение фактов из диалога
 
 ---
@@ -219,16 +226,24 @@ Jarvis/
 │       └── PowerController.cs
 │
 ├── JARVIS.Voice/               # Голос
-│   ├── VoiceManager.cs        # Оркестратор STT + TTS
+│   ├── VoiceManager.cs        # Оркестратор STT + TTS (роутинг pocket/piper)
 │   ├── VoiceConfig.cs         # Конфигурация голоса
 │   ├── Whisper/
 │   │   └── WhisperService.cs  # STT (speech-to-text)
 │   ├── Piper/
-│   │   └── PiperService.cs    # TTS (text-to-speech)
+│   │   └── PiperService.cs    # TTS (попредложенное стримирование)
+│   ├── Pocket/
+│   │   └── PocketTtsService.cs # TTS с клонированием голоса (HTTP → xVibePocketTTS)
+│   ├── Text/
+│   │   └── SpeechText.cs      # Чистка текста + разбивка на предложения
 │   ├── Audio/
 │   │   ├── AudioRecorder.cs   # Запись с микрофона
-│   │   └── AudioPlayer.cs     # Воспроизведение WAV
+│   │   ├── AudioPlayer.cs     # Воспроизведение WAV
+│   │   └── StreamPlayer.cs    # Потоковое воспроизведение PCM
 │   └── Models/ggml-base.bin   # Модель Whisper
+│
+├── tools/                      # TTS-инструментарий
+│   └── jarvis_tts_server.py    # HTTP-сервер клонирования (uv.exe, xVibePocketTTS — gitignored)
 │
 ├── logs/                       # Логи
 └── backups/                    # Бэкапы версий

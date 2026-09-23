@@ -149,3 +149,12 @@ JARVIS.Voice/Piper/pkgconfig/
 # Если есть папка с бинарными моделями ML (Whisper, Piper и т.д.)
 JARVIS.Voice/Models/
 JARVIS.AI/Models/voice/input/record.wav
+
+# Внешний TTS (xVibePocketTTS + uv) — ставится отдельно, в репозиторий не входит
+tools/xVibePocketTTS/
+tools/uv.exe
+tools/uv.zip
+tools/voice_cache/
+
+# Голосовой референс пользователя (биометрия — не коммитим)
+voice/reference.wav

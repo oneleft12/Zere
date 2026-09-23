@@ -66,6 +66,7 @@ if (activePersonality != null)
 
 if (config.VoiceEnabled)
 {
+    voiceManager.ConfigureTts(config.TtsEngine, config.VoiceReferencePath);
     voiceManager.Initialize(activePersonality?.Style.ToString());
     Console.WriteLine("[Голос] Режим: текст + голос");
 }
@@ -75,7 +76,8 @@ else
 }
 
 Console.WriteLine("Команды: 'настройки' — панель настроек, 'exit' — выход");
-Console.WriteLine("         'голос' / 'voice' — переключить голосовой режим\n");
+Console.WriteLine("         'голос' / 'voice' — переключить голосовой режим");
+Console.WriteLine("         'записать голос' — записать референс для клонирования\n");
 
 var voiceMode = false;
 
@@ -273,6 +275,28 @@ while (true)
                     voiceManager.SetPersonalityVoice(activePersonality.Style.ToString());
                 }
             }
+            continue;
+        }
+
+        if (message.ToLower() == "записать голос" || message.ToLower() == "record voice")
+        {
+            if (!config.VoiceEnabled)
+            {
+                Console.WriteLine("\nГолос отключен в конфиге.\n");
+                continue;
+            }
+
+            Console.WriteLine("\n📖 Читайте вслух текст в обычном темпе, без шума вокруг.");
+            var referencePath = await voiceManager.RecordVoiceReferenceAsync(15);
+
+            if (referencePath != null)
+            {
+                config.VoiceReferencePath = referencePath;
+                config.Save();
+                Console.WriteLine($"\n✅ Голос сохранён: {referencePath}");
+                Console.WriteLine("Перезапустите JARVIS — при старте сервер TTS закодирует референс в голос.\n");
+            }
+
             continue;
         }
 

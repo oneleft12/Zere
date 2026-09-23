@@ -8,5 +8,7 @@
   "autoMemory": true,
   "debugMode": true,
   "ollamaTimeoutMinutes": 10,
-  "logLevel": "Info"
+  "logLevel": "Info",
+  "ttsEngine": "pocket",
+  "voiceReferencePath": ""
 }

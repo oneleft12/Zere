@@ -16,6 +16,15 @@ public class JarvisConfig
 
     public string LogLevel { get; set; } = "Info";
 
+    // ── TTS (Etap 2: klonirovanie golosa) ─────────────────
+    // Движок озвучки: "pocket" — xVibePocketTTS (клонирование, потоковый PCM),
+    // "piper" — классический синтез. При сбое pocket всегда откат на piper.
+    public string TtsEngine { get; set; } = "pocket";
+
+    // Путь к WAV-референсу голоса пользователя (пусто = встроенный голос).
+    // Заполняется командой «записать голос».
+    public string VoiceReferencePath { get; set; } = "";
+
     private static readonly string ConfigPath =
         Path.Combine(
             Directory.GetCurrentDirectory(),
@@ -53,5 +62,17 @@ public class JarvisConfig
             {
                 PropertyNameCaseInsensitive = true
             }) ?? new JarvisConfig();
+    }
+
+    public void Save()
+    {
+        var json = JsonSerializer.Serialize(
+            this,
+            new JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+
+        File.WriteAllText(ConfigPath, json);
     }
 }
