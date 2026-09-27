@@ -17,8 +17,41 @@ class FileManager:
             # Environment.SpecialFolder.DesktopDirectory
             self._desktop = Path.home() / "Desktop"
 
+    def _resolve_path(self, name: str) -> Path | None:
+        """Резолвит имя из реплики в путь внутри рабочего стола.
+
+        Возвращает None, если путь выходит за пределы рабочего стола
+        (абсолютный путь, "..", пустое имя) — защита от path traversal.
+        """
+        if not name or not name.strip():
+            return None
+
+        # Только относительные имена: абсолютные и drive-relative пути запрещены.
+        normalized = name.replace("\\", "/")
+        if normalized.startswith("/") or (len(normalized) > 1 and normalized[1] == ":"):
+            return None
+
+        parts = [p for p in normalized.split("/") if p]
+        if any(p in ("..", ".") for p in parts):
+            return None
+
+        try:
+            full = (self._desktop / name).resolve()
+            desktop = self._desktop.resolve()
+        except OSError:
+            return None
+
+        # Итоговый путь обязан быть внутри рабочего стола.
+        if desktop not in full.parents:
+            return None
+
+        return full
+
     def create_folder(self, name: str) -> str:
-        path = self._desktop / name
+        path = self._resolve_path(name)
+
+        if path is None:
+            return f"Недопустимый путь «{name}»: можно создавать только внутри рабочего стола."
 
         if path.is_dir():
             return f'Папка "{name}" уже существует.'
@@ -28,7 +61,10 @@ class FileManager:
         return f'Папка "{name}" создана.'
 
     def create_file(self, name: str) -> str:
-        path = self._desktop / name
+        path = self._resolve_path(name)
+
+        if path is None:
+            return f"Недопустимый путь «{name}»: можно создавать только внутри рабочего стола."
 
         if path.is_file():
             return f'Файл "{name}" уже существует.'

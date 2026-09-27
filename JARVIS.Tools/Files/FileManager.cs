@@ -16,9 +16,50 @@ public class FileManager
             : Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
     }
 
+    /// <summary>
+    /// Резолвит имя из реплики пользователя в путь внутри рабочего стола.
+    /// Возвращает null, если путь выходит за пределы рабочего стола
+    /// (абсолютный путь, "..", пустое имя) — защита от path traversal.
+    /// </summary>
+    private string? ResolvePath(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+
+        // Только относительные имена: абсолютные и drive-relative пути запрещены.
+        if (Path.IsPathRooted(name))
+            return null;
+
+        var normalized = name.Replace('/', Path.DirectorySeparatorChar);
+        var segments = normalized.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+
+        if (segments.Any(s => s == ".." || s == "."))
+            return null;
+
+        try
+        {
+            var desktopFull = Path.GetFullPath(_desktop)
+                .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            var full = Path.GetFullPath(Path.Combine(_desktop, name));
+
+            // Итоговый путь обязан быть внутри рабочего стола.
+            if (!full.StartsWith(desktopFull, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            return full;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     public string CreateFolder(string name)
     {
-        var path = Path.Combine(_desktop, name);
+        var path = ResolvePath(name);
+
+        if (path == null)
+            return $"Недопустимый путь «{name}»: можно создавать только внутри рабочего стола.";
 
         if (Directory.Exists(path))
             return $"Папка \"{name}\" уже существует.";
@@ -30,7 +71,10 @@ public class FileManager
 
     public string CreateFile(string name)
     {
-        var path = Path.Combine(_desktop, name);
+        var path = ResolvePath(name);
+
+        if (path == null)
+            return $"Недопустимый путь «{name}»: можно создавать только внутри рабочего стола.";
 
         if (File.Exists(path))
             return $"Файл \"{name}\" уже существует.";
