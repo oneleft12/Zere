@@ -2,7 +2,7 @@
 
 **Дата:** 2026-09-27
 **Основание:** `docs/PROJECT_ANALYSIS_REPORT.md` (анализ от 2026-09-27), `docs/WEB_PANEL_PLAN.md`, `docs/ROADMAP.md` (Приоритет 4), `docs/ARCHITECTURE.md` («GUI — WPF/MAUI оболочка вместо консоли»).
-**Статус:** В РАБОТЕ — этапы 0–3 выполнены (см. §7 «Статус»)
+**Статус:** В РАБОТЕ — этапы 0–4 выполнены (см. §7 «Статус»)
 
 ---
 
@@ -165,12 +165,17 @@ GET  /api/history?limit&offset → {items:[…]}        # работает по�
 DELETE /api/history            → подтверждение в теле: {confirm:"DELETE"}
 GET  /api/memory               → {items:[…]}
 POST|DELETE /api/memory/{id}
-GET  /api/processes            → [{pid,name,cpu,mem}]
-POST /api/processes/{pid}/kill → требует {confirm, ttlToken}   # сервер проверяет TTL
-POST /api/power/{action}       → штатный SafeActionManager + серверный TTL
-GET  /api/logs?level=          → нормализованные записи
-GET  /api/apps?q=  ·  POST /api/apps/reindex
-GET  /api/plugins              → список + флаг `handlersConnected` (честно: false до P1-3)
+GET  /api/processes?q=         → {items:[{pid,name,memoryMb,responding,protected}]}   # CPU не отдаётся — его никто не меряет
+POST /api/processes/{pid}/kill → шаг 1 {} → {ttlToken}; шаг 2 {confirm:"KILL", ttlToken}   # сервер проверяет TTL
+POST /api/power/{action}       → шаг 1 {} → {ttlToken}; шаг 2 {confirm:"POWER", ttlToken}  # штатный SafeActionManager
+GET  /api/logs?level=&limit=&offset= → {items:[{time,level,message,source}], total}
+GET  /api/apps?q=  ·  POST /api/apps/reindex → {count, durationMs}
+GET  /api/plugins              → список + handlersConnected (честно: false до P1-3) + commandHandlersCount + activePersonality
+GET  /api/voice                → настройки + capabilities (recordReference/pocketCloning/speechSpeedConfig/liveVolumeApply/sttTest)
+POST /api/voice                → подмножество {voiceEnabled,voiceVolume,ttsEngine,voiceReferencePath} → appliedOnRestart
+POST /api/voice/reference      → запись WAV-референса (C#; Python-порт отвечает 503 честно)
+POST /api/voice/test           → {text ≤500} → синтез; 503, если TTS не инициализирован
+POST /api/voice/listen         → распознавание фразы; 503, если STT недоступен
 ```
 
 **Правила контракта:** только `127.0.0.1`; заголовок `X-JARVIS-Token` (токен генерируется при старте, кладётся в `config/panel.token`, UI читает его при загрузке); проверка `Origin/Host`; никакого исполнения строк на сервере (исходя из P1-6 отчёта — весь ввод валидируется на сервере, не доверяя UI).
@@ -185,7 +190,7 @@ GET  /api/plugins              → список + флаг `handlersConnected` (
 | **1. API-ядро** | OpenAPI-спека, `/api/health`, `/api/config`, SSE-чат (вместе с P1-2 `/api/chat`), токен+loopback+Origin, контрактные тесты в CI (закрывает P1-7 частично) | 1.5–2 нед | этап 0 | ✅ |
 | **2. Дизайн-система + Дашборд + Настройки** | токены/темы, 15 компонентов, навигация, StatusPill, дашборд, экран Настройки + Личности (с персистом стиля) | 2 нед | этап 1 | ✅ |
 | **3. Чат, История, Память** | SSE-поток, EmptyState, CRUD памяти с ConfirmDialog, история с поиском/экспортом | 1.5–2 нед | этап 2; P0-1 | ✅ |
-| **4. Голос, Процессы, Приложения, Плагины, Логи** | голосовой экран (запись референса — паритет с C#), ConfirmDialog для kill/удаления/питания, read-only плагины, просмотр логов, Toast | 2 нед | этап 2; P1-5 (микрофон) | — |
+| **4. Голос, Процессы, Приложения, Плагины, Логи** | голосовой экран (запись референса — паритет с C#), ConfirmDialog для kill/удаления/питания, read-only плагины, просмотр логов, Toast | 2 нед | этап 2; P1-5 (микрофон) | ✅ |
 | **5. Полировка** | светлая тема, `prefers-reduced-motion`, клавиатурная навигация (Tab/фокус/Escape), i18n ru→en, E2E (Playwright), авто-открытие панели из консоли | 1–1.5 нед | этап 4 | — |
 | **6. Решение по десктопу** | Оценка WPF/Avalonia-трее поверх того же API (решение принимается по факту использования панели) | после 5 | ARCHITECTURE.md | — |
 
