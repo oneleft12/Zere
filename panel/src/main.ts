@@ -15,6 +15,7 @@ import { createShell } from "./shell";
 import { initTheme, toggleTheme } from "./theme";
 import { futureScreen } from "./screens/future";
 import { dashboardScreen } from "./screens/dashboard";
+import { settingsScreen } from "./screens/settings";
 
 const theme = initTheme();
 const shell = createShell((path) => navigate(path));
@@ -29,7 +30,7 @@ shell.themeButton.addEventListener("click", () => {
 
 // Маршруты. Этап 2: дашборд/настройки/личности; 3–4: остальные.
 registerRoute({ path: "/", title: "Дашборд", factory: dashboardScreen });
-registerRoute({ path: "/settings", title: "Настройки", factory: futureScreen("Настройки", 2) });
+registerRoute({ path: "/settings", title: "Настройки", factory: settingsScreen });
 registerRoute({
   path: "/personalities",
   title: "Личности",

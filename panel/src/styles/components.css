@@ -576,6 +576,18 @@ select:focus-visible {
   flex: none;
 }
 
+/* ── Ошибка сервера в форме ────────────────────────────────────── */
+
+.form-error {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  color: var(--danger);
+  font-size: 13px;
+}
+
 /* ── Список «ключ-значение» (О программе) ──────────────────────── */
 
 .kv {

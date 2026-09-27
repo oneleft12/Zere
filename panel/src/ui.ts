@@ -17,6 +17,7 @@ export interface Attrs {
   step?: string | number;
   disabled?: boolean;
   checked?: boolean;
+  hidden?: boolean;
   href?: string;
   role?: string;
   ariaLabel?: string;
@@ -43,6 +44,7 @@ export function h<K extends keyof HTMLElementTagNameMap>(
   if (attrs.step !== undefined) (el as HTMLInputElement).step = String(attrs.step);
   if (attrs.disabled) (el as HTMLInputElement).disabled = true;
   if (attrs.checked) (el as HTMLInputElement).checked = true;
+  if (attrs.hidden) el.hidden = true;
   if (attrs.href) el.setAttribute("href", attrs.href);
   if (attrs.role) el.setAttribute("role", attrs.role);
   if (attrs.ariaLabel) el.setAttribute("aria-label", attrs.ariaLabel);
