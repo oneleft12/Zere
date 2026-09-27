@@ -71,29 +71,60 @@ class ConversationRepository:
         finally:
             connection.close()
 
-    def count(self) -> int:
-        """Всего записей истории (для пагинации /api/history)."""
+    def count(self, search: str = "") -> int:
+        """Всего записей истории (для пагинации /api/history).
+
+        `search` — подстрока для поиска по вопросу и ответу (регистронезависимо).
+        """
         connection = self._database.create_connection()
         try:
-            cursor = connection.execute("SELECT COUNT(*) FROM Conversations")
+            if search:
+                cursor = connection.execute(
+                    """
+        SELECT COUNT(*) FROM Conversations
+        WHERE lower(UserMessage) LIKE $q OR lower(JarvisResponse) LIKE $q
+        """,
+                    {"q": f"%{search.lower()}%"},
+                )
+            else:
+                cursor = connection.execute("SELECT COUNT(*) FROM Conversations")
             row = cursor.fetchone()
             return int(row[0]) if row is not None else 0
         finally:
             connection.close()
 
-    def get_page(self, limit: int, offset: int) -> list[Conversation]:
-        """Страница истории: новые сверху (Id DESC), с учётом смещения."""
+    def get_page(self, limit: int, offset: int, search: str = "") -> list[Conversation]:
+        """Страница истории: новые сверху (Id DESC), с учётом смещения.
+
+        `search` — регистронезависимая подстрока по вопросу и ответу.
+        """
         connection = self._database.create_connection()
         try:
-            cursor = connection.execute(
-                """
+            if search:
+                cursor = connection.execute(
+                    """
+        SELECT Id, UserMessage, JarvisResponse, Timestamp
+        FROM Conversations
+        WHERE lower(UserMessage) LIKE $q OR lower(JarvisResponse) LIKE $q
+        ORDER BY Id DESC
+        LIMIT $limit OFFSET $offset
+        """,
+                    {
+                        "q": f"%{search.lower()}%",
+                        "limit": limit,
+                        "offset": offset,
+                    },
+                )
+            else:
+                cursor = connection.execute(
+                    """
         SELECT Id, UserMessage, JarvisResponse, Timestamp
         FROM Conversations
         ORDER BY Id DESC
         LIMIT $limit OFFSET $offset
         """,
-                {"limit": limit, "offset": offset},
-            )
+                    {"limit": limit, "offset": offset},
+                )
             return [
                 Conversation(
                     id=row[0],

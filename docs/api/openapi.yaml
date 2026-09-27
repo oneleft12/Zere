@@ -199,6 +199,15 @@ paths:
             type: integer
             minimum: 0
             default: 0
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 200
+          description: >
+            Регистронезависимая подстрока по вопросу и ответу;
+            пусто — вся история.
       responses:
         "200":
           description: Страница истории и общее число записей
@@ -207,7 +216,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/HistoryPage"
         "400":
-          description: Некорректные limit/offset
+          description: Некорректные limit/offset/search
           content:
             application/json:
               schema:

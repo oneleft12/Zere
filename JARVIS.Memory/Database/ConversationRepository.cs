@@ -83,20 +83,35 @@ public class ConversationRepository
     }
 
     /// <summary>Всего записей истории (для пагинации /api/history).</summary>
-    public long Count()
+    /// <param name="search">Подстрока поиска по вопросу и ответу (пусто — все).</param>
+    public long Count(string search = "")
     {
         using var connection = _database.CreateConnection();
 
         connection.Open();
 
         var command = connection.CreateCommand();
-        command.CommandText = "SELECT COUNT(*) FROM Conversations";
+
+        if (string.IsNullOrEmpty(search))
+        {
+            command.CommandText = "SELECT COUNT(*) FROM Conversations";
+        }
+        else
+        {
+            command.CommandText =
+            """
+            SELECT COUNT(*) FROM Conversations
+            WHERE lower(UserMessage) LIKE $q OR lower(JarvisResponse) LIKE $q
+            """;
+            command.Parameters.AddWithValue("$q", $"%{search.ToLower()}%");
+        }
 
         return (long)command.ExecuteScalar()!;
     }
 
     /// <summary>Страница истории: новые сверху (Id DESC), с учётом смещения.</summary>
-    public List<Conversation> GetPage(int limit, int offset)
+    /// <param name="search">Подстрока поиска по вопросу и ответу (пусто — все).</param>
+    public List<Conversation> GetPage(int limit, int offset, string search = "")
     {
         using var connection = _database.CreateConnection();
 
@@ -104,13 +119,28 @@ public class ConversationRepository
 
         var command = connection.CreateCommand();
 
-        command.CommandText =
-        """
-        SELECT Id, UserMessage, JarvisResponse, Timestamp
-        FROM Conversations
-        ORDER BY Id DESC
-        LIMIT $limit OFFSET $offset
-        """;
+        if (string.IsNullOrEmpty(search))
+        {
+            command.CommandText =
+            """
+            SELECT Id, UserMessage, JarvisResponse, Timestamp
+            FROM Conversations
+            ORDER BY Id DESC
+            LIMIT $limit OFFSET $offset
+            """;
+        }
+        else
+        {
+            command.CommandText =
+            """
+            SELECT Id, UserMessage, JarvisResponse, Timestamp
+            FROM Conversations
+            WHERE lower(UserMessage) LIKE $q OR lower(JarvisResponse) LIKE $q
+            ORDER BY Id DESC
+            LIMIT $limit OFFSET $offset
+            """;
+            command.Parameters.AddWithValue("$q", $"%{search.ToLower()}%");
+        }
 
         command.Parameters.AddWithValue("$limit", limit);
         command.Parameters.AddWithValue("$offset", offset);

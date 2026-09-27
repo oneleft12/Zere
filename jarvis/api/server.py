@@ -49,6 +49,7 @@ _ROUTES = {
 _MEMORY_PREFIX = "/api/memory/"
 _HISTORY_DEFAULT_LIMIT = 50
 _HISTORY_MAX_LIMIT = 500
+_MAX_HISTORY_SEARCH_LENGTH = 200
 _MAX_MEMORY_KEY_LENGTH = 200
 _MAX_MEMORY_VALUE_LENGTH = 2000
 _MAX_MEMORY_CATEGORY_LENGTH = 100
@@ -459,6 +460,15 @@ class _PanelHandler(BaseHTTPRequestHandler):
             self._send_json(400, "VALIDATION_ERROR", error)
             return
 
+        search = (params.get("search") or [""])[0]
+        if len(search) > _MAX_HISTORY_SEARCH_LENGTH:
+            self._send_json(
+                400,
+                "VALIDATION_ERROR",
+                f"Параметр «search» длиннее {_MAX_HISTORY_SEARCH_LENGTH} символов.",
+            )
+            return
+
         repo = self.panel.conversation
         if repo is None:
             self._send_json(503, "NOT_READY", "Хранилище истории не готово.")
@@ -471,10 +481,10 @@ class _PanelHandler(BaseHTTPRequestHandler):
                 "jarvisResponse": c.jarvis_response,
                 "timestamp": c.timestamp.isoformat(),
             }
-            for c in repo.get_page(limit, offset)
+            for c in repo.get_page(limit, offset, search)
         ]
 
-        self._send_json(200, None, {"items": items, "total": repo.count()})
+        self._send_json(200, None, {"items": items, "total": repo.count(search)})
 
     def _handle_history_delete(self) -> None:
         """Очистка истории — требует явного подтверждения {confirm: "DELETE"}."""

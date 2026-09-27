@@ -17,6 +17,7 @@ import enum
 import http.client
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -104,6 +105,12 @@ class FakeEngine:
         return f"ответ: {text}"
 
 
+def _sql_like(haystack: str, pattern: str) -> bool:
+    """Эмуляция SQL LIKE (репозитории обеих реализаций ищут через LIKE)."""
+    rx = "".join(".*" if ch == "%" else "." if ch == "_" else re.escape(ch) for ch in pattern.lower())
+    return re.fullmatch(rx, haystack.lower(), re.DOTALL) is not None
+
+
 class FakeMemory:
     """In-memory замена MemoryRepository: upsert по ключу, порядок Category/Key.
 
@@ -143,12 +150,8 @@ class FakeMemory:
         )
 
     def search(self, query: str) -> list[MemoryItem]:
-        needle = query.lower()
-        return [
-            row
-            for row in self.get_all()
-            if needle in row.key.lower() or needle in row.value.lower()
-        ]
+        pattern = f"%{query}%"
+        return [row for row in self.get_all() if _sql_like(row.key, pattern) or _sql_like(row.value, pattern)]
 
     def forget(self, key: str) -> bool:
         found = self.find(key)
@@ -179,12 +182,23 @@ class FakeConversationRepository:
         self._next_id += 1
         return row.id
 
-    def count(self) -> int:
-        return len(self._rows)
+    def count(self, search: str = "") -> int:
+        return len(self._filtered(search))
 
-    def get_page(self, limit: int, offset: int) -> list[Conversation]:
-        ordered = sorted(self._rows, key=lambda row: row.id, reverse=True)
+    def get_page(self, limit: int, offset: int, search: str = "") -> list[Conversation]:
+        ordered = sorted(self._filtered(search), key=lambda row: row.id, reverse=True)
         return ordered[offset:offset + limit]
+
+    def _filtered(self, search: str) -> list[Conversation]:
+        if not search:
+            return list(self._rows)
+
+        pattern = f"%{search}%"
+        return [
+            row
+            for row in self._rows
+            if _sql_like(row.user_message, pattern) or _sql_like(row.jarvis_response, pattern)
+        ]
 
     def clear_history(self) -> None:
         self._rows.clear()
@@ -748,6 +762,39 @@ def test_history_rejects_bad_params() -> None:
             error = error_payload(raw)
             assert_schema(schema("Error"), error)
             assert error["code"] == "VALIDATION_ERROR"
+
+
+def test_history_search_filters_and_counts() -> None:
+    with running_panel() as (panel, _):
+        if not EXTERNAL:
+            panel.conversation.seed("какая погода в Париже", "солнечно")
+            panel.conversation.seed("закрой дискорд", "закрываю")
+
+        # поиск регистронезависимый — как lower(...) LIKE в репозиториях
+        status, raw, _ = call(panel, "GET", "/api/history?search=Погода")
+        assert status == 200
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("HistoryPage"), payload)
+
+        if not EXTERNAL:
+            assert payload["total"] == 1
+            assert payload["items"][0]["userMessage"] == "какая погода в Париже"
+
+        # пустая выборка — честные нули, а не ошибка
+        status, raw, _ = call(panel, "GET", "/api/history?search=" + quote("ъъъънет"))
+        assert status == 200
+
+        empty = json.loads(raw.decode("utf-8"))
+        assert empty["items"] == []
+        assert empty["total"] == 0
+
+
+def test_history_search_rejects_too_long_query() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/history?search=" + "а" * 201)
+        assert status == 400
+        assert error_payload(raw)["code"] == "VALIDATION_ERROR"
 
 
 def test_history_requires_token() -> None:

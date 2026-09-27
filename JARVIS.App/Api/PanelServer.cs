@@ -51,6 +51,7 @@ public sealed class PanelServer : IDisposable
     private const string MemoryPrefix = "/api/memory/";
     private const int HistoryDefaultLimit = 50;
     private const int HistoryMaxLimit = 500;
+    private const int MaxHistorySearchLength = 200;
     private const int MaxMemoryKeyLength = 200;
     private const int MaxMemoryValueLength = 2000;
     private const int MaxMemoryCategoryLength = 100;
@@ -765,7 +766,15 @@ public sealed class PanelServer : IDisposable
             return;
         }
 
-        var items = _conversations.GetPage(limit, offset)
+        var search = request.QueryString["search"] ?? "";
+
+        if (search.Length > MaxHistorySearchLength)
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", $"Параметр «search» длиннее {MaxHistorySearchLength} символов.");
+            return;
+        }
+
+        var items = _conversations.GetPage(limit, offset, search)
             .Select(c => new
             {
                 Id = c.Id,
@@ -775,7 +784,7 @@ public sealed class PanelServer : IDisposable
             })
             .ToList();
 
-        await SendJsonAsync(response, 200, new { Items = items, Total = _conversations.Count() });
+        await SendJsonAsync(response, 200, new { Items = items, Total = _conversations.Count(search) });
     }
 
     private async Task HandleHistoryDeleteAsync(HttpListenerRequest request, HttpListenerResponse response)
