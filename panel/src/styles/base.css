@@ -193,7 +193,7 @@ textarea {
   }
 
   .sidebar__brand span:not(.sidebar__brand-glyph),
-  .nav-item span,
+  .nav-item__label,
   .sidebar__group-label {
     display: none;
   }
