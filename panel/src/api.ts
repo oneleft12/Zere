@@ -69,6 +69,16 @@ export function apiDelete<T>(path: string, body?: unknown): Promise<T> {
   return request<T>("DELETE", path, body);
 }
 
+/**
+ * Двухшаговое подтверждение опасного действия (P0-3): шаг 1 — POST {},
+ * сервер выдаёт одноразовый ttlToken на 60 с; шаг 2 — {confirm, ttlToken}.
+ * UI-подтверждение (ConfirmDialog) обязано быть ДО этого вызова.
+ */
+export async function apiConfirm<T>(path: string, confirm: "KILL" | "POWER"): Promise<T> {
+  const pending = await apiPost<{ ttlToken: string }>(path, {});
+  return apiPost<T>(path, { confirm, ttlToken: pending.ttlToken });
+}
+
 // ── SSE (/api/chat/stream) ───────────────────────────────────────
 // EventSource не умеет шлить заголовки, а контракт требует X-JARVIS-Token,
 // поэтому стрим читаем через fetch + ReadableStream и парсим сами.
@@ -222,4 +232,122 @@ export interface MemoryItem {
 
 export interface MemoryList {
   items: MemoryItem[];
+}
+
+// ── Этап 4: процессы/питание, приложения, логи, плагины, голос ───
+
+export interface ProcessInfo {
+  pid: number;
+  name: string;
+  memoryMb: number;
+  responding: boolean;
+  protected: boolean;
+}
+
+export interface ProcessList {
+  items: ProcessInfo[];
+}
+
+export interface KillPending {
+  status: "pending";
+  pid: number;
+  name: string;
+  ttlToken: string;
+  expiresInSeconds: number;
+}
+
+export interface KillResult {
+  status: "killed";
+  pid: number;
+  name: string;
+}
+
+export type PowerAction = "shutdown" | "restart" | "sleep";
+
+export interface PowerPending {
+  status: "pending";
+  action: PowerAction;
+  ttlToken: string;
+  expiresInSeconds: number;
+}
+
+export interface PowerResult {
+  status: "executed" | "failed";
+  action: PowerAction;
+}
+
+export interface AppInfo {
+  name: string;
+  executablePath: string;
+  source: string;
+  category: string;
+  priority: number;
+  aliases: string[];
+  lastSeen: string;
+}
+
+export interface AppList {
+  items: AppInfo[];
+  total: number;
+}
+
+export interface AppReindexResponse {
+  count: number;
+  durationMs: number;
+}
+
+export type LogLevel = "info" | "warn" | "error";
+
+export interface LogEntry {
+  time: string;
+  level: LogLevel;
+  message: string;
+  source: string | null;
+}
+
+export interface LogList {
+  items: LogEntry[];
+  total: number;
+}
+
+export type PluginType = "Personality" | "CommandHandler" | "MemoryProvider" | "VoiceEngine" | "Other";
+
+export interface Plugin {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  author: string;
+  type: PluginType;
+}
+
+export interface PluginList {
+  items: Plugin[];
+  handlersConnected: boolean;
+  commandHandlersCount: number;
+  activePersonality: { id: string; style: string } | null;
+}
+
+export interface VoiceCapabilities {
+  recordReference: boolean;
+  pocketCloning: boolean;
+  speechSpeedConfig: boolean;
+  liveVolumeApply: boolean;
+  sttTest: boolean;
+}
+
+export interface VoiceSettings {
+  voiceEnabled: boolean;
+  voiceVolume: number;
+  ttsEngine: "pocket" | "piper";
+  voiceReferencePath: string;
+  capabilities: VoiceCapabilities;
+}
+
+export interface VoiceSettingsApplied {
+  voiceEnabled: boolean;
+  voiceVolume: number;
+  ttsEngine: "pocket" | "piper";
+  voiceReferencePath: string;
+  appliedOnRestart: boolean;
 }

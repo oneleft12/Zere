@@ -13,13 +13,17 @@ import { initToasts } from "./ui";
 import { navigate, registerRoute, startRouter } from "./router";
 import { createShell } from "./shell";
 import { initTheme, toggleTheme } from "./theme";
-import { futureScreen } from "./screens/future";
 import { dashboardScreen } from "./screens/dashboard";
 import { settingsScreen } from "./screens/settings";
 import { personalitiesScreen } from "./screens/personalities";
 import { chatScreen } from "./screens/chat";
 import { historyScreen } from "./screens/history";
 import { memoryScreen } from "./screens/memory";
+import { voiceScreen } from "./screens/voice";
+import { processesScreen } from "./screens/processes";
+import { appsScreen } from "./screens/apps";
+import { pluginsScreen } from "./screens/plugins";
+import { logsScreen } from "./screens/logs";
 
 const theme = initTheme();
 const shell = createShell((path) => navigate(path));
@@ -32,18 +36,19 @@ shell.themeButton.addEventListener("click", () => {
   logEvent(`Тема переключена: ${next === "dark" ? "тёмная" : "светлая"}`);
 });
 
-// Маршруты. Этап 2: дашборд/настройки/личности; 3–4: остальные.
+// Маршруты. Этап 2: дашборд/настройки/личности; 3: чат/история/память;
+// 4: голос/процессы/приложения/плагины/логи.
 registerRoute({ path: "/", title: "Дашборд", factory: dashboardScreen });
 registerRoute({ path: "/settings", title: "Настройки", factory: settingsScreen });
 registerRoute({ path: "/personalities", title: "Личности", factory: personalitiesScreen });
 registerRoute({ path: "/chat", title: "Чат", factory: chatScreen });
 registerRoute({ path: "/history", title: "История", factory: historyScreen });
 registerRoute({ path: "/memory", title: "Память", factory: memoryScreen });
-registerRoute({ path: "/voice", title: "Голос", factory: futureScreen("Голос", 4) });
-registerRoute({ path: "/processes", title: "Процессы", factory: futureScreen("Процессы", 4) });
-registerRoute({ path: "/apps", title: "Приложения", factory: futureScreen("Приложения", 4) });
-registerRoute({ path: "/plugins", title: "Плагины", factory: futureScreen("Плагины", 4) });
-registerRoute({ path: "/logs", title: "Логи", factory: futureScreen("Логи", 4) });
+registerRoute({ path: "/voice", title: "Голос", factory: voiceScreen });
+registerRoute({ path: "/processes", title: "Процессы", factory: processesScreen });
+registerRoute({ path: "/apps", title: "Приложения", factory: appsScreen });
+registerRoute({ path: "/plugins", title: "Плагины", factory: pluginsScreen });
+registerRoute({ path: "/logs", title: "Логи", factory: logsScreen });
 
 startRouter(shell.content, (route) => {
   shell.setTitle(route.title);

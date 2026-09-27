@@ -799,3 +799,50 @@ select:focus-visible {
   justify-content: flex-end;
   white-space: nowrap;
 }
+
+/* ── Этап 4: процессы/приложения, логи, плагины, голос ─────────── */
+
+/* Кнопки в ячейке таблицы (завершение процесса и т.п.) */
+.row-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+/* Лента записей лога: время · уровень · источник · сообщение */
+.logs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.log-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.log-entry__time {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.log-entry__message {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* Шапка карточки плагина: название + тип-бейдж */
+.plugin-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}

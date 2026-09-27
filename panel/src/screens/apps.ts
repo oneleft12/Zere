@@ -1,0 +1,215 @@
+/**
+ * Экран «Приложения» (этап 4, §6): индекс установленных приложений
+ * (поиск ?q) и переиндексация с отчётом «сколько найдено за сколько».
+ */
+
+import { ApiError, apiGet, apiPost, type AppList, type AppReindexResponse } from "../api";
+import { logEvent } from "../events";
+import {
+  badge,
+  button,
+  clear,
+  emptyState,
+  h,
+  loadingRow,
+  pageHeader,
+  textInput,
+  toast,
+} from "../ui";
+import type { Cleanup, ScreenFactory } from "../router";
+
+const SEARCH_DEBOUNCE_MS = 300;
+const MAX_QUERY = 100; // серверный лимит параметра q
+
+export const appsScreen: ScreenFactory = (container): Cleanup => {
+  let query = "";
+  let total = 0;
+  let cancelled = false;
+  let loading = false;
+  let busy = false;
+  let searchTimer = 0;
+
+  const countLabel = h("span", { class: "history__count" });
+  const errorBox = h("div", { class: "form-error", hidden: true });
+  const list = h("div", { class: "table-wrap" });
+
+  const searchInput = textInput({
+    value: "",
+    placeholder: "Поиск по имени или алиасу…",
+    onInput: (value) => {
+      window.clearTimeout(searchTimer);
+      searchTimer = window.setTimeout(() => {
+        const next = value.slice(0, MAX_QUERY);
+        if (next === query) return;
+        query = next;
+        void load();
+      }, SEARCH_DEBOUNCE_MS);
+    },
+  });
+
+  const reindexButton = button("Переиндексировать", () => void reindex(), "primary");
+
+  container.appendChild(
+    pageHeader(
+      "Приложения",
+      "Индекс сканеров (реестр, меню «Пуск», AppPaths, LocalAppData) для голосового запуска",
+      [reindexButton],
+    ),
+  );
+
+  container.appendChild(
+    h(
+      "div",
+      { class: "history__toolbar" },
+      h("div", { class: "history__search" }, searchInput),
+      countLabel,
+    ),
+  );
+
+  container.appendChild(errorBox);
+  container.appendChild(list);
+
+  void load();
+
+  function updateControls(): void {
+    reindexButton.disabled = loading || busy;
+  }
+
+  // ── Загрузка ───────────────────────────────────────────────────
+
+  async function load(): Promise<void> {
+    if (loading) return;
+    loading = true;
+    errorBox.hidden = true;
+    updateControls();
+
+    clear(list);
+    list.appendChild(loadingRow("Загрузка приложений…"));
+
+    try {
+      const params = new URLSearchParams();
+      if (query) params.set("q", query);
+      const data = await apiGet<AppList>(`/api/apps?${params.toString()}`);
+
+      if (cancelled) return;
+      render(data.items, data.total);
+    } catch (error) {
+      if (cancelled) return;
+
+      const message = error instanceof ApiError ? error.message : "Неизвестная ошибка";
+      errorBox.textContent = message;
+      errorBox.hidden = false;
+      total = 0;
+      countLabel.textContent = "";
+      clear(list);
+      list.appendChild(
+        emptyState({
+          icon: "⚠️",
+          title: "Не удалось загрузить приложения",
+          hint: message,
+          action: { label: "Повторить", onClick: () => void load() },
+        }),
+      );
+      toast("Ошибка загрузки приложений", "danger");
+      logEvent(`Ошибка приложений: ${message}`);
+    } finally {
+      loading = false;
+      updateControls();
+    }
+  }
+
+  function render(items: AppList["items"], serverTotal: number): void {
+    total = serverTotal;
+    clear(list);
+
+    if (items.length === 0) {
+      list.appendChild(
+        emptyState({
+          icon: "🧩",
+          title: query ? "Ничего не найдено" : "Индекс пуст",
+          hint: query
+            ? `По запросу «${query}» совпадений нет.`
+            : "Нажмите «Переиндексировать», чтобы сканеры собрали установленные приложения.",
+          action: query ? undefined : { label: "Переиндексировать", onClick: () => void reindex() },
+        }),
+      );
+      countLabel.textContent = "приложений: 0";
+      return;
+    }
+
+    list.appendChild(buildTable(items));
+
+    countLabel.textContent = query
+      ? `найдено ${items.length} по «${query}» из ${total}`
+      : `приложений: ${total}`;
+  }
+
+  function buildTable(items: AppList["items"]): HTMLElement {
+    const head = h(
+      "thead",
+      {},
+      h(
+        "tr",
+        {},
+        h("th", { text: "Название" }),
+        h("th", { text: "Категория" }),
+        h("th", { text: "Сканер" }),
+        h("th", { text: "Приоритет" }),
+        h("th", { text: "Алиасы" }),
+        h("th", { text: "Путь" }),
+      ),
+    );
+
+    const body = h(
+      "tbody",
+      {},
+      ...items.map((item) =>
+        h(
+          "tr",
+          {},
+          h("td", { text: item.name }),
+          h("td", {}, badge(item.category || "—", item.category ? "accent" : "plain")),
+          h("td", { text: item.source }),
+          h("td", { class: "table--mono", text: String(item.priority) }),
+          h("td", { text: item.aliases.length > 0 ? item.aliases.join(", ") : "—" }),
+          h("td", { class: "table--mono", text: item.executablePath }),
+        ),
+      ),
+    );
+
+    return h("table", { class: "table" }, head, body);
+  }
+
+  // ── Переиндексация ──────────────────────────────────────────────
+
+  async function reindex(): Promise<void> {
+    if (busy) return;
+
+    busy = true;
+    updateControls();
+
+    try {
+      const result = await apiPost<AppReindexResponse>("/api/apps/reindex", {});
+
+      if (cancelled) return;
+
+      toast(`Найдено приложений: ${result.count} за ${result.durationMs} мс`, "ok");
+      logEvent(`Индекс приложений обновлён: ${result.count} за ${result.durationMs} мс`);
+      await load();
+    } catch (error) {
+      if (cancelled) return;
+
+      const message = error instanceof ApiError ? error.message : "Неизвестная ошибка";
+      toast(`Переиндексация не удалась: ${message}`, "danger");
+      logEvent(`Ошибка переиндексации: ${message}`);
+    } finally {
+      busy = false;
+      updateControls();
+    }
+  }
+
+  return () => {
+    cancelled = true;
+    window.clearTimeout(searchTimer);
+  };
+};
