@@ -5,6 +5,35 @@ on:
   pull_request:
 
 jobs:
+  panel:
+    name: Панель (typecheck + сборка)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: panel/package-lock.json
+
+      - name: Зависимости
+        working-directory: panel
+        run: npm ci
+
+      - name: Typecheck и сборка
+        working-directory: panel
+        run: npm run build
+
+      - name: dist в git совпадает с исходниками
+        run: |
+          if [ -n "$(git status --porcelain panel/dist)" ]; then
+            echo "::error::panel/dist устарел — выполните npm run build в panel/ и закоммитьте"
+            git status --porcelain panel/dist
+            exit 1
+          fi
+
   python:
     name: Python-порт
     runs-on: ubuntu-latest
