@@ -126,4 +126,38 @@ public class ProcessService
 
         return killed > 0;
     }
+
+    /// <summary>
+    /// Завершает один процесс по PID (строка в списке панели).
+    /// Как и <see cref="Kill"/>: защищённые системные процессы не трогаем,
+    /// сносим вместе с дочерними. false, если процесса нет или нет прав.
+    /// </summary>
+    public bool KillPid(int pid)
+    {
+        if (pid <= 0)
+            return false;
+
+        Process? process = null;
+
+        try
+        {
+            process = Process.GetProcessById(pid);
+
+            if (IsProtected(process.ProcessName))
+                return false;
+
+            // process.Kill(true) — вместе с дочерними процессами
+            process.Kill(true);
+            return true;
+        }
+        catch
+        {
+            // Нет такого PID, процесс уже завершился или нет прав.
+            return false;
+        }
+        finally
+        {
+            process?.Dispose();
+        }
+    }
 }

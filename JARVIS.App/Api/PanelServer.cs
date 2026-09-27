@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using JARVIS.AI;
@@ -10,6 +11,8 @@ using JARVIS.Core.Logging;
 using JARVIS.Core.Plugins;
 using JARVIS.Memory.Database;
 using JARVIS.Memory.Models;
+using JARVIS.Tools.Windows;
+using JARVIS.Tools.Windows.Processes;
 
 namespace JARVIS.App.Api;
 
@@ -46,9 +49,21 @@ public sealed class PanelServer : IDisposable
         ["/api/personality/set"] = ["POST"],
         ["/api/history"] = ["GET", "DELETE"],
         ["/api/memory"] = ["GET", "POST"],
+        ["/api/processes"] = ["GET"],
     };
 
     private const string MemoryPrefix = "/api/memory/";
+
+    // Динамические маршруты подтверждаемых действий (этап 4 плана, §6):
+    //   POST /api/processes/{pid}/kill — двухшаговый подтверждённый запрос;
+    //   POST /api/power/{action}       — питание через SafeActionManager.
+    private const string KillPrefix = "/api/processes/";
+    private const string KillSuffix = "/kill";
+    private const string PowerPrefix = "/api/power/";
+    private const int TtlSeconds = 60; // тот же срок, что у SafeActionManager
+    private const int MaxProcessQueryLength = 100;
+    private const int MaxPid = int.MaxValue;
+    private static readonly string[] PowerActions = ["shutdown", "restart", "sleep"];
     private const int HistoryDefaultLimit = 50;
     private const int HistoryMaxLimit = 500;
     private const int MaxHistorySearchLength = 200;
@@ -69,6 +84,13 @@ public sealed class PanelServer : IDisposable
     private readonly MemoryRepository _memory;
     private readonly ConversationRepository _conversations;
     private readonly PluginConfig _pluginConfig;
+    private readonly ProcessService? _processes;
+    private readonly SafeActionManager? _safeActions;
+    private readonly object _challengeLock = new();
+
+    // Одноразовый токен подтверждения (kill/power): (token, action, issuedAt).
+    private (string Token, string Action, long IssuedAt)? _challenge;
+
     private readonly string _token;
     private readonly int _port;
     private readonly LogService _log = new();
@@ -82,6 +104,8 @@ public sealed class PanelServer : IDisposable
         MemoryRepository memory,
         ConversationRepository conversations,
         PluginConfig pluginConfig,
+        ProcessService? processes = null,
+        SafeActionManager? safeActions = null,
         string? token = null,
         int port = DefaultPort)
     {
@@ -90,6 +114,8 @@ public sealed class PanelServer : IDisposable
         _memory = memory;
         _conversations = conversations;
         _pluginConfig = pluginConfig;
+        _processes = processes;
+        _safeActions = safeActions;
         _token = token ?? PanelToken.LoadOrCreate();
         _port = port;
     }
@@ -211,6 +237,32 @@ public sealed class PanelServer : IDisposable
                 return;
             }
 
+            // Динамический маршрут POST /api/processes/{pid}/kill
+            if (path.StartsWith(KillPrefix, StringComparison.Ordinal))
+            {
+                if (!string.Equals(request.HttpMethod, "POST", StringComparison.Ordinal))
+                {
+                    await SendErrorAsync(response, 405, "METHOD_NOT_ALLOWED", "Метод не поддерживается.");
+                    return;
+                }
+
+                await HandleProcessKillAsync(path[KillPrefix.Length..], request, response);
+                return;
+            }
+
+            // Динамический маршрут POST /api/power/{action}
+            if (path.StartsWith(PowerPrefix, StringComparison.Ordinal))
+            {
+                if (!string.Equals(request.HttpMethod, "POST", StringComparison.Ordinal))
+                {
+                    await SendErrorAsync(response, 405, "METHOD_NOT_ALLOWED", "Метод не поддерживается.");
+                    return;
+                }
+
+                await HandlePowerAsync(path[PowerPrefix.Length..], request, response);
+                return;
+            }
+
             if (!Routes.TryGetValue(path, out var methods))
             {
                 await SendErrorAsync(response, 404, "NOT_FOUND", "Маршрут не найден.");
@@ -255,6 +307,10 @@ public sealed class PanelServer : IDisposable
                     await HandleMemoryGetAsync(response);
                 else
                     await HandleMemoryPostAsync(request, response);
+            }
+            else if (path == "/api/processes")
+            {
+                await HandleProcessesGetAsync(request, response);
             }
             else
             {
@@ -961,6 +1017,312 @@ public sealed class PanelServer : IDisposable
         }
 
         await SendJsonAsync(response, 200, new { Deleted = true });
+    }
+
+    // ── Процессы и питание (этап 4, §6 плана) ────────────────────
+
+    /// <summary>Список процессов: {q} — подстрочный поиск по имени.</summary>
+    private async Task HandleProcessesGetAsync(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        var query = request.QueryString["q"] ?? string.Empty;
+
+        if (query.Length > MaxProcessQueryLength)
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", $"Параметр «q» длиннее {MaxProcessQueryLength} символов.");
+            return;
+        }
+
+        if (_processes is null)
+        {
+            await SendErrorAsync(response, 503, "NOT_READY", "Сервис процессов не готов.");
+            return;
+        }
+
+        var items = (query.Length > 0 ? _processes.Search(query) : _processes.GetProcesses())
+            .Select(ProcessPayload)
+            .ToList();
+
+        await SendJsonAsync(response, 200, new { items });
+    }
+
+    /// <summary>Завершение процесса в два шага: токен, затем {confirm, ttlToken}.</summary>
+    private async Task HandleProcessKillAsync(string rawPath, HttpListenerRequest request, HttpListenerResponse response)
+    {
+        if (!rawPath.EndsWith(KillSuffix, StringComparison.Ordinal))
+        {
+            await SendErrorAsync(response, 404, "NOT_FOUND", "Маршрут не найден.");
+            return;
+        }
+
+        var pidText = rawPath[..^KillSuffix.Length];
+
+        if (pidText.Length == 0
+            || !pidText.All(char.IsAsciiDigit)
+            || !int.TryParse(pidText, NumberStyles.None, CultureInfo.InvariantCulture, out var pid)
+            || pid < 1
+            || pid > MaxPid)
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", "PID должен быть положительным целым числом.");
+            return;
+        }
+
+        var payload = await ReadRequestBodyObjectAsync(request, response);
+        if (payload is null)
+            return;
+
+        if (_processes is null)
+        {
+            await SendErrorAsync(response, 503, "NOT_READY", "Сервис процессов не готов.");
+            return;
+        }
+
+        var info = FindProcess(pid);
+
+        if (info is null)
+        {
+            await SendErrorAsync(response, 404, "NOT_FOUND", $"Процесс с PID {pid} не найден.");
+            return;
+        }
+
+        if (ProcessService.IsProtected(info.Name))
+        {
+            await SendErrorAsync(response, 400, "PROTECTED", $"Процесс «{info.Name}» защищён от завершения.");
+            return;
+        }
+
+        var action = $"kill:{pid}";
+
+        // Шаг 1: пустое тело — выдаём одноразовый токен с серверным сроком.
+        if (IsEmptyObject(payload))
+        {
+            await SendJsonAsync(response, 200, new
+            {
+                Status = "pending",
+                Pid = pid,
+                Name = info.Name,
+                TtlToken = IssueChallenge(action),
+                ExpiresInSeconds = TtlSeconds,
+            });
+            return;
+        }
+
+        // Шаг 2: подтверждение.
+        var error = ValidateTtlPayload(payload.RootElement, "KILL");
+        if (error is not null)
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", error);
+            return;
+        }
+
+        var problem = ConsumeChallenge(payload.RootElement.GetProperty("ttlToken").GetString(), action);
+        if (problem is not null)
+        {
+            await SendErrorAsync(response, 400, problem.Value.Code, problem.Value.Message);
+            return;
+        }
+
+        // Повторная проверка: PID могли переиспользовать за время диалога.
+        info = FindProcess(pid);
+
+        if (info is null)
+        {
+            await SendErrorAsync(response, 404, "NOT_FOUND", $"Процесс с PID {pid} не найден.");
+            return;
+        }
+
+        if (ProcessService.IsProtected(info.Name))
+        {
+            await SendErrorAsync(response, 400, "PROTECTED", $"Процесс «{info.Name}» защищён от завершения.");
+            return;
+        }
+
+        if (!_processes.KillPid(pid))
+        {
+            await SendErrorAsync(response, 404, "NOT_FOUND", "Процесс не найден или уже завершён.");
+            return;
+        }
+
+        await SendJsonAsync(response, 200, new { Status = "killed", Pid = pid, Name = info.Name });
+    }
+
+    /// <summary>Питание через штатный SafeActionManager + серверный TTL.</summary>
+    private async Task HandlePowerAsync(string action, HttpListenerRequest request, HttpListenerResponse response)
+    {
+        if (!PowerActions.Contains(action))
+        {
+            await SendErrorAsync(response, 404, "NOT_FOUND", "Неизвестное действие питания.");
+            return;
+        }
+
+        if (_safeActions is null)
+        {
+            await SendErrorAsync(response, 503, "NOT_READY", "Сервис питания не готов.");
+            return;
+        }
+
+        var payload = await ReadRequestBodyObjectAsync(request, response);
+        if (payload is null)
+            return;
+
+        var pending = action switch
+        {
+            "shutdown" => PendingAction.Shutdown,
+            "restart" => PendingAction.Restart,
+            _ => PendingAction.Sleep,
+        };
+
+        // Шаг 1: команда поставлена в очередь подтверждения, токен выдан.
+        if (IsEmptyObject(payload))
+        {
+            _safeActions.Request(pending);
+
+            await SendJsonAsync(response, 200, new
+            {
+                Status = "pending",
+                Action = action,
+                TtlToken = IssueChallenge($"power:{action}"),
+                ExpiresInSeconds = TtlSeconds,
+            });
+            return;
+        }
+
+        var error = ValidateTtlPayload(payload.RootElement, "POWER");
+        if (error is not null)
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", error);
+            return;
+        }
+
+        var problem = ConsumeChallenge(payload.RootElement.GetProperty("ttlToken").GetString(), $"power:{action}");
+        if (problem is not null)
+        {
+            await SendErrorAsync(response, 400, problem.Value.Code, problem.Value.Message);
+            return;
+        }
+
+        // Шаг 2: второй TTL — внутри самого SafeActionManager.
+        var status = _safeActions.Confirm() switch
+        {
+            ConfirmOutcome.Executed => "executed",
+            ConfirmOutcome.Failed => "failed",
+            _ => null, // Expired / NoPending
+        };
+
+        if (status is null)
+        {
+            await SendErrorAsync(response, 400, "TTL_EXPIRED", "Срок подтверждения истёк — запросите действие заново.");
+            return;
+        }
+
+        await SendJsonAsync(response, 200, new { Status = status, Action = action });
+    }
+
+    private ProcessInfo? FindProcess(int pid) =>
+        _processes is null
+            ? null
+            : _processes.GetProcesses().FirstOrDefault(p => p.Id == pid);
+
+    /// <summary>
+    /// Строка списка процессов: поля ProcessInfo + флаг защиты.
+    /// CPU не отдаём намеренно: ни C#, ни Python-сервис процессов его не
+    /// измеряют — не показываем в UI то, чего нет (§5 плана).
+    /// </summary>
+    private static object ProcessPayload(ProcessInfo info) => new
+    {
+        Pid = info.Id,
+        Name = info.Name,
+        MemoryMb = info.MemoryMb,
+        Responding = info.Responding,
+        Protected = ProcessService.IsProtected(info.Name),
+    };
+
+    private static bool IsEmptyObject(JsonDocument payload)
+    {
+        if (payload.RootElement.ValueKind != JsonValueKind.Object)
+            return false;
+
+        var properties = payload.RootElement.EnumerateObject();
+        return !properties.MoveNext();
+    }
+
+    /// <summary>Читает тело как JSON-объект; null = ответ об ошибке уже отправлен.</summary>
+    private static async Task<JsonDocument?> ReadRequestBodyObjectAsync(
+        HttpListenerRequest request,
+        HttpListenerResponse response)
+    {
+        var payload = await ReadJsonObjectAsync(request, response);
+
+        if (payload is null)
+            return null;
+
+        if (payload.RootElement.ValueKind != JsonValueKind.Object)
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Ожидался JSON-объект в теле запроса.");
+            return null;
+        }
+
+        return payload;
+    }
+
+    /// <summary>Подтверждение опасного действия: ровно {confirm, ttlToken}.</summary>
+    private static string? ValidateTtlPayload(JsonElement payload, string expected)
+    {
+        foreach (var property in payload.EnumerateObject())
+        {
+            if (property.Name != "confirm" && property.Name != "ttlToken")
+                return $"Неизвестный ключ: «{property.Name}».";
+        }
+
+        if (!payload.TryGetProperty("confirm", out var confirm))
+            return "Отсутствует обязательный ключ: «confirm».";
+
+        if (confirm.ValueKind != JsonValueKind.String || !string.Equals(confirm.GetString(), expected, StringComparison.Ordinal))
+            return $"Ожидалось подтверждение confirm = \"{expected}\".";
+
+        if (!payload.TryGetProperty("ttlToken", out var token))
+            return "Отсутствует обязательный ключ: «ttlToken».";
+
+        if (token.ValueKind != JsonValueKind.String)
+            return "Ключ «ttlToken» должен быть строкой.";
+
+        return null;
+    }
+
+    /// <summary>Одноразовый токен подтверждения; живёт не дольше TtlSeconds.</summary>
+    private string IssueChallenge(string action)
+    {
+        var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+
+        lock (_challengeLock)
+        {
+            _challenge = (token, action, Environment.TickCount64);
+        }
+
+        return token;
+    }
+
+    /// <summary>Проверяет и гасит токен. null — годен; иначе (код, сообщение).</summary>
+    private (string Code, string Message)? ConsumeChallenge(string? token, string action)
+    {
+        if (token is null || token.Length != 32 || !token.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f'))
+            return ("VALIDATION_ERROR", "Некорректный ttlToken.");
+
+        lock (_challengeLock)
+        {
+            var challenge = _challenge;
+            _challenge = null; // гасим в любом случае: токен одноразовый
+
+            if (challenge is null || !string.Equals(challenge.Value.Token, token, StringComparison.Ordinal))
+                return ("TTL_EXPIRED", "Нет действия, ожидающего подтверждения.");
+
+            if (!string.Equals(challenge.Value.Action, action, StringComparison.Ordinal))
+                return ("TTL_EXPIRED", "Подтверждение относится к другому действию.");
+
+            if (Environment.TickCount64 - challenge.Value.IssuedAt > TtlSeconds * 1000L)
+                return ("TTL_EXPIRED", "Срок подтверждения истёк — запросите действие заново.");
+        }
+
+        return null;
     }
 
     private static object ToMemoryPayload(MemoryItem item) => new

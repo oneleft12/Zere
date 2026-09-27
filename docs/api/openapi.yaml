@@ -349,6 +349,149 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/processes:
+    get:
+      operationId: listProcesses
+      summary: Список процессов (подстрочный поиск по имени — параметр q)
+      tags: [processes]
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 100
+      responses:
+        "200":
+          description: Процессы, отсортированные по памяти (по убыванию)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProcessList"
+        "400":
+          description: Параметр q длиннее 100 символов
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/NotReady"
+
+  /api/processes/{pid}/kill:
+    post:
+      operationId: killProcess
+      summary: >
+        Завершить процесс. Шаг 1 (тело {}) — сервер выдаёт ttlToken на 60 с;
+        шаг 2 — {confirm: "KILL", ttlToken}. TTL проверяется на сервере,
+        защищённые системные процессы не завершаются (400 PROTECTED).
+      tags: [processes]
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  maxProperties: 0
+                  description: Шаг 1 — запрос одноразового токена подтверждения
+                - $ref: "#/components/schemas/KillConfirm"
+      responses:
+        "200":
+          description: >
+            pending (status, pid, name, ttlToken, expiresInSeconds) на шаге 1
+            или killed (status, pid, name) на шаге 2
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/KillPending"
+                  - $ref: "#/components/schemas/KillResult"
+        "400":
+          description: >
+            VALIDATION_ERROR (тело/подтверждение), PROTECTED (системный
+            процесс) или TTL_EXPIRED (токен истёк, погашен или от чужого действия)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Маршрут не найден или процесс уже завершён
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/NotReady"
+
+  /api/power/{action}:
+    post:
+      operationId: requestPower
+      summary: >
+        Питание (shutdown/restart/sleep). Шаг 1 (тело {}) — действие ставится
+        в очередь SafeActionManager и выдаётся ttlToken; шаг 2 —
+        {confirm: "POWER", ttlToken}: двойной TTL (панель + SafeActionManager)
+      tags: [processes]
+      parameters:
+        - name: action
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [shutdown, restart, sleep]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  maxProperties: 0
+                  description: Шаг 1 — запрос одноразового токена подтверждения
+                - $ref: "#/components/schemas/PowerConfirm"
+      responses:
+        "200":
+          description: pending (status, action, ttlToken, expiresInSeconds) или итог executed/failed
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/PowerPending"
+                  - $ref: "#/components/schemas/PowerResult"
+        "400":
+          description: VALIDATION_ERROR (тело/подтверждение) или TTL_EXPIRED
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Неизвестное действие питания
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/NotReady"
+
 components:
   securitySchemes:
     tokenHeader:
@@ -374,7 +517,8 @@ components:
             $ref: "#/components/schemas/Error"
     NotReady:
       description: >
-        Хранилище (личности, история, память) или настройки ещё не готовы
+        Хранилище (личности, история, память), настройки или сервис
+        (процессы, питание) ещё не готовы
       content:
         application/json:
           schema:
@@ -603,6 +747,127 @@ components:
       properties:
         deleted:
           type: boolean
+
+    ProcessInfo:
+      type: object
+      required: [pid, name, memoryMb, responding, protected]
+      additionalProperties: false
+      properties:
+        pid:
+          type: integer
+          format: int32
+          minimum: 1
+        name:
+          type: string
+        memoryMb:
+          type: number
+          description: Используемая память, МБ (округление сервиса процессов)
+        responding:
+          type: boolean
+        protected:
+          type: boolean
+          description: Системный процесс — завершение запрещено (400 PROTECTED)
+      # CPU намеренно не отдаётся: ни C#, ни Python-сервис процессов его
+      # не измеряют — панель не показывает данные, которых нет.
+
+    ProcessList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProcessInfo"
+
+    KillConfirm:
+      type: object
+      required: [confirm, ttlToken]
+      additionalProperties: false
+      properties:
+        confirm:
+          type: string
+          enum: [KILL]
+        ttlToken:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+          description: Токен, выданный шагом 1; одноразовый, срок 60 с
+
+    KillPending:
+      type: object
+      required: [status, pid, name, ttlToken, expiresInSeconds]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [pending]
+        pid:
+          type: integer
+          format: int32
+        name:
+          type: string
+        ttlToken:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        expiresInSeconds:
+          type: integer
+          enum: [60]
+
+    KillResult:
+      type: object
+      required: [status, pid, name]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [killed]
+        pid:
+          type: integer
+          format: int32
+        name:
+          type: string
+
+    PowerConfirm:
+      type: object
+      required: [confirm, ttlToken]
+      additionalProperties: false
+      properties:
+        confirm:
+          type: string
+          enum: [POWER]
+        ttlToken:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+
+    PowerPending:
+      type: object
+      required: [status, action, ttlToken, expiresInSeconds]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [pending]
+        action:
+          type: string
+          enum: [shutdown, restart, sleep]
+        ttlToken:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+        expiresInSeconds:
+          type: integer
+          enum: [60]
+
+    PowerResult:
+      type: object
+      required: [status, action]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [executed, failed]
+        action:
+          type: string
+          enum: [shutdown, restart, sleep]
 
     ChatEvent:
       description: >

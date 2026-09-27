@@ -18,6 +18,7 @@ import http.client
 import json
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import time
@@ -204,6 +205,91 @@ class FakeConversationRepository:
         self._rows.clear()
 
 
+class FakeProcessInfo:
+    """Порт-замена ProcessInfo (id/name/memory_mb/responding)."""
+
+    def __init__(self, pid: int, name: str, memory_mb: float, responding: bool = True) -> None:
+        self.id = pid
+        self.name = name
+        self.memory_mb = memory_mb
+        self.responding = responding
+
+
+class FakeProcessService:
+    """Порт-замена ProcessService: get_processes/search/kill_pid/is_protected."""
+
+    PROTECTED_NAMES = frozenset(
+        {"system", "idle", "registry", "smss", "csrss", "wininit", "winlogon",
+         "services", "lsass", "svchost"}
+    )
+
+    def __init__(self) -> None:
+        self._rows: dict[int, FakeProcessInfo] = {
+            4: FakeProcessInfo(4, "System", 1.5),
+            100: FakeProcessInfo(100, "chrome", 220.0),
+            101: FakeProcessInfo(101, "chrome", 180.0),
+            200: FakeProcessInfo(200, "notepad", 42.0),
+        }
+        self.killed: list[int] = []
+
+    @classmethod
+    def is_protected(cls, name: str) -> bool:
+        normalized = name[:-4] if name.lower().endswith(".exe") else name
+        return bool(normalized) and normalized.lower() in cls.PROTECTED_NAMES
+
+    def get_processes(self) -> list[FakeProcessInfo]:
+        return sorted(self._rows.values(), key=lambda row: row.memory_mb, reverse=True)
+
+    def search(self, name: str) -> list[FakeProcessInfo]:
+        needle = name.lower()
+        return [row for row in self.get_processes() if needle in row.name.lower()]
+
+    def kill_pid(self, pid: int) -> bool:
+        if pid not in self._rows:
+            return False
+        if self.is_protected(self._rows[pid].name):
+            return False
+        del self._rows[pid]
+        self.killed.append(pid)
+        return True
+
+
+class FakeConfirmOutcome:
+    """Значения ConfirmOutcome.value: executed / no_pending / expired / failed."""
+
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+
+class FakeSafeActionManager:
+    """Порт-замена SafeActionManager: request/confirm с тем же сроком TTL."""
+
+    TTL_SECONDS = 60
+
+    def __init__(self) -> None:
+        self._pending: Optional[str] = None
+        self._requested_at = 0.0
+        self.requests: list[str] = []
+
+    def request(self, action: Any, target: str = "") -> None:
+        name = getattr(action, "name", str(action))
+        self._pending = name
+        self._requested_at = time.monotonic()
+        self.requests.append(name)
+
+    def confirm(self) -> FakeConfirmOutcome:
+        if self._pending is None:
+            return FakeConfirmOutcome("no_pending")
+
+        if time.monotonic() - self._requested_at > self.TTL_SECONDS:
+            self._pending = None
+            return FakeConfirmOutcome("expired")
+
+        self._pending = None
+        # Настоящее выполнение не эмулируем: тесты ничего не выключают.
+        return FakeConfirmOutcome("executed")
+
+
 # ── Инфраструктура ────────────────────────────────────────────────
 
 
@@ -272,6 +358,8 @@ def running_panel() -> Iterator[tuple[Any, Path]]:
                 memory=FakeMemory(),
                 conversation=FakeConversationRepository(),
                 plugin_config=PluginConfig(),
+                process_service=FakeProcessService(),
+                safe_actions=FakeSafeActionManager(),
                 token=TOKEN,
                 port=0,
             )
@@ -1074,6 +1162,297 @@ def test_static_post_is_not_allowed() -> None:
         status, raw, _ = call(panel, "POST", "/", token=None, body={})
         assert status == 405
         assert error_payload(raw)["code"] == "METHOD_NOT_ALLOWED"
+
+
+# ── /api/processes и /api/power (этап 4) ──────────────────────────
+
+
+def _pick_process_pid(panel: Any) -> Optional[int]:
+    """Безопасный PID для тестов подтверждения: не защищённый процесс."""
+    if not EXTERNAL:
+        return 200  # фиктивный notepad в FakeProcessService
+
+    status, raw, _ = call(panel, "GET", "/api/processes")
+    if status != 200:
+        return None
+
+    for item in json.loads(raw.decode("utf-8"))["items"]:
+        if not item["protected"]:
+            return int(item["pid"])
+    return None
+
+
+def _pick_protected_pid(panel: Any) -> Optional[int]:
+    """Защищённый процесс: локально — фиктивный System (4), в CI — реальный."""
+    if not EXTERNAL:
+        return 4
+
+    status, raw, _ = call(panel, "GET", "/api/processes")
+    if status != 200:
+        return None
+
+    for item in json.loads(raw.decode("utf-8"))["items"]:
+        if item["protected"]:
+            return int(item["pid"])
+    return None
+
+
+def test_processes_get_matches_spec() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/processes")
+        assert status == 200
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("ProcessList"), payload)
+
+        for item in payload["items"]:
+            assert_schema(schema("ProcessInfo"), item)
+
+        memory = [item["memoryMb"] for item in payload["items"]]
+        assert memory == sorted(memory, reverse=True), "нет сортировки по памяти"
+
+        if not EXTERNAL:
+            assert {item["pid"] for item in payload["items"]} == {4, 100, 101, 200}
+            system = next(item for item in payload["items"] if item["pid"] == 4)
+            assert system["protected"] is True
+            assert system["responding"] is True
+
+
+def test_processes_search_filters_by_name() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/processes?q=CHRO")
+        assert status == 200
+
+        items = json.loads(raw.decode("utf-8"))["items"]
+
+        for item in items:
+            assert "chro" in item["name"].lower()
+
+        if not EXTERNAL:
+            assert [item["pid"] for item in items] == [100, 101]
+
+
+def test_processes_rejects_long_query() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/processes?q=" + "a" * 101)
+        assert status == 400
+        assert error_payload(raw)["code"] == "VALIDATION_ERROR"
+
+
+def test_processes_requires_token() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/processes", token=None)
+        assert status == 401
+        assert error_payload(raw)["code"] == "UNAUTHORIZED"
+
+
+def test_processes_wrong_method_is_405() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "POST", "/api/processes", body={})
+        assert status == 405
+        assert error_payload(raw)["code"] == "METHOD_NOT_ALLOWED"
+
+
+def test_process_kill_rejects_bad_pid() -> None:
+    with running_panel() as (panel, _):
+        for bad in ("abc", "0", "-1", "2147483648", ""):
+            status, raw, _ = call(panel, "POST", f"/api/processes/{bad}/kill", body={})
+            assert status == 400, bad
+            assert error_payload(raw)["code"] == "VALIDATION_ERROR", bad
+
+
+def test_process_kill_unknown_pid_is_404() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "POST", "/api/processes/2147483647/kill", body={})
+        assert status == 404
+        assert error_payload(raw)["code"] == "NOT_FOUND"
+
+
+def test_process_kill_protected_is_rejected() -> None:
+    """Гейт этапа 4: системный процесс не завершается даже с валидным токеном."""
+    with running_panel() as (panel, _):
+        pid = _pick_protected_pid(panel)
+
+        if pid is None:
+            print("\n[пропущено] защищённый процесс в этой среде не найден")
+            return
+
+        status, raw, _ = call(panel, "POST", f"/api/processes/{pid}/kill", body={})
+        assert status == 400, raw
+        error = error_payload(raw)
+        assert_schema(schema("Error"), error)
+        assert error["code"] == "PROTECTED"
+
+
+def test_process_kill_requires_confirmation() -> None:
+    """Шаг 2 без подтверждения или с несуществующим токеном не выполняется."""
+    with running_panel() as (panel, _):
+        pid = _pick_process_pid(panel)
+        assert pid is not None, "не нашлся процесс для теста подтверждения"
+
+        cases = (
+            ({"ttlToken": "a" * 32}, "VALIDATION_ERROR"),
+            ({"confirm": "YES", "ttlToken": "a" * 32}, "VALIDATION_ERROR"),
+            ({"confirm": "KILL"}, "VALIDATION_ERROR"),
+            ({"confirm": "KILL", "ttlToken": "zz" * 16}, "VALIDATION_ERROR"),
+            ({"confirm": "KILL", "ttlToken": "a" * 32}, "TTL_EXPIRED"),
+        )
+
+        for body, expected_code in cases:
+            status, raw, _ = call(panel, "POST", f"/api/processes/{pid}/kill", body=body)
+            assert status == 400, body
+            error = error_payload(raw)
+            assert_schema(schema("Error"), error)
+            assert error["code"] == expected_code, body
+
+
+def test_process_kill_two_step_executes() -> None:
+    """Гейт этапа 4: убийство только после серверного TTL-подтверждения."""
+    if EXTERNAL and not DESTRUCTIVE:
+        print(
+            "\n[пропущено] завершение процесса внешней панели требует "
+            "JARVIS_PANEL_DESTRUCTIVE=1"
+        )
+        return
+
+    # Против настоящей панели убиваем только СОБСТВЕННЫЙ дочерний процесс.
+    child = (
+        subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        if EXTERNAL
+        else None
+    )
+
+    try:
+        with running_panel() as (panel, _):
+            pid = child.pid if child is not None else 200
+
+            if child is not None:
+                time.sleep(1.0)  # дать процессу появиться в списке
+
+            status, raw, _ = call(panel, "POST", f"/api/processes/{pid}/kill", body={})
+            assert status == 200, raw
+            pending = json.loads(raw.decode("utf-8"))
+            assert_schema(schema("KillPending"), pending)
+            assert pending["pid"] == pid
+            assert pending["expiresInSeconds"] == 60
+
+            status, raw, _ = call(
+                panel,
+                "POST",
+                f"/api/processes/{pid}/kill",
+                body={"confirm": "KILL", "ttlToken": pending["ttlToken"]},
+            )
+            assert status == 200, raw
+            result = json.loads(raw.decode("utf-8"))
+            assert_schema(schema("KillResult"), result)
+            assert result["pid"] == pid
+
+            if not EXTERNAL:
+                assert panel.process_service.killed == [200]
+
+                # Токен одноразовый и привязан к действию: тот же токен
+                # для другого (существующего!) процесса не выполняется.
+                status, raw, _ = call(
+                    panel,
+                    "POST",
+                    "/api/processes/101/kill",
+                    body={"confirm": "KILL", "ttlToken": pending["ttlToken"]},
+                )
+                assert status == 400, raw
+                assert error_payload(raw)["code"] == "TTL_EXPIRED"
+            else:
+                deadline = time.monotonic() + 10
+                while child.poll() is None and time.monotonic() < deadline:
+                    time.sleep(0.25)
+                assert child.poll() is not None, "дочерний процесс не завершился"
+    finally:
+        if child is not None and child.poll() is None:
+            child.kill()
+
+
+def test_power_unknown_action_is_404() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "POST", "/api/power/explode", body={})
+        assert status == 404
+        assert error_payload(raw)["code"] == "NOT_FOUND"
+
+
+def test_power_pending_issues_token() -> None:
+    """Шаг 1 безопасен: действие только ставится в очередь подтверждения."""
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "POST", "/api/power/shutdown", body={})
+        assert status == 200, raw
+
+        pending = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("PowerPending"), pending)
+        assert pending["action"] == "shutdown"
+        assert pending["expiresInSeconds"] == 60
+
+        if not EXTERNAL:
+            assert panel.safe_actions.requests == ["SHUTDOWN"]
+
+
+def test_power_requires_confirmation() -> None:
+    """Подтверждение без валидного токена не доходит до выполнения."""
+    with running_panel() as (panel, _):
+        for body in (
+            {"ttlToken": "a" * 32},
+            {"confirm": "POWER"},
+            {"confirm": "SHUTDOWN", "ttlToken": "a" * 32},
+            {"confirm": "POWER", "ttlToken": "zz" * 16},
+        ):
+            status, raw, _ = call(panel, "POST", "/api/power/sleep", body=body)
+            assert status == 400, body
+            error = error_payload(raw)
+            assert_schema(schema("Error"), error)
+            assert error["code"] == "VALIDATION_ERROR", body
+
+        # Корректный формат, но токен не выдавался.
+        status, raw, _ = call(
+            panel,
+            "POST",
+            "/api/power/sleep",
+            body={"confirm": "POWER", "ttlToken": "a" * 32},
+        )
+        assert status == 400
+        assert error_payload(raw)["code"] == "TTL_EXPIRED"
+
+
+def test_power_confirm_executes() -> None:
+    """Полный цикл питания — только локально: фейк не выключает машину."""
+    if EXTERNAL:
+        print(
+            "\n[пропущено] подтверждение питания на внешней панели выполняло "
+            "бы реальное выключение (тест только для фейка)"
+        )
+        return
+
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "POST", "/api/power/restart", body={})
+        assert status == 200, raw
+        token = json.loads(raw.decode("utf-8"))["ttlToken"]
+
+        status, raw, _ = call(
+            panel,
+            "POST",
+            "/api/power/restart",
+            body={"confirm": "POWER", "ttlToken": token},
+        )
+        assert status == 200, raw
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("PowerResult"), payload)
+        assert payload["status"] == "executed"
+        assert payload["action"] == "restart"
+
+        # Токен одноразовый: повторное подтверждение не выполняется.
+        status, raw, _ = call(
+            panel,
+            "POST",
+            "/api/power/restart",
+            body={"confirm": "POWER", "ttlToken": token},
+        )
+        assert status == 400
+        assert error_payload(raw)["code"] == "TTL_EXPIRED"
 
 
 def main() -> None:

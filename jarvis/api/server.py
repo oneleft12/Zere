@@ -15,9 +15,11 @@ import enum
 import hmac
 import json
 import mimetypes
+import secrets
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import Thread
+from threading import Lock, Thread
 from typing import Any, Optional
 from urllib.parse import parse_qs, unquote, urlsplit
 
@@ -27,6 +29,9 @@ from jarvis.ai.ollama_url_resolver import OllamaUrlResolver
 from jarvis.core.configuration.jarvis_config import JarvisConfig
 from jarvis.core.logging.log_service import log_error
 from jarvis.core.plugins.plugin_config import PluginConfig
+# Только enum: сам SafeActionManager тянет psutil (ProcessService),
+# а сервер панели обязан собираться без голосовых/системных зависимостей.
+from jarvis.tools.windows.pending_action import PendingAction
 
 DEFAULT_PORT = 8080
 _MAX_BODY_BYTES = 64 * 1024
@@ -44,9 +49,25 @@ _ROUTES = {
     "/api/personality/set": frozenset({"POST"}),
     "/api/history": frozenset({"GET", "DELETE"}),
     "/api/memory": frozenset({"GET", "POST"}),
+    "/api/processes": frozenset({"GET"}),
 }
 
 _MEMORY_PREFIX = "/api/memory/"
+# Динамические маршруты подтверждаемых действий (этап 4 плана, §6):
+#   POST /api/processes/{pid}/kill — двухшаговый подтверждённый запрос;
+#   POST /api/power/{action}       — питание через SafeActionManager.
+_KILL_PREFIX = "/api/processes/"
+_KILL_SUFFIX = "/kill"
+_POWER_PREFIX = "/api/power/"
+_TTL_SECONDS = 60  # тот же срок, что у SafeActionManager (серверная проверка)
+_MAX_PROCESS_QUERY_LENGTH = 100
+_MAX_PID = 2_147_483_647  # int32, как int.TryParse в C#-реализации
+_POWER_ACTIONS = ("shutdown", "restart", "sleep")
+_PENDING_BY_ACTION = {
+    "shutdown": PendingAction.SHUTDOWN,
+    "restart": PendingAction.RESTART,
+    "sleep": PendingAction.SLEEP,
+}
 _HISTORY_DEFAULT_LIMIT = 50
 _HISTORY_MAX_LIMIT = 500
 _MAX_HISTORY_SEARCH_LENGTH = 200
@@ -66,6 +87,8 @@ class PanelServer:
         *,
         conversation: Optional[Any] = None,
         plugin_config: Optional[PluginConfig] = None,
+        process_service: Optional[Any] = None,
+        safe_actions: Optional[Any] = None,
         token: Optional[str] = None,
         port: int = DEFAULT_PORT,
     ) -> None:
@@ -74,10 +97,15 @@ class PanelServer:
         self._memory = memory
         self._conversation = conversation
         self._plugin_config = plugin_config
+        self._process_service = process_service
+        self._safe_actions = safe_actions
         self._token = token if token is not None else load_or_create_token()
         self._requested_port = port
         self._httpd: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[Thread] = None
+        # Одноразовый токен подтверждения (kill/power): (token, action, issued_at).
+        self._challenge_lock = Lock()
+        self._challenge: Optional[tuple[str, str, float]] = None
 
     # ── Доступ из обработчика ─────────────────────────────────────
 
@@ -100,6 +128,52 @@ class PanelServer:
     @property
     def plugin_config(self) -> Optional[PluginConfig]:
         return self._plugin_config
+
+    @property
+    def process_service(self) -> Optional[Any]:
+        return self._process_service
+
+    @property
+    def safe_actions(self) -> Optional[Any]:
+        return self._safe_actions
+
+    # ── Подтверждения опасных действий (серверный TTL, P0-3) ──────
+
+    def issue_challenge(self, action: str) -> str:
+        """Одноразовый токен подтверждения; живёт не дольше _TTL_SECONDS.
+
+        Новый токен аннулирует предыдущий: одна незавершённая операция на панель.
+        """
+        token = secrets.token_hex(16)
+        with self._challenge_lock:
+            self._challenge = (token, action, time.monotonic())
+        return token
+
+    def consume_challenge(self, token: Any, action: str) -> Optional[tuple[str, str]]:
+        """Проверяет и гасит токен. None — годен; иначе (код, сообщение)."""
+        if (
+            not isinstance(token, str)
+            or len(token) != 32
+            or any(char not in "0123456789abcdef" for char in token)
+        ):
+            return "VALIDATION_ERROR", "Некорректный ttlToken."
+
+        with self._challenge_lock:
+            challenge = self._challenge
+            self._challenge = None  # гасим в любом случае: токен одноразовый
+
+        if challenge is None or challenge[0] != token:
+            return "TTL_EXPIRED", "Нет действия, ожидающего подтверждения."
+
+        issued_token, issued_action, issued_at = challenge
+
+        if issued_action != action:
+            return "TTL_EXPIRED", "Подтверждение относится к другому действию."
+
+        if time.monotonic() - issued_at > _TTL_SECONDS:
+            return "TTL_EXPIRED", "Срок подтверждения истёк — запросите действие заново."
+
+        return None
 
     @property
     def token(self) -> str:
@@ -225,6 +299,33 @@ class _PanelHandler(BaseHTTPRequestHandler):
             self._handle_memory_delete(path[len(_MEMORY_PREFIX):])
             return
 
+        # Динамический маршрут POST /api/processes/{pid}/kill
+        if path.startswith(_KILL_PREFIX):
+            if method != "POST":
+                self._send_json(405, "METHOD_NOT_ALLOWED", "Метод не поддерживается.")
+                return
+
+            # Нормализуем любую ошибку, как это делает C#-панель (HandleAsync).
+            try:
+                self._handle_process_kill(path[len(_KILL_PREFIX):])
+            except Exception as ex:  # noqa: BLE001
+                log_error("PanelServer", str(ex))
+                self._send_json(500, "INTERNAL", "Внутренняя ошибка сервера.")
+            return
+
+        # Динамический маршрут POST /api/power/{action}
+        if path.startswith(_POWER_PREFIX):
+            if method != "POST":
+                self._send_json(405, "METHOD_NOT_ALLOWED", "Метод не поддерживается.")
+                return
+
+            try:
+                self._handle_power(path[len(_POWER_PREFIX):])
+            except Exception as ex:  # noqa: BLE001
+                log_error("PanelServer", str(ex))
+                self._send_json(500, "INTERNAL", "Внутренняя ошибка сервера.")
+            return
+
         allowed = _ROUTES.get(path)
         if allowed is None:
             self._send_json(404, "NOT_FOUND", "Маршрут не найден.")
@@ -256,6 +357,8 @@ class _PanelHandler(BaseHTTPRequestHandler):
                     self._handle_memory_get()
                 else:
                     self._handle_memory_post()
+            elif path == "/api/processes":
+                self._handle_processes_get()
             else:  # /api/chat/stream
                 self._handle_chat_stream()
         except Exception as ex:  # noqa: BLE001 — нормализуем любую ошибку
@@ -571,6 +674,164 @@ class _PanelHandler(BaseHTTPRequestHandler):
 
         self._send_json(200, None, {"deleted": True})
 
+    # ── Процессы и питание (этап 4, §6 плана) ────────────────────
+
+    def _handle_processes_get(self) -> None:
+        """Список процессов: {q} — подстрочный поиск по имени."""
+        params = parse_qs(urlsplit(self.path).query)
+        query = (params.get("q") or [""])[0]
+
+        if len(query) > _MAX_PROCESS_QUERY_LENGTH:
+            self._send_json(
+                400,
+                "VALIDATION_ERROR",
+                f"Параметр «q» длиннее {_MAX_PROCESS_QUERY_LENGTH} символов.",
+            )
+            return
+
+        service = self.panel.process_service
+        if service is None:
+            self._send_json(503, "NOT_READY", "Сервис процессов не готов.")
+            return
+
+        items = service.search(query) if query else service.get_processes()
+
+        self._send_json(
+            200,
+            None,
+            {"items": [_process_payload(info, service) for info in items]},
+        )
+
+    def _handle_process_kill(self, raw_path: str) -> None:
+        """Завершение процесса в два шага: токен, затем {confirm, ttlToken}."""
+        if not raw_path.endswith(_KILL_SUFFIX):
+            self._send_json(404, "NOT_FOUND", "Маршрут не найден.")
+            return
+
+        pid_text = raw_path[: -len(_KILL_SUFFIX)]
+        if not (pid_text.isascii() and pid_text.isdigit()) or not 0 < int(pid_text) <= _MAX_PID:
+            self._send_json(400, "VALIDATION_ERROR", "PID должен быть положительным целым числом.")
+            return
+        pid = int(pid_text)
+
+        payload = self._read_json_object()
+        if payload is None:
+            return
+
+        service = self.panel.process_service
+        if service is None:
+            self._send_json(503, "NOT_READY", "Сервис процессов не готов.")
+            return
+
+        info = _find_process(service, pid)
+        if info is None:
+            self._send_json(404, "NOT_FOUND", f"Процесс с PID {pid} не найден.")
+            return
+
+        if service.is_protected(info.name):
+            self._send_json(400, "PROTECTED", f"Процесс «{info.name}» защищён от завершения.")
+            return
+
+        action = f"kill:{pid}"
+
+        # Шаг 1: пустое тело — выдаём одноразовый токен с серверным сроком.
+        if payload == {}:
+            self._send_json(
+                200,
+                None,
+                {
+                    "status": "pending",
+                    "pid": pid,
+                    "name": info.name,
+                    "ttlToken": self.panel.issue_challenge(action),
+                    "expiresInSeconds": _TTL_SECONDS,
+                },
+            )
+            return
+
+        # Шаг 2: подтверждение.
+        error = _validate_ttl_payload(payload, "KILL")
+        if error is not None:
+            self._send_json(400, "VALIDATION_ERROR", error)
+            return
+
+        problem = self.panel.consume_challenge(payload["ttlToken"], action)
+        if problem is not None:
+            code, message = problem
+            self._send_json(400, code, message)
+            return
+
+        # Повторная проверка: PID могли переиспользовать за время диалога.
+        info = _find_process(service, pid)
+        if info is None:
+            self._send_json(404, "NOT_FOUND", f"Процесс с PID {pid} не найден.")
+            return
+
+        if service.is_protected(info.name):
+            self._send_json(400, "PROTECTED", f"Процесс «{info.name}» защищён от завершения.")
+            return
+
+        if not service.kill_pid(pid):
+            self._send_json(404, "NOT_FOUND", "Процесс не найден или уже завершён.")
+            return
+
+        self._send_json(200, None, {"status": "killed", "pid": pid, "name": info.name})
+
+    def _handle_power(self, action: str) -> None:
+        """Питание через штатный SafeActionManager + серверный TTL."""
+        if action not in _POWER_ACTIONS:
+            self._send_json(404, "NOT_FOUND", "Неизвестное действие питания.")
+            return
+
+        safe = self.panel.safe_actions
+        if safe is None:
+            self._send_json(503, "NOT_READY", "Сервис питания не готов.")
+            return
+
+        payload = self._read_json_object()
+        if payload is None:
+            return
+
+        # Шаг 1: команда поставлена в очередь подтверждения, токен выдан.
+        if payload == {}:
+            safe.request(_PENDING_BY_ACTION[action])
+            self._send_json(
+                200,
+                None,
+                {
+                    "status": "pending",
+                    "action": action,
+                    "ttlToken": self.panel.issue_challenge(f"power:{action}"),
+                    "expiresInSeconds": _TTL_SECONDS,
+                },
+            )
+            return
+
+        error = _validate_ttl_payload(payload, "POWER")
+        if error is not None:
+            self._send_json(400, "VALIDATION_ERROR", error)
+            return
+
+        problem = self.panel.consume_challenge(payload["ttlToken"], f"power:{action}")
+        if problem is not None:
+            code, message = problem
+            self._send_json(400, code, message)
+            return
+
+        # Шаг 2: второй TTL — внутри самого SafeActionManager.
+        # Сравнение по .value: тянуть ConfirmOutcome в сервер нельзя,
+        # его модуль импортирует ProcessService (psutil).
+        outcome = str(getattr(safe.confirm(), "value", ""))
+
+        if outcome == "executed":
+            self._send_json(200, None, {"status": "executed", "action": action})
+        elif outcome == "failed":
+            self._send_json(200, None, {"status": "failed", "action": action})
+        else:  # expired / no_pending
+            self._send_json(
+                400, "TTL_EXPIRED", "Срок подтверждения истёк — запросите действие заново."
+            )
+
     def _handle_chat_stream(self) -> None:
         params = parse_qs(urlsplit(self.path).query)
         text = (params.get("text") or [""])[0]
@@ -607,6 +868,24 @@ class _PanelHandler(BaseHTTPRequestHandler):
         self.close_connection = True
 
     # ── Помощники ─────────────────────────────────────────────────
+
+    def _read_json_object(self) -> Optional[dict[str, Any]]:
+        """Тело запроса как JSON-объект; None — ответ с ошибкой уже отправлен."""
+        body = self._read_body()
+        if body is None:
+            return None
+
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json(400, "VALIDATION_ERROR", "Тело запроса не является корректным JSON.")
+            return None
+
+        if not isinstance(payload, dict):
+            self._send_json(400, "VALIDATION_ERROR", "Ожидался JSON-объект в теле запроса.")
+            return None
+
+        return payload
 
     def _read_body(self) -> Optional[bytes]:
         length_text = self.headers.get("Content-Length", "0")
@@ -764,6 +1043,54 @@ def _validate_confirm_payload(payload: Any) -> Optional[str]:
 
     return None
 
+
+def _validate_ttl_payload(payload: Any, expected: str) -> Optional[str]:
+    """Подтверждение опасного действия: ровно {confirm, ttlToken}."""
+    if not isinstance(payload, dict):
+        return f'Ожидался JSON-объект {{confirm: "{expected}", ttlToken: "…"}}.'
+
+    for key in payload:
+        if key not in ("confirm", "ttlToken"):
+            return f"Неизвестный ключ: «{key}»."
+
+    if "confirm" not in payload:
+        return "Отсутствует обязательный ключ: «confirm»."
+
+    if payload["confirm"] != expected:
+        return f'Ожидалось подтверждение confirm = "{expected}".'
+
+    if "ttlToken" not in payload:
+        return "Отсутствует обязательный ключ: «ttlToken»."
+
+    if not isinstance(payload["ttlToken"], str):
+        return "Ключ «ttlToken» должен быть строкой."
+
+    return None
+
+def _find_process(service: Any, pid: int) -> Optional[Any]:
+    """ProcessInfo с таким PID или None (поиск по свежему списку)."""
+    for info in service.get_processes():
+        try:
+            if int(info.id) == pid:
+                return info
+        except (TypeError, ValueError):
+            continue
+    return None
+
+def _process_payload(info: Any, service: Any) -> dict[str, Any]:
+    """Строка списка процессов: поля ProcessInfo + флаг защиты.
+
+    CPU не отдаём намеренно: ни C#, ни Python-сервис процессов его
+    не измеряют — не показываем в UI то, чего нет (§5 плана).
+    """
+    name = str(info.name)
+    return {
+        "pid": int(info.id),
+        "name": name,
+        "memoryMb": float(info.memory_mb),
+        "responding": bool(info.responding),
+        "protected": bool(service.is_protected(name)),
+    }
 
 def _validate_memory_payload(payload: Any) -> Optional[str]:
     """Валидация записи памяти: {key, value, category?}."""

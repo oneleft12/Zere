@@ -128,3 +128,31 @@ class ProcessService:
                 pass
 
         return killed > 0
+
+    def kill_pid(self, pid: int) -> bool:
+        """Завершает один процесс по PID (строка в списке панели).
+
+        Как и kill(): защищённые системные процессы не трогаем, сносим
+        вместе с дочерними. False, если процесса нет или нет прав.
+        """
+        if pid <= 0:
+            return False
+
+        try:
+            process = psutil.Process(pid)
+
+            if self.is_protected(_process_name(process)):
+                return False
+
+            # process.Kill(true) — вместе с дочерними процессами
+            for child in process.children(recursive=True):
+                try:
+                    child.kill()
+                except psutil.Error:
+                    pass
+
+            process.kill()
+            return True
+        except psutil.Error:
+            # Нет такого PID, процесс уже завершился или нет прав.
+            return False
