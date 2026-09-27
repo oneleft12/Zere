@@ -30,6 +30,10 @@ class ContextBuilder:
         if len(history) == 0:
             return ""
 
+        # get_last отдаёт новые первыми (ORDER BY Id DESC) — для контекста
+        # диалог должен читаться от старых сообщений к новым.
+        history.reverse()
+
         lines: list[str] = []
 
         for item in history:

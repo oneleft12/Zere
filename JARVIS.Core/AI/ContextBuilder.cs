@@ -36,6 +36,10 @@ public class ContextBuilder
         if (history.Count == 0)
             return "";
 
+        // GetLast отдаёт новые первыми (ORDER BY Id DESC) — для контекста
+        // диалог должен читаться от старых сообщений к новым.
+        history.Reverse();
+
         var sb = new StringBuilder();
 
         foreach (var item in history)

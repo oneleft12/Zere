@@ -286,7 +286,10 @@ def create_services() -> ServiceContainer:
     # services.AddSingleton<JarvisEngine>();
     services.add_singleton_factory(
         lambda sp: JarvisEngine(
-            sp.get(HandlerPipeline), sp.get(MemoryExtractor), sp.get(PluginManager)
+            sp.get(HandlerPipeline),
+            sp.get(MemoryExtractor),
+            sp.get(PluginManager),
+            sp.get(ConversationRepository),
         ),
         JarvisEngine,
     )
