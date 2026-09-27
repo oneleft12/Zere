@@ -38,7 +38,7 @@ public class MemoryHandler : IJarvisHandler
                lower == "reset memory";
     }
 
-    public Task<string> HandleAsync(string message)
+    public Task<string?> HandleAsync(string message)
     {
         return Task.FromResult(Handle(message));
     }

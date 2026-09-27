@@ -67,7 +67,9 @@ public class WindowsHandler : IJarvisHandler
         return lower.StartsWith("открой ") ||
                lower == "обнови индекс" ||
                lower == "сколько приложений" ||
-               lower.StartsWith("найди ") ||
+               // «найди файл …» — зона FileHandler (он идёт после нас):
+               // без этого исключения файловый поиск был бы недостижим.
+               (lower.StartsWith("найди ") && !lower.StartsWith("найди файл")) ||
                power ||
                // Confirmations
                lower == "да" ||
@@ -77,7 +79,7 @@ public class WindowsHandler : IJarvisHandler
                lower == "выполняй";
     }
 
-    public Task<string> HandleAsync(string message)
+    public Task<string?> HandleAsync(string message)
     {
         return Task.FromResult(Handle(message));
     }
@@ -115,7 +117,7 @@ public class WindowsHandler : IJarvisHandler
             return $"В индексе {_launcher.GetInstalledApplications().Count} приложений.";
         }
 
-        if (lower.StartsWith("найди "))
+        if (lower.StartsWith("найди ") && !lower.StartsWith("найди файл"))
         {
             var query = lower.Replace("найди ", "");
 

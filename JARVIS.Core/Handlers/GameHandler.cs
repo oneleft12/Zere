@@ -22,7 +22,7 @@ public class GameHandler : IJarvisHandler
                lower == "сбросить игровую статистику";
     }
 
-    public Task<string> HandleAsync(string message)
+    public Task<string?> HandleAsync(string message)
     {
         return Task.FromResult(Handle(message));
     }

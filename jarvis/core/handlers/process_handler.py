@@ -71,7 +71,10 @@ class ProcessHandler(IJarvisHandler):
             matches = self._service.search_exact(command.value)
 
             if not matches:
-                return "Процесс не найден."
+                # Явное «закрой процесс X» — честный ответ; а просто
+                # «закрой дверь» — не процесс, отдаём вопрос LLM.
+                explicit_process = "процесс" in message.lower() or message.lstrip().lower().startswith("kill")
+                return "Процесс не найден." if explicit_process else None
 
             self._safe_actions.request(PendingAction.KILL_PROCESS, command.value)
 

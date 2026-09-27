@@ -17,7 +17,12 @@ public class HandlerPipeline
             {
                 if (handler.CanHandle(message))
                 {
-                    return await handler.HandleAsync(message);
+                    var result = await handler.HandleAsync(message);
+
+                    // null = обработчик не смог ответить → следующий обработчик
+                    // (например, память не знает ответа → вопрос уходит в LLM).
+                    if (result != null)
+                        return result;
                 }
             }
             catch (Exception ex)

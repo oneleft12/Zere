@@ -70,7 +70,9 @@ class WindowsHandler(IJarvisHandler):
             lower.startswith("открой ")
             or lower == "обнови индекс"
             or lower == "сколько приложений"
-            or lower.startswith("найди ")
+            # «найди файл …» — зона FileHandler (он идёт после нас):
+            # без этого исключения файловый поиск был бы недостижим.
+            or (lower.startswith("найди ") and not lower.startswith("найди файл"))
             or power
             # Confirmations
             or lower == "да"
@@ -105,7 +107,7 @@ class WindowsHandler(IJarvisHandler):
         if lower == "сколько приложений":
             return f"В индексе {len(self._launcher.get_installed_applications())} приложений."
 
-        if lower.startswith("найди "):
+        if lower.startswith("найди ") and not lower.startswith("найди файл"):
             query = lower.replace("найди ", "")
 
             apps = [

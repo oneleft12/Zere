@@ -22,15 +22,18 @@ public class MemoryQueryHandler : IJarvisHandler
                lower.Contains("какая у меня windows") ||
                lower.StartsWith("что такое ") ||
                lower.StartsWith("кто такой ") ||
-               lower.StartsWith("кто такая ");
+               lower.StartsWith("кто такая ") ||
+               lower.StartsWith("что значит ") ||
+               lower.StartsWith("расскажи про ") ||
+               lower.StartsWith("расскажи о ");
     }
 
-    public Task<string> HandleAsync(string message)
+    public Task<string?> HandleAsync(string message)
     {
         return Task.FromResult(Handle(message));
     }
 
-    private string Handle(string message)
+    private string? Handle(string message)
     {
         var lower = message.ToLower().Trim();
 
@@ -82,7 +85,10 @@ public class MemoryQueryHandler : IJarvisHandler
             }
         }
 
-        return "Я пока не знаю ответ.";
+        // Память не знает ответа → отдаём сообщение дальше, до AIHandler:
+        // «что такое гравитация» должно доходить до LLM, а не получать
+        // «Я пока не знаю ответ.».
+        return null;
     }
 
     private static string ExtractSearchQuery(string lower)

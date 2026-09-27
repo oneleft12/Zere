@@ -3,6 +3,10 @@ namespace JARVIS.Tools.Files;
 public class FileManager
 {
     private readonly string _desktop;
+    private string? _lastFile;
+
+    /// <summary>Имя последнего созданного файла в этой сессии (для «удали его»).</summary>
+    public string? LastCreatedName => _lastFile;
 
     public FileManager()
     {
@@ -80,6 +84,7 @@ public class FileManager
             return $"Файл \"{name}\" уже существует.";
 
         File.WriteAllText(path, "");
+        _lastFile = Path.GetFileName(path);
 
         return $"Файл \"{name}\" создан.";
     }

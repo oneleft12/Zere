@@ -56,6 +56,23 @@ class FileHandler(IJarvisHandler):
         if command.type == FileCommandType.FindFile:
             return self._files.find_file(command.value)
 
+        if command.type == FileCommandType.DELETE_LAST_FILE:
+            last_name = self._files.last_created_name
+
+            if last_name is None:
+                return "Я не создавал файлов в этой сессии — нечего удалять."
+
+            if not self._files.exists(last_name):
+                return f"Файл «{last_name}» уже не существует."
+
+            self._safe_actions.request(PendingAction.DELETE_FILE, last_name)
+
+            ttl = SafeActionManager.CONFIRM_TTL_SECONDS
+            return (
+                f"Удалить последний созданный файл «{last_name}»? "
+                f"Напишите «да» или «нет» (подтверждение действует {ttl} секунд)."
+            )
+
         if command.type == FileCommandType.DELETE_FILE:
             # Удаление необратимо: подтверждение с TTL вместо мгновенного
             # удаления (раньше здесь был Request(PendingAction.None) — no-op).

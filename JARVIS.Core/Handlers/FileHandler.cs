@@ -43,7 +43,7 @@ public class FileHandler : IJarvisHandler
                lower.StartsWith("удалить его");
     }
 
-    public Task<string> HandleAsync(string message)
+    public Task<string?> HandleAsync(string message)
     {
         return Task.FromResult(Handle(message));
     }
@@ -62,6 +62,23 @@ public class FileHandler : IJarvisHandler
 
             case FileCommandType.FindFile:
                 return _files.FindFile(command.Value);
+
+            case FileCommandType.DeleteLastFile:
+            {
+                var lastName = _files.LastCreatedName;
+
+                if (lastName == null)
+                    return "Я не создавал файлов в этой сессии — нечего удалять.";
+
+                if (!_files.Exists(lastName))
+                    return $"Файл «{lastName}» уже не существует.";
+
+                _safeActions.Request(PendingAction.DeleteFile, lastName);
+
+                return $"Удалить последний созданный файл «{lastName}»? " +
+                       $"Напишите «да» или «нет» (подтверждение действует " +
+                       $"{SafeActionManager.ConfirmTtlSeconds} секунд).";
+            }
 
             case FileCommandType.DeleteFile:
                 // Удаление необратимо: подтверждение с TTL вместо мгновенного

@@ -16,7 +16,12 @@ class HandlerPipeline:
         for handler in self._handlers:
             try:
                 if handler.can_handle(message):
-                    return handler.handle(message)
+                    result = handler.handle(message)
+
+                    # None = обработчик не смог ответить → следующий обработчик
+                    # (например, память не знает ответа → вопрос уходит в LLM).
+                    if result is not None:
+                        return result
             except Exception as ex:
                 # Ошибка обработчика не должна ронять конвейер:
                 # логируем в errors.log и пробуем следующий обработчик.

@@ -4,5 +4,9 @@ public interface IJarvisHandler
 {
     bool CanHandle(string message);
 
-    Task<string> HandleAsync(string message);
+    /// <summary>
+    /// Обработать сообщение. Возвращает null, если обработчик не смог
+    /// ответить — конвейер передаст сообщение следующему обработчику.
+    /// </summary>
+    Task<string?> HandleAsync(string message);
 }

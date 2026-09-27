@@ -30,7 +30,7 @@ public class ConversationHandler : IJarvisHandler
                lower == "сбрось историю";
     }
 
-    public Task<string> HandleAsync(string message)
+    public Task<string?> HandleAsync(string message)
     {
         return Task.FromResult(Handle(message));
     }

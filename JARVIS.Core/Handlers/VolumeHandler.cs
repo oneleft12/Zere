@@ -44,7 +44,7 @@ public class VolumeHandler : IJarvisHandler
                lower.Contains("меньше звука");
     }
 
-    public Task<string> HandleAsync(string message)
+    public Task<string?> HandleAsync(string message)
     {
         return Task.FromResult(Handle(message));
     }

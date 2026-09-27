@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from jarvis.core.handlers.i_jarvis_handler import IJarvisHandler
 from jarvis.memory.database.memory_repository import MemoryRepository
 
@@ -22,9 +24,12 @@ class MemoryQueryHandler(IJarvisHandler):
             or lower.startswith("что такое ")
             or lower.startswith("кто такой ")
             or lower.startswith("кто такая ")
+            or lower.startswith("что значит ")
+            or lower.startswith("расскажи про ")
+            or lower.startswith("расскажи о ")
         )
 
-    def handle(self, message: str) -> str:
+    def handle(self, message: str) -> Optional[str]:
         lower = message.lower().strip()
 
         if "что ты знаешь обо мне" in lower:
@@ -71,7 +76,10 @@ class MemoryQueryHandler(IJarvisHandler):
                 best = results[0]
                 return f"Из памяти: {best.key} = {best.value}"
 
-        return "Я пока не знаю ответ."
+        # Память не знает ответа → отдаём сообщение дальше, до AIHandler:
+        # «что такое гравитация» должно доходить до LLM, а не получать
+        # «Я пока не знаю ответ.».
+        return None
 
     @staticmethod
     def _extract_search_query(lower: str) -> str:

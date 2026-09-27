@@ -17,6 +17,13 @@ class FileManager:
             # Environment.SpecialFolder.DesktopDirectory
             self._desktop = Path.home() / "Desktop"
 
+        self._last_file: Path | None = None
+
+    @property
+    def last_created_name(self) -> str | None:
+        """Имя последнего созданного файла в этой сессии (для «удали его»)."""
+        return self._last_file.name if self._last_file is not None else None
+
     def _resolve_path(self, name: str) -> Path | None:
         """Резолвит имя из реплики в путь внутри рабочего стола.
 
@@ -70,6 +77,7 @@ class FileManager:
             return f'Файл "{name}" уже существует.'
 
         path.write_text("", encoding="utf-8")
+        self._last_file = path
 
         return f'Файл "{name}" создан.'
 

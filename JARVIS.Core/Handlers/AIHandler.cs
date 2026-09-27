@@ -25,7 +25,7 @@ public class AIHandler : IJarvisHandler
         return true;
     }
 
-    public async Task<string> HandleAsync(string message)
+    public async Task<string?> HandleAsync(string message)
     {
         var personality = _pluginManager.ActivePersonality;
         var systemPrompt = GetSystemPrompt();

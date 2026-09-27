@@ -41,12 +41,12 @@ public class ProcessHandler : IJarvisHandler
                lower.StartsWith("убей ");
     }
 
-    public Task<string> HandleAsync(string message)
+    public Task<string?> HandleAsync(string message)
     {
         return Task.FromResult(Handle(message));
     }
 
-    private string Handle(string message)
+    private string? Handle(string message)
     {
         var command = _router.Parse(message);
 
@@ -84,7 +84,15 @@ public class ProcessHandler : IJarvisHandler
                 var matches = _service.SearchExact(command.Value);
 
                 if (matches.Count == 0)
-                    return "Процесс не найден.";
+                {
+                    // Явное «закрой процесс X» — честный ответ; а просто
+                    // «закрой дверь» — не процесс, отдаём вопрос LLM.
+                    var explicitProcess =
+                        message.Contains("процесс", StringComparison.OrdinalIgnoreCase) ||
+                        message.TrimStart().StartsWith("kill", StringComparison.OrdinalIgnoreCase);
+
+                    return explicitProcess ? "Процесс не найден." : null;
+                }
 
                 _safeActions.Request(PendingAction.KillProcess, command.Value);
 
