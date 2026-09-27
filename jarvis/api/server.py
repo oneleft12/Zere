@@ -50,6 +50,8 @@ _ROUTES = {
     "/api/history": frozenset({"GET", "DELETE"}),
     "/api/memory": frozenset({"GET", "POST"}),
     "/api/processes": frozenset({"GET"}),
+    "/api/apps": frozenset({"GET"}),
+    "/api/apps/reindex": frozenset({"POST"}),
 }
 
 _MEMORY_PREFIX = "/api/memory/"
@@ -62,6 +64,7 @@ _POWER_PREFIX = "/api/power/"
 _TTL_SECONDS = 60  # тот же срок, что у SafeActionManager (серверная проверка)
 _MAX_PROCESS_QUERY_LENGTH = 100
 _MAX_PID = 2_147_483_647  # int32, как int.TryParse в C#-реализации
+_MAX_APP_QUERY_LENGTH = 200
 _POWER_ACTIONS = ("shutdown", "restart", "sleep")
 _PENDING_BY_ACTION = {
     "shutdown": PendingAction.SHUTDOWN,
@@ -89,6 +92,7 @@ class PanelServer:
         plugin_config: Optional[PluginConfig] = None,
         process_service: Optional[Any] = None,
         safe_actions: Optional[Any] = None,
+        app_launcher: Optional[Any] = None,
         token: Optional[str] = None,
         port: int = DEFAULT_PORT,
     ) -> None:
@@ -99,6 +103,7 @@ class PanelServer:
         self._plugin_config = plugin_config
         self._process_service = process_service
         self._safe_actions = safe_actions
+        self._app_launcher = app_launcher
         self._token = token if token is not None else load_or_create_token()
         self._requested_port = port
         self._httpd: Optional[ThreadingHTTPServer] = None
@@ -136,6 +141,10 @@ class PanelServer:
     @property
     def safe_actions(self) -> Optional[Any]:
         return self._safe_actions
+
+    @property
+    def app_launcher(self) -> Optional[Any]:
+        return self._app_launcher
 
     # ── Подтверждения опасных действий (серверный TTL, P0-3) ──────
 
@@ -359,6 +368,10 @@ class _PanelHandler(BaseHTTPRequestHandler):
                     self._handle_memory_post()
             elif path == "/api/processes":
                 self._handle_processes_get()
+            elif path == "/api/apps":
+                self._handle_apps_get()
+            elif path == "/api/apps/reindex":
+                self._handle_apps_reindex()
             else:  # /api/chat/stream
                 self._handle_chat_stream()
         except Exception as ex:  # noqa: BLE001 — нормализуем любую ошибку
@@ -673,6 +686,64 @@ class _PanelHandler(BaseHTTPRequestHandler):
             return
 
         self._send_json(200, None, {"deleted": True})
+
+    # ── Приложения (этап 4, §6 плана) ─────────────────────────────
+
+    def _handle_apps_get(self) -> None:
+        """Индексированные приложения; {q} — подстрочный поиск по имени/алиасам."""
+        params = parse_qs(urlsplit(self.path).query)
+        query = (params.get("q") or [""])[0]
+
+        if len(query) > _MAX_APP_QUERY_LENGTH:
+            self._send_json(
+                400,
+                "VALIDATION_ERROR",
+                f"Параметр «q» длиннее {_MAX_APP_QUERY_LENGTH} символов.",
+            )
+            return
+
+        launcher = self.panel.app_launcher
+        if launcher is None:
+            self._send_json(503, "NOT_READY", "Сервис приложений не готов.")
+            return
+
+        apps = list(launcher.get_installed_applications().values())
+        apps.sort(key=lambda app: (-int(app.priority), str(app.name)))
+
+        if query:
+            needle = query.casefold()
+            apps = [
+                app
+                for app in apps
+                if needle in str(app.name).casefold()
+                or any(needle in str(alias).casefold() for alias in app.aliases)
+            ]
+
+        self._send_json(
+            200,
+            None,
+            {"items": [_app_payload(app) for app in apps], "total": len(apps)},
+        )
+
+    def _handle_apps_reindex(self) -> None:
+        """Полная переиндексация: сканеры реестра/меню/AppPaths/LocalAppData."""
+        launcher = self.panel.app_launcher
+        if launcher is None:
+            self._send_json(503, "NOT_READY", "Сервис приложений не готов.")
+            return
+
+        started = time.monotonic()
+        launcher.rebuild_index()
+        duration_ms = int((time.monotonic() - started) * 1000)
+
+        self._send_json(
+            200,
+            None,
+            {
+                "count": len(launcher.get_installed_applications()),
+                "durationMs": duration_ms,
+            },
+        )
 
     # ── Процессы и питание (этап 4, §6 плана) ────────────────────
 
@@ -1090,6 +1161,22 @@ def _process_payload(info: Any, service: Any) -> dict[str, Any]:
         "memoryMb": float(info.memory_mb),
         "responding": bool(info.responding),
         "protected": bool(service.is_protected(name)),
+    }
+
+def _app_payload(info: Any) -> dict[str, Any]:
+    """Строка списка приложений: AppInfo (snake_case, datetime) → camelCase."""
+    last_seen = getattr(info, "last_seen", "")
+    # datetime → ISO-8601 (у C#-поля LastSeen — формат "O").
+    last_seen_text = last_seen.isoformat() if hasattr(last_seen, "isoformat") else str(last_seen)
+
+    return {
+        "name": str(info.name),
+        "executablePath": str(info.executable_path),
+        "source": str(info.source),
+        "category": str(info.category),
+        "priority": int(info.priority),
+        "aliases": [str(alias) for alias in info.aliases],
+        "lastSeen": last_seen_text,
     }
 
 def _validate_memory_payload(payload: Any) -> Optional[str]:

@@ -11,6 +11,8 @@ using JARVIS.Core.Logging;
 using JARVIS.Core.Plugins;
 using JARVIS.Memory.Database;
 using JARVIS.Memory.Models;
+using JARVIS.Tools.Applications;
+using JARVIS.Tools.Applications.Indexing;
 using JARVIS.Tools.Windows;
 using JARVIS.Tools.Windows.Processes;
 
@@ -50,6 +52,8 @@ public sealed class PanelServer : IDisposable
         ["/api/history"] = ["GET", "DELETE"],
         ["/api/memory"] = ["GET", "POST"],
         ["/api/processes"] = ["GET"],
+        ["/api/apps"] = ["GET"],
+        ["/api/apps/reindex"] = ["POST"],
     };
 
     private const string MemoryPrefix = "/api/memory/";
@@ -62,6 +66,7 @@ public sealed class PanelServer : IDisposable
     private const string PowerPrefix = "/api/power/";
     private const int TtlSeconds = 60; // тот же срок, что у SafeActionManager
     private const int MaxProcessQueryLength = 100;
+    private const int MaxAppQueryLength = 200;
     private const int MaxPid = int.MaxValue;
     private static readonly string[] PowerActions = ["shutdown", "restart", "sleep"];
     private const int HistoryDefaultLimit = 50;
@@ -86,6 +91,7 @@ public sealed class PanelServer : IDisposable
     private readonly PluginConfig _pluginConfig;
     private readonly ProcessService? _processes;
     private readonly SafeActionManager? _safeActions;
+    private readonly ApplicationLauncher? _apps;
     private readonly object _challengeLock = new();
 
     // Одноразовый токен подтверждения (kill/power): (token, action, issuedAt).
@@ -106,6 +112,7 @@ public sealed class PanelServer : IDisposable
         PluginConfig pluginConfig,
         ProcessService? processes = null,
         SafeActionManager? safeActions = null,
+        ApplicationLauncher? apps = null,
         string? token = null,
         int port = DefaultPort)
     {
@@ -116,6 +123,7 @@ public sealed class PanelServer : IDisposable
         _pluginConfig = pluginConfig;
         _processes = processes;
         _safeActions = safeActions;
+        _apps = apps;
         _token = token ?? PanelToken.LoadOrCreate();
         _port = port;
     }
@@ -311,6 +319,14 @@ public sealed class PanelServer : IDisposable
             else if (path == "/api/processes")
             {
                 await HandleProcessesGetAsync(request, response);
+            }
+            else if (path == "/api/apps")
+            {
+                await HandleAppsGetAsync(request, response);
+            }
+            else if (path == "/api/apps/reindex")
+            {
+                await HandleAppsReindexAsync(response);
             }
             else
             {
@@ -1018,6 +1034,79 @@ public sealed class PanelServer : IDisposable
 
         await SendJsonAsync(response, 200, new { Deleted = true });
     }
+
+    // ── Приложения (этап 4, §6 плана) ─────────────────────────────
+
+    /// <summary>Индексированные приложения; {q} — подстрочный поиск по имени/алиасам.</summary>
+    private async Task HandleAppsGetAsync(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        var query = request.QueryString["q"] ?? string.Empty;
+
+        if (query.Length > MaxAppQueryLength)
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", $"Параметр «q» длиннее {MaxAppQueryLength} символов.");
+            return;
+        }
+
+        if (_apps is null)
+        {
+            await SendErrorAsync(response, 503, "NOT_READY", "Сервис приложений не готов.");
+            return;
+        }
+
+        var items = _apps.GetInstalledApplications().Values
+            .Where(app => MatchesAppQuery(app, query))
+            .OrderByDescending(app => app.Priority)
+            .ThenBy(app => app.Name, StringComparer.Ordinal)
+            .Select(AppPayload)
+            .ToList();
+
+        await SendJsonAsync(response, 200, new { items, total = items.Count });
+    }
+
+    /// <summary>Полная переиндексация: сканеры реестра/меню/AppPaths/LocalAppData.</summary>
+    private async Task HandleAppsReindexAsync(HttpListenerResponse response)
+    {
+        if (_apps is null)
+        {
+            await SendErrorAsync(response, 503, "NOT_READY", "Сервис приложений не готов.");
+            return;
+        }
+
+        var started = Stopwatch.StartNew();
+        _apps.RebuildIndex();
+        started.Stop();
+
+        await SendJsonAsync(response, 200, new
+        {
+            Count = _apps.GetInstalledApplications().Count,
+            DurationMs = (int)started.ElapsedMilliseconds,
+        });
+    }
+
+    /// <summary>Подстроковый поиск по имени и алиасам без учёта регистра.</summary>
+    private static bool MatchesAppQuery(AppInfo app, string query)
+    {
+        if (query.Length == 0)
+            return true;
+
+        if (app.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        return app.Aliases.Any(alias => alias.Contains(query, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>Строка списка приложений под контракт (camelCase, lastSeen «O»).</summary>
+    private static object AppPayload(AppInfo app) => new
+    {
+        Name = app.Name,
+        ExecutablePath = app.ExecutablePath,
+        Source = app.Source,
+        Category = app.Category,
+        Priority = app.Priority,
+        Aliases = app.Aliases,
+        LastSeen = app.LastSeen.ToString("O"),
+    };
 
     // ── Процессы и питание (этап 4, §6 плана) ────────────────────
 

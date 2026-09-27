@@ -18,6 +18,7 @@ from jarvis.core.services import create_services
 from jarvis.memory.database.conversation_repository import ConversationRepository
 from jarvis.memory.database.memory_database import MemoryDatabase
 from jarvis.memory.database.memory_repository import MemoryRepository
+from jarvis.tools.applications.application_launcher import ApplicationLauncher
 from jarvis.tools.windows.process_service import ProcessService
 from jarvis.tools.windows.safe_action_manager import SafeActionManager
 from jarvis.voice.voice_manager import VoiceManager
@@ -83,6 +84,7 @@ def main() -> None:
         plugin_config=services.get(PluginConfig),
         process_service=services.get(ProcessService),
         safe_actions=services.get(SafeActionManager),
+        app_launcher=services.get(ApplicationLauncher),
     )
     try:
         panel.start()

@@ -40,6 +40,9 @@ from jarvis.core.configuration.jarvis_config import JarvisConfig
 from jarvis.core.plugins.plugin_config import PluginConfig
 from jarvis.memory.models.conversation import Conversation
 from jarvis.memory.models.memory_item import MemoryItem
+# app_info — только dataclass: в отличие от ApplicationLauncher, чей импорт
+# тянет winreg (сканеры), этот модуль работает на любой платформе.
+from jarvis.tools.applications.indexing.app_info import AppInfo
 
 SPEC: dict[str, Any] = yaml.safe_load(
     (Path(__file__).resolve().parents[1] / "docs" / "api" / "openapi.yaml").read_text(
@@ -290,6 +293,49 @@ class FakeSafeActionManager:
         return FakeConfirmOutcome("executed")
 
 
+class FakeApplicationLauncher:
+    """Порт-замена ApplicationLauncher: get_installed_applications/rebuild_index."""
+
+    def __init__(self) -> None:
+        self.rebuilds = 0
+        self._apps: dict[str, AppInfo] = {
+            "discord": AppInfo(
+                name="Discord",
+                executable_path=r"C:\Users\me\AppData\Local\Discord\Discord.exe",
+                source="StartMenu",
+                category="Communication",
+                priority=80,
+                aliases=["дискорд"],
+                last_seen=datetime(2026, 1, 15, 9, 30, 0),
+            ),
+            "notepad++": AppInfo(
+                name="Notepad++",
+                executable_path=r"C:\Program Files\Notepad++\notepad++.exe",
+                source="AppPaths",
+                category="Utility",
+                priority=95,
+                aliases=[],
+                last_seen=datetime(2026, 1, 15, 9, 31, 0),
+            ),
+            "calc": AppInfo(
+                name="Calc",
+                executable_path="calc.exe",
+                source="Registry",
+                category="Utility",
+                priority=50,
+                aliases=["калькулятор"],
+                last_seen=datetime(2026, 1, 15, 9, 32, 0),
+            ),
+        }
+
+    def get_installed_applications(self) -> dict[str, AppInfo]:
+        return dict(self._apps)
+
+    def rebuild_index(self) -> None:
+        # Сканеры не гоняем: в фейке индекс неизменяем, важно лишь число вызовов.
+        self.rebuilds += 1
+
+
 # ── Инфраструктура ────────────────────────────────────────────────
 
 
@@ -360,6 +406,7 @@ def running_panel() -> Iterator[tuple[Any, Path]]:
                 plugin_config=PluginConfig(),
                 process_service=FakeProcessService(),
                 safe_actions=FakeSafeActionManager(),
+                app_launcher=FakeApplicationLauncher(),
                 token=TOKEN,
                 port=0,
             )
@@ -1453,6 +1500,101 @@ def test_power_confirm_executes() -> None:
         )
         assert status == 400
         assert error_payload(raw)["code"] == "TTL_EXPIRED"
+
+
+# ── /api/apps (этап 4) ────────────────────────────────────────────
+
+
+def test_apps_get_matches_spec() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/apps")
+        assert status == 200
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("AppList"), payload)
+
+        for item in payload["items"]:
+            assert_schema(schema("AppInfo"), item)
+
+        assert payload["total"] == len(payload["items"])
+
+        priorities = [item["priority"] for item in payload["items"]]
+        assert priorities == sorted(priorities, reverse=True), "нет сортировки по priority"
+
+        if not EXTERNAL:
+            assert [item["name"] for item in payload["items"]] == [
+                "Notepad++",
+                "Discord",
+                "Calc",
+            ]
+            discord = payload["items"][1]
+            assert discord["executablePath"].endswith("Discord.exe")
+            assert discord["aliases"] == ["дискорд"]
+            assert discord["lastSeen"].startswith("2026-01-15T09:30")
+
+
+def test_apps_search_filters_by_name_and_alias() -> None:
+    with running_panel() as (panel, _):
+        # По имени (без учёта регистра)
+        status, raw, _ = call(panel, "GET", "/api/apps?q=note")
+        assert status == 200
+        items = json.loads(raw.decode("utf-8"))["items"]
+        if not EXTERNAL:
+            assert [item["name"] for item in items] == ["Notepad++"]
+        else:
+            for item in items:
+                assert "note" in item["name"].lower()
+
+        # По алиасу на кириллице
+        status, raw, _ = call(panel, "GET", "/api/apps?q=" + quote("Дискорд"))
+        assert status == 200
+        items = json.loads(raw.decode("utf-8"))["items"]
+        if not EXTERNAL:
+            assert [item["name"] for item in items] == ["Discord"]
+
+        # Ничего не найдено — пустой список, а не ошибка
+        status, raw, _ = call(panel, "GET", "/api/apps?q=zzzz-no-such-app")
+        assert status == 200
+        payload = json.loads(raw.decode("utf-8"))
+        assert payload["items"] == []
+        assert payload["total"] == 0
+
+
+def test_apps_rejects_long_query() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/apps?q=" + "a" * 201)
+        assert status == 400
+        assert error_payload(raw)["code"] == "VALIDATION_ERROR"
+
+
+def test_apps_requires_token() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/apps", token=None)
+        assert status == 401
+        assert error_payload(raw)["code"] == "UNAUTHORIZED"
+
+
+def test_apps_wrong_method_is_405() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "DELETE", "/api/apps")
+        assert status == 405
+        assert error_payload(raw)["code"] == "METHOD_NOT_ALLOWED"
+
+
+def test_apps_reindex_reports_count() -> None:
+    """Гейт этапа 4: переиндексация возвращает размер индекса и длительность."""
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "POST", "/api/apps/reindex")
+        assert status == 200, raw
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("AppReindexResponse"), payload)
+        assert payload["count"] >= 0
+        assert payload["durationMs"] >= 0
+
+        if not EXTERNAL:
+            assert panel.app_launcher.rebuilds == 1
+            assert payload["count"] == 3
 
 
 def main() -> None:

@@ -492,6 +492,86 @@ paths:
         "503":
           $ref: "#/components/responses/NotReady"
 
+  /api/apps:
+    get:
+      operationId: listApps
+      summary: >
+        Индексированные приложения. Подстрочный поиск по имени и алиасам
+        без учёта регистра (параметр q), сортировка по priority ↓, затем
+        по имени (Ordinal)
+      tags: [apps]
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 200
+      responses:
+        "200":
+          description: Список приложений и его размер после фильтрации
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppList"
+        "400":
+          description: Параметр q длиннее 200 символов
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Метод не поддерживается (маршрут принимает только GET)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "405":
+          description: Метод не поддерживается
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/NotReady"
+
+  /api/apps/reindex:
+    post:
+      operationId: reindexApps
+      summary: >
+        Полная переиндексация установленных приложений (сканеры реестра,
+        меню «Пуск», AppPaths, LocalAppData). Тело запроса не читается.
+      tags: [apps]
+      responses:
+        "200":
+          description: Размер индекса и длительность пересборки, мс
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppReindexResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Метод не поддерживается этим маршрутом
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "405":
+          description: Метод не поддерживается
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/NotReady"
+
 components:
   securitySchemes:
     tokenHeader:
@@ -868,6 +948,54 @@ components:
         action:
           type: string
           enum: [shutdown, restart, sleep]
+
+    AppInfo:
+      type: object
+      required: [name, executablePath, source, category, priority, aliases, lastSeen]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        executablePath:
+          type: string
+        source:
+          type: string
+          description: Сканер-источник (Registry / StartMenu / AppPaths / LocalAppData)
+        category:
+          type: string
+        priority:
+          type: integer
+          description: Вес канала индексации (выше — выше в списке)
+        aliases:
+          type: array
+          items:
+            type: string
+        lastSeen:
+          type: string
+          format: date-time
+
+    AppList:
+      type: object
+      required: [items, total]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AppInfo"
+        total:
+          type: integer
+          description: Количество после фильтра q (без q — весь индекс)
+
+    AppReindexResponse:
+      type: object
+      required: [count, durationMs]
+      additionalProperties: false
+      properties:
+        count:
+          type: integer
+        durationMs:
+          type: integer
 
     ChatEvent:
       description: >

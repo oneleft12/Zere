@@ -6,6 +6,7 @@ using JARVIS.Core.Logging;
 using JARVIS.Core.Plugins;
 using JARVIS.Core.Plugins.Settings;
 using JARVIS.Memory.Database;
+using JARVIS.Tools.Applications;
 using JARVIS.Tools.Windows;
 using JARVIS.Tools.Windows.Processes;
 using JARVIS.Voice;
@@ -34,7 +35,8 @@ if (args.Contains("--panel"))
         panelServices.GetRequiredService<ConversationRepository>(),
         panelServices.GetRequiredService<PluginConfig>(),
         panelServices.GetRequiredService<ProcessService>(),
-        panelServices.GetRequiredService<SafeActionManager>());
+        panelServices.GetRequiredService<SafeActionManager>(),
+        panelServices.GetRequiredService<ApplicationLauncher>());
     testPanel.Start();
 
     Console.WriteLine($"[Панель] http://127.0.0.1:{testPanel.Port} (токен: config/panel.token)");
@@ -105,7 +107,8 @@ var panel = new PanelServer(
     services.GetRequiredService<ConversationRepository>(),
     services.GetRequiredService<PluginConfig>(),
     services.GetRequiredService<ProcessService>(),
-    services.GetRequiredService<SafeActionManager>());
+    services.GetRequiredService<SafeActionManager>(),
+    services.GetRequiredService<ApplicationLauncher>());
 
 try
 {
