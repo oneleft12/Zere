@@ -1,3 +1,4 @@
+using JARVIS.App.Api;
 using JARVIS.Core;
 using JARVIS.Core.Configuration;
 using JARVIS.Core.Dependencies;
@@ -13,6 +14,34 @@ var config = JarvisConfig.Load();
 var logger = new LogService();
 
 logger.Info($"{config.AssistantName} OS {config.Version} запускается.");
+
+// Режим контрактных тестов панели: только API-ядро, без проверки
+// зависимостей и голоса (запускает CI: dotnet run --project JARVIS.App -- --panel).
+if (args.Contains("--panel"))
+{
+    var panelServices = ServiceRegistration.Create(config);
+    _ = panelServices.GetRequiredService<MemoryDatabase>();
+
+    var panelEngine = panelServices.GetRequiredService<JarvisEngine>();
+    var panelMemory = panelServices.GetRequiredService<MemoryRepository>();
+
+    var testPanel = new PanelServer(config, panelEngine, panelMemory);
+    testPanel.Start();
+
+    Console.WriteLine($"[Панель] http://127.0.0.1:{testPanel.Port} (токен: config/panel.token)");
+
+    var quit = new ManualResetEvent(false);
+
+    Console.CancelKeyPress += (_, e) =>
+    {
+        e.Cancel = true;
+        quit.Set();
+    };
+
+    quit.WaitOne();
+    testPanel.Dispose();
+    return;
+}
 
 Console.WriteLine($"""
 =================================
@@ -57,6 +86,21 @@ _ = services.GetRequiredService<MemoryDatabase>();
 
 var jarvis = services.GetRequiredService<JarvisEngine>();
 var voiceManager = new VoiceManager();
+
+// Локальная панель (этап 1 GUI-плана): loopback + токен, контракт
+// docs/api/openapi.yaml. Сбой порта не должен ронять консоль.
+var panel = new PanelServer(config, jarvis, services.GetRequiredService<MemoryRepository>());
+
+try
+{
+    panel.Start();
+    Console.WriteLine($"[Панель] http://127.0.0.1:{panel.Port} (токен: config/panel.token)");
+}
+catch (Exception ex)
+{
+    logger.Error($"PanelServer: {ex.Message}");
+    Console.WriteLine("[Панель] Не удалось запустить локальный сервер (порт занят?).");
+}
 
 var activePersonality = jarvis.PluginManager.ActivePersonality;
 if (activePersonality != null)
@@ -341,5 +385,6 @@ while (true)
     }
 }
 
+panel.Dispose();
 voiceManager.Dispose();
 logger.Info("JARVIS завершил работу.");
