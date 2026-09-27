@@ -134,13 +134,18 @@ class ServiceContainer:
             return None
 
 
-def create_services() -> ServiceContainer:
-    """Порт ServiceRegistration.Create() — порядок и фабрики дословно."""
+def create_services(config: JarvisConfig) -> ServiceContainer:
+    """Порт ServiceRegistration.Create(config) — порядок и фабрики дословно.
+
+    Config передаётся вызывающей стороной, чтобы консоль и DI работали
+    с одним инстансом (паритет с C#: два разных Load() создавали два
+    конфига, POST /api/config не достиг бы ядра).
+    """
 
     services = ServiceContainer()
 
-    # var config = JarvisConfig.Load(); services.AddSingleton(config);
-    services.add_singleton(JarvisConfig.load())
+    # services.AddSingleton(config);
+    services.add_singleton(config)
 
     # var pluginConfig = PluginConfig.Load(); services.AddSingleton(pluginConfig);
     services.add_singleton(PluginConfig.load())

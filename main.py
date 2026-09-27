@@ -6,6 +6,7 @@ import sys
 import threading
 
 from jarvis import paths
+from jarvis.api.server import PanelServer
 from jarvis.core.configuration.jarvis_config import JarvisConfig
 from jarvis.core.dependencies.dependency_checker import DependencyChecker
 from jarvis.core.engine import JarvisEngine
@@ -15,6 +16,7 @@ from jarvis.core.plugins.plugin_manager import PluginManager
 from jarvis.core.plugins.settings.settings_menu import SettingsMenu
 from jarvis.core.services import create_services
 from jarvis.memory.database.memory_database import MemoryDatabase
+from jarvis.memory.database.memory_repository import MemoryRepository
 from jarvis.voice.voice_manager import VoiceManager
 
 
@@ -61,12 +63,26 @@ def main() -> None:
     if config.voice_enabled:
         checker.offer_voice_install()
 
-    services = create_services()
+    services = create_services(config)
 
     services.get(MemoryDatabase)
 
     jarvis = services.get(JarvisEngine)
     voice_manager = VoiceManager()
+
+    # Локальная панель (этап 1 GUI-плана): loopback + токен, контракт
+    # docs/api/openapi.yaml. Сбой порта не должен ронять консоль.
+    panel = PanelServer(
+        engine=jarvis,
+        config=services.get(JarvisConfig),
+        memory=services.get(MemoryRepository),
+    )
+    try:
+        panel.start()
+        print(f"[Панель] http://127.0.0.1:{panel.port} (токен: config/panel.token)")
+    except OSError as ex:
+        logger.error(f"PanelServer: {ex}")
+        print("[Панель] Не удалось запустить локальный сервер (порт занят?).")
 
     # Громкость голоса из config.json (voiceVolume, дефолт 0.5)
     voice_manager.config.volume = float(config.voice_volume)
@@ -153,6 +169,7 @@ def main() -> None:
             print(f"Ошибка: {ex}")
             print()
 
+    panel.stop()
     voice_manager.close()
     logger.info("JARVIS завершил работу.")
 

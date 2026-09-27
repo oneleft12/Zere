@@ -79,6 +79,22 @@ class JarvisConfig:
     def config_path(cls) -> Path:
         return paths.config_path()
 
+    def to_camel_dict(self) -> dict[str, Any]:
+        """Словарь конфигурации с ключами формата config.json (camelCase)."""
+        return {_camel(k): v for k, v in asdict(self).items()}
+
+    def save(self) -> None:
+        """Атомарное сохранение: запись во временный файл + rename."""
+        config_path = paths.config_path()
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        tmp_path = config_path.with_suffix(".json.tmp")
+        tmp_path.write_text(
+            json.dumps(self.to_camel_dict(), indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        tmp_path.replace(config_path)
+
     @classmethod
     def load(cls) -> "JarvisConfig":
         config_path = paths.config_path()
@@ -89,12 +105,7 @@ class JarvisConfig:
 
         if not config_path.exists():
             config = cls()
-            json_text = json.dumps(
-                {_camel(k): v for k, v in asdict(config).items()},
-                indent=2,
-                ensure_ascii=False,
-            )
-            config_path.write_text(json_text, encoding="utf-8")
+            config.save()
             return config
 
         text = config_path.read_text(encoding="utf-8")
