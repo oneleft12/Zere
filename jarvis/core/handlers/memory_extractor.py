@@ -4,14 +4,21 @@ from __future__ import annotations
 
 import re
 
+from jarvis.core.configuration.jarvis_config import JarvisConfig
 from jarvis.memory.database.memory_repository import MemoryRepository
 
 
 class MemoryExtractor:
-    def __init__(self, memory: MemoryRepository) -> None:
+    def __init__(self, memory: MemoryRepository, config: JarvisConfig) -> None:
         self._memory = memory
+        self._config = config
 
     def try_extract(self, message: str) -> bool:
+        # autoMemory из config.json (раньше ключ был мёртвым —
+        # извлечение фактов всегда включалось и не отключалось).
+        if not self._config.auto_memory:
+            return False
+
         text = message.strip()
 
         name = re.match(r"^меня зовут\s+(.+)$", text, re.IGNORECASE)

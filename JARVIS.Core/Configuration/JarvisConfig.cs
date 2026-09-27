@@ -10,11 +10,14 @@ public class JarvisConfig
     public string Model { get; set; } = "qwen3.5:2b";
 
     public bool VoiceEnabled { get; set; }
-    public bool AutoMemory { get; set; }
-    public bool DebugMode { get; set; }
-    public int OllamaTimeoutMinutes { get; set; } = 10;
 
-    public string LogLevel { get; set; } = "Info";
+    // Громкость голосового вывода 0.0–1.0 (ключ voiceVolume из config.json;
+    // применяется к VoiceConfig.Volume). Раньше поля не было и Save()
+    // молча удалял ключ из config.json.
+    public double VoiceVolume { get; set; } = 0.5;
+
+    public bool AutoMemory { get; set; } = true;
+    public int OllamaTimeoutMinutes { get; set; } = 10;
 
     // ── TTS (Etap 2: klonirovanie golosa) ─────────────────
     // Движок озвучки: "pocket" — xVibePocketTTS (клонирование, потоковый PCM),
@@ -31,6 +34,16 @@ public class JarvisConfig
             "config",
             "config.json");
 
+    // Обе реализации пишут config.json в camelCase (как в существующем
+    // файле): C# читает case-insensitive, Python — с нормализацией
+    // регистра и подчёркиваний, поэтому формат записи обязателен для
+    // взаимной читаемости.
+    private static readonly JsonSerializerOptions WriteOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
     public static JarvisConfig Load()
     {
         var configDir = Path.GetDirectoryName(ConfigPath);
@@ -42,12 +55,7 @@ public class JarvisConfig
         {
             var config = new JarvisConfig();
 
-            var json = JsonSerializer.Serialize(
-                config,
-                new JsonSerializerOptions
-                {
-                    WriteIndented = true
-                });
+            var json = JsonSerializer.Serialize(config, WriteOptions);
 
             File.WriteAllText(ConfigPath, json);
 
@@ -56,22 +64,26 @@ public class JarvisConfig
 
         var text = File.ReadAllText(ConfigPath);
 
-        return JsonSerializer.Deserialize<JarvisConfig>(
-            text,
-            new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            }) ?? new JarvisConfig();
+        // Битый JSON не должен валить старт: откатываемся к дефолтам
+        // (паритет с Python-порт, у которого такой откат уже был).
+        try
+        {
+            return JsonSerializer.Deserialize<JarvisConfig>(
+                text,
+                new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                }) ?? new JarvisConfig();
+        }
+        catch (JsonException)
+        {
+            return new JarvisConfig();
+        }
     }
 
     public void Save()
     {
-        var json = JsonSerializer.Serialize(
-            this,
-            new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
+        var json = JsonSerializer.Serialize(this, WriteOptions);
 
         File.WriteAllText(ConfigPath, json);
     }

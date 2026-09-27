@@ -6,9 +6,7 @@
   "voiceEnabled": true,
   "voiceVolume": 0.5,
   "autoMemory": true,
-  "debugMode": true,
   "ollamaTimeoutMinutes": 10,
-  "logLevel": "Info",
   "ttsEngine": "pocket",
   "voiceReferencePath": ""
 }

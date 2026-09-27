@@ -176,7 +176,8 @@ def create_services() -> ServiceContainer:
 
     # services.AddSingleton<MemoryExtractor>();
     services.add_singleton_factory(
-        lambda sp: MemoryExtractor(sp.get(MemoryRepository)), MemoryExtractor
+        lambda sp: MemoryExtractor(sp.get(MemoryRepository), sp.get(JarvisConfig)),
+        MemoryExtractor,
     )
 
     # services.AddSingleton<PluginManager>(sp => { pm.LoadAll(); pm.SetActivePersonality(...); });

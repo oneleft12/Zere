@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using JARVIS.Core.Configuration;
 using JARVIS.Memory.Database;
 
 namespace JARVIS.Core.Handlers;
@@ -6,14 +7,21 @@ namespace JARVIS.Core.Handlers;
 public class MemoryExtractor
 {
     private readonly MemoryRepository _memory;
+    private readonly JarvisConfig _config;
 
-    public MemoryExtractor(MemoryRepository memory)
+    public MemoryExtractor(MemoryRepository memory, JarvisConfig config)
     {
         _memory = memory;
+        _config = config;
     }
 
     public bool TryExtract(string message)
     {
+        // autoMemory из config.json (раньше ключ был мёртвым —
+        // извлечение фактов всегда включалось и не отключалось).
+        if (!_config.AutoMemory)
+            return false;
+
         var text = message.Trim();
 
         var name = Regex.Match(

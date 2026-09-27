@@ -18,11 +18,15 @@ namespace JARVIS.Core;
 
 public static class ServiceRegistration
 {
-    public static IServiceProvider Create()
+    /// <summary>
+    /// Регистрация сервисов. Config передаётся вызывающей стороной,
+    /// чтобы Program и DI работали с одним инстансом (раньше Load()
+    /// вызывался дважды и создавал два разных конфига).
+    /// </summary>
+    public static IServiceProvider Create(JarvisConfig config)
     {
         var services = new ServiceCollection();
 
-        var config = JarvisConfig.Load();
         services.AddSingleton(config);
 
         var pluginConfig = PluginConfig.Load();

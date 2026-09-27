@@ -19,6 +19,17 @@ def _norm(key: str) -> str:
     return key.replace("_", "").lower()
 
 
+def _camel(key: str) -> str:
+    """snake_case → camelCase.
+
+    Обе реализации пишут config.json в camelCase (как в существующем
+    файле): C# читает case-insensitive, Python — с нормализацией,
+    поэтому формат записи обязателен для взаимной читаемости.
+    """
+    parts = key.split("_")
+    return parts[0] + "".join(p[:1].upper() + p[1:] for p in parts[1:])
+
+
 @dataclass
 class JarvisConfig:
     version: str = "1.7.0"
@@ -27,14 +38,20 @@ class JarvisConfig:
     model: str = "qwen3.5:2b"
 
     voice_enabled: bool = False
-    # Громкость голосового вывода 0.0–1.0 (расширение Python-версии;
-    # C# имел жёсткий дефолт 1.0, DSP нормализует пик до −1.5 dBFS).
+    # Громкость голосового вывода 0.0–1.0 (паритет с C# JarvisConfig.VoiceVolume;
+    # применяется к VoiceConfig.Volume в main.py).
     voice_volume: float = 0.5
-    auto_memory: bool = False
-    debug_mode: bool = False
+    auto_memory: bool = True
     ollama_timeout_minutes: int = 10
 
-    log_level: str = "Info"
+    # --- TTS (паритет с C# JarvisConfig) -------------------
+    # Движок озвучки: "pocket" — xVibePocketTTS (клонирование голоса),
+    # "piper" — классический синтез. У Python-порта PocketTTS пока нет,
+    # поэтому при любом значении фактически работает Piper (эквивалент
+    # отката pocket→piper из C#-версии).
+    tts_engine: str = "pocket"
+    # Путь к WAV-референсу голоса пользователя (пусто = встроенный голос).
+    voice_reference_path: str = ""
 
     # --- Совместимость с C#-стилем обращений (Version, AssistantName, ...) ---
     _PASCAL_ALIASES = {
@@ -45,9 +62,9 @@ class JarvisConfig:
         "VoiceEnabled": "voice_enabled",
         "VoiceVolume": "voice_volume",
         "AutoMemory": "auto_memory",
-        "DebugMode": "debug_mode",
         "OllamaTimeoutMinutes": "ollama_timeout_minutes",
-        "LogLevel": "log_level",
+        "TtsEngine": "tts_engine",
+        "VoiceReferencePath": "voice_reference_path",
     }
 
     def __getattr__(self, name: str) -> Any:
@@ -73,7 +90,7 @@ class JarvisConfig:
         if not config_path.exists():
             config = cls()
             json_text = json.dumps(
-                asdict(config),
+                {_camel(k): v for k, v in asdict(config).items()},
                 indent=2,
                 ensure_ascii=False,
             )

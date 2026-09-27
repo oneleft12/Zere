@@ -51,7 +51,7 @@ if (config.VoiceEnabled)
     checker.OfferVoiceInstall();
 }
 
-var services = ServiceRegistration.Create();
+var services = ServiceRegistration.Create(config);
 
 _ = services.GetRequiredService<MemoryDatabase>();
 
@@ -66,6 +66,8 @@ if (activePersonality != null)
 
 if (config.VoiceEnabled)
 {
+    // Громкость голосового вывода из config.json (voiceVolume).
+    voiceManager.Config.Volume = (float)config.VoiceVolume;
     voiceManager.ConfigureTts(config.TtsEngine, config.VoiceReferencePath);
     voiceManager.Initialize(activePersonality?.Style.ToString());
     Console.WriteLine("[Голос] Режим: текст + голос");
