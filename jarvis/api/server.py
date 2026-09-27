@@ -15,6 +15,7 @@ import enum
 import hmac
 import json
 import mimetypes
+import re
 import secrets
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -52,6 +53,7 @@ _ROUTES = {
     "/api/processes": frozenset({"GET"}),
     "/api/apps": frozenset({"GET"}),
     "/api/apps/reindex": frozenset({"POST"}),
+    "/api/logs": frozenset({"GET"}),
 }
 
 _MEMORY_PREFIX = "/api/memory/"
@@ -65,6 +67,9 @@ _TTL_SECONDS = 60  # тот же срок, что у SafeActionManager (серв
 _MAX_PROCESS_QUERY_LENGTH = 100
 _MAX_PID = 2_147_483_647  # int32, как int.TryParse в C#-реализации
 _MAX_APP_QUERY_LENGTH = 200
+_LOG_DEFAULT_LIMIT = 50
+_LOG_MAX_LIMIT = 500
+_LOG_LEVELS = ("info", "warn", "error")
 _POWER_ACTIONS = ("shutdown", "restart", "sleep")
 _PENDING_BY_ACTION = {
     "shutdown": PendingAction.SHUTDOWN,
@@ -372,6 +377,8 @@ class _PanelHandler(BaseHTTPRequestHandler):
                 self._handle_apps_get()
             elif path == "/api/apps/reindex":
                 self._handle_apps_reindex()
+            elif path == "/api/logs":
+                self._handle_logs_get()
             else:  # /api/chat/stream
                 self._handle_chat_stream()
         except Exception as ex:  # noqa: BLE001 — нормализуем любую ошибку
@@ -743,6 +750,39 @@ class _PanelHandler(BaseHTTPRequestHandler):
                 "count": len(launcher.get_installed_applications()),
                 "durationMs": duration_ms,
             },
+        )
+
+    # ── Журнал (этап 4, §6 плана) ─────────────────────────────────
+
+    def _handle_logs_get(self) -> None:
+        """Сессионный журнал + errors.log: фильтр по level, пагинация как в истории."""
+        params = parse_qs(urlsplit(self.path).query)
+
+        limit, error = _query_int(params, "limit", _LOG_DEFAULT_LIMIT, 1, _LOG_MAX_LIMIT)
+        if error is not None:
+            self._send_json(400, "VALIDATION_ERROR", error)
+            return
+
+        offset, error = _query_int(params, "offset", 0, 0, 10**9)
+        if error is not None:
+            self._send_json(400, "VALIDATION_ERROR", error)
+            return
+
+        level = (params.get("level") or [""])[0]
+        if level and level not in _LOG_LEVELS:
+            self._send_json(
+                400,
+                "VALIDATION_ERROR",
+                "Параметр level должен быть одним из: info, warn, error.",
+            )
+            return
+
+        entries = _read_log_entries(paths.LOGS_DIR, level)
+
+        self._send_json(
+            200,
+            None,
+            {"items": entries[offset : offset + limit], "total": len(entries)},
         )
 
     # ── Процессы и питание (этап 4, §6 плана) ────────────────────
@@ -1178,6 +1218,69 @@ def _app_payload(info: Any) -> dict[str, Any]:
         "aliases": [str(alias) for alias in info.aliases],
         "lastSeen": last_seen_text,
     }
+
+# Журнал: строка сессии `[ts] [LEVEL] msg` vs errors.log `[ts] [LEVEL] [src] msg`.
+# Источник определяется по ИМЕНИ файла, а не по разбору строки: сообщение
+# ошибки может само начинаться с квадратных скобок (например, [Errno 32]).
+_LOG_SESSION_LINE = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] \[([A-Za-z]+)\] (.*)$")
+_LOG_ERRORS_LINE = re.compile(
+    r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] \[([A-Za-z]+)\] \[([^\]]+)\] (.*)$"
+)
+
+def _read_log_entries(folder: Path, level: str) -> list[dict[str, Any]]:
+    """Строки журнала (сессии + errors.log), отфильтрованные по level.
+
+    Файлы читаются по имени DESC, затем стабильная сортировка по времени
+    DESC — ровно как OrderByDescending в C#-реализации. Неразобранные
+    строки пропускаются.
+    """
+    if not folder.is_dir():
+        return []
+
+    files = sorted(
+        (path for path in folder.iterdir() if path.is_file() and path.suffix == ".log"),
+        key=lambda path: path.name,
+        reverse=True,
+    )
+
+    entries: list[dict[str, Any]] = []
+
+    for path in files:
+        is_errors = path.name == "errors.log"
+        pattern = _LOG_ERRORS_LINE if is_errors else _LOG_SESSION_LINE
+
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+
+        for line in lines:
+            match = pattern.match(line)
+            if match is None:
+                continue
+
+            time_text, line_level, *rest = match.groups()
+            item_level = line_level.lower()
+
+            if level and item_level != level:
+                continue
+
+            if is_errors:
+                source, message = rest[0], rest[1]
+            else:
+                source, message = None, rest[0]
+
+            entries.append(
+                {
+                    "time": time_text.replace(" ", "T"),
+                    "level": item_level,
+                    "message": message,
+                    "source": source,
+                }
+            )
+
+    entries.sort(key=lambda entry: str(entry["time"]), reverse=True)
+    return entries
 
 def _validate_memory_payload(payload: Any) -> Optional[str]:
     """Валидация записи памяти: {key, value, category?}."""

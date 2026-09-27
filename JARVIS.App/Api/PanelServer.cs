@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Text.Json.Serialization;
 using JARVIS.AI;
 using JARVIS.Core;
@@ -54,6 +55,7 @@ public sealed class PanelServer : IDisposable
         ["/api/processes"] = ["GET"],
         ["/api/apps"] = ["GET"],
         ["/api/apps/reindex"] = ["POST"],
+        ["/api/logs"] = ["GET"],
     };
 
     private const string MemoryPrefix = "/api/memory/";
@@ -67,6 +69,8 @@ public sealed class PanelServer : IDisposable
     private const int TtlSeconds = 60; // тот же срок, что у SafeActionManager
     private const int MaxProcessQueryLength = 100;
     private const int MaxAppQueryLength = 200;
+    private const int LogDefaultLimit = 50;
+    private const int LogMaxLimit = 500;
     private const int MaxPid = int.MaxValue;
     private static readonly string[] PowerActions = ["shutdown", "restart", "sleep"];
     private const int HistoryDefaultLimit = 50;
@@ -327,6 +331,10 @@ public sealed class PanelServer : IDisposable
             else if (path == "/api/apps/reindex")
             {
                 await HandleAppsReindexAsync(response);
+            }
+            else if (path == "/api/logs")
+            {
+                await HandleLogsGetAsync(request, response);
             }
             else
             {
@@ -1107,6 +1115,116 @@ public sealed class PanelServer : IDisposable
         Aliases = app.Aliases,
         LastSeen = app.LastSeen.ToString("O"),
     };
+
+    // ── Журнал (этап 4, §6 плана) ─────────────────────────────────
+
+    // Журнал: строка сессии `[ts] [LEVEL] msg` vs errors.log `[ts] [LEVEL] [src] msg`.
+    // Источник определяется по ИМЕНИ файла, а не по разбору строки: сообщение
+    // ошибки может само начинаться с квадратных скобок (например, [Errno 32]).
+    private static readonly Regex LogSessionLine = new(
+        @"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] \[([A-Za-z]+)\] (.*)$");
+
+    private static readonly Regex LogErrorsLine = new(
+        @"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] \[([A-Za-z]+)\] \[([^\]]+)\] (.*)$");
+
+    /// <summary>Сессионные журналы + errors.log: фильтр по level, пагинация как в истории.</summary>
+    private async Task HandleLogsGetAsync(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        if (!TryReadIntQuery(request, "limit", LogDefaultLimit, 1, LogMaxLimit, out var limit, out var limitError))
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", limitError!);
+            return;
+        }
+
+        if (!TryReadIntQuery(request, "offset", 0, 0, 1_000_000_000, out var offset, out var offsetError))
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", offsetError!);
+            return;
+        }
+
+        var level = request.QueryString["level"] ?? "";
+
+        if (level.Length > 0 && level is not ("info" or "warn" or "error"))
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Параметр level должен быть одним из: info, warn, error.");
+            return;
+        }
+
+        var entries = ReadLogEntries(Path.Combine(Directory.GetCurrentDirectory(), "logs"), level);
+
+        await SendJsonAsync(response, 200, new
+        {
+            items = entries.Skip(offset).Take(limit).ToList(),
+            total = entries.Count,
+        });
+    }
+
+    /// <summary>
+    /// Файлы журнала по имени DESC, затем стабильная сортировка по времени DESC
+    /// (как в Python-реализации). Неразобранные строки пропускаются.
+    /// </summary>
+    private static List<object> ReadLogEntries(string folder, string level)
+    {
+        var entries = new List<(string Time, string Level, string Message, string? Source)>();
+
+        if (!Directory.Exists(folder))
+            return entries.Cast<object>().ToList();
+
+        var files = Directory.EnumerateFiles(folder, "*.log")
+            .Select(path => Path.GetFileName(path) ?? "")
+            .Where(name => name.Length > 0)
+            .OrderByDescending(name => name, StringComparer.Ordinal);
+
+        foreach (var name in files)
+        {
+            var isErrors = string.Equals(name, "errors.log", StringComparison.Ordinal);
+            var pattern = isErrors ? LogErrorsLine : LogSessionLine;
+
+            string[] lines;
+
+            try
+            {
+                lines = File.ReadAllLines(Path.Combine(folder, name));
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            foreach (var line in lines)
+            {
+                var match = pattern.Match(line);
+
+                if (!match.Success)
+                    continue;
+
+                var itemLevel = match.Groups[2].Value.ToLowerInvariant();
+
+                if (level.Length > 0 && !string.Equals(itemLevel, level, StringComparison.Ordinal))
+                    continue;
+
+                var message = isErrors ? match.Groups[4].Value : match.Groups[3].Value;
+                string? source = isErrors ? match.Groups[3].Value : null;
+
+                entries.Add((match.Groups[1].Value.Replace(' ', 'T'), itemLevel, message, source));
+            }
+        }
+
+        return entries
+            .OrderByDescending(entry => entry.Time, StringComparer.Ordinal)
+            .Select(entry => (object)new
+            {
+                Time = entry.Time,
+                Level = entry.Level,
+                Message = entry.Message,
+                Source = entry.Source,
+            })
+            .ToList();
+    }
 
     // ── Процессы и питание (этап 4, §6 плана) ────────────────────
 

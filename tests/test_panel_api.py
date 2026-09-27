@@ -35,6 +35,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from jarvis import paths as paths_module
+from jarvis.ai.ollama_url_resolver import OllamaUrlResolver
 from jarvis.api.server import PanelServer
 from jarvis.core.configuration.jarvis_config import JarvisConfig
 from jarvis.core.plugins.plugin_config import PluginConfig
@@ -391,33 +392,43 @@ def running_panel() -> Iterator[tuple[Any, Path]]:
         yield _wait_external_panel(), REPO_ROOT / "config"
         return
 
-    with tempfile.TemporaryDirectory() as td:
-        tmp = Path(td)
-        original_config_path = paths_module.config_path
-        original_plugins_config_path = paths_module.plugins_config_path
-        paths_module.config_path = lambda: tmp / "config.json"
-        paths_module.plugins_config_path = lambda: tmp / "plugins.json"
-        try:
-            panel = PanelServer(
-                engine=FakeEngine(),
-                config=JarvisConfig(),
-                memory=FakeMemory(),
-                conversation=FakeConversationRepository(),
-                plugin_config=PluginConfig(),
-                process_service=FakeProcessService(),
-                safe_actions=FakeSafeActionManager(),
-                app_launcher=FakeApplicationLauncher(),
-                token=TOKEN,
-                port=0,
-            )
-            panel.start()
+    # Контрактные тесты не ходят в сеть: проба Ollama в /api/health
+    # (OllamaUrlResolver.resolve) резолвит host.docker.internal и на машине
+    # без Docker занимает7–17 с (DNS), из-за чего клиентский таймаут15 с
+    # обрушивал прогон. Стаб возвращает «недоступен» — детерминированно.
+    original_resolve = OllamaUrlResolver.resolve
+    OllamaUrlResolver.resolve = staticmethod(lambda: None)
+
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            original_config_path = paths_module.config_path
+            original_plugins_config_path = paths_module.plugins_config_path
+            paths_module.config_path = lambda: tmp / "config.json"
+            paths_module.plugins_config_path = lambda: tmp / "plugins.json"
             try:
-                yield panel, tmp
+                panel = PanelServer(
+                    engine=FakeEngine(),
+                    config=JarvisConfig(),
+                    memory=FakeMemory(),
+                    conversation=FakeConversationRepository(),
+                    plugin_config=PluginConfig(),
+                    process_service=FakeProcessService(),
+                    safe_actions=FakeSafeActionManager(),
+                    app_launcher=FakeApplicationLauncher(),
+                    token=TOKEN,
+                    port=0,
+                )
+                panel.start()
+                try:
+                    yield panel, tmp
+                finally:
+                    panel.stop()
             finally:
-                panel.stop()
-        finally:
-            paths_module.config_path = original_config_path
-            paths_module.plugins_config_path = original_plugins_config_path
+                paths_module.config_path = original_config_path
+                paths_module.plugins_config_path = original_plugins_config_path
+    finally:
+        OllamaUrlResolver.resolve = original_resolve
 
 
 def call(
@@ -482,6 +493,10 @@ def parse_sse(raw: bytes) -> list[tuple[str, dict[str, Any]]]:
 
 def assert_schema(schema: dict[str, Any], value: Any, path: str = "$") -> None:
     """Минимальный валидатор JSON Schema: type/required/enum/additionalProperties."""
+    # OpenAPI 3.0: nullable: true → допускаем null до проверок типа.
+    if value is None and schema.get("nullable") is True:
+        return
+
     if "enum" in schema:
         assert value in schema["enum"], f"{path}: {value!r} не входит в {schema['enum']}"
 
@@ -1595,6 +1610,155 @@ def test_apps_reindex_reports_count() -> None:
         if not EXTERNAL:
             assert panel.app_launcher.rebuilds == 1
             assert payload["count"] == 3
+
+
+# ── /api/logs (этап 4) ────────────────────────────────────────────
+
+
+@contextmanager
+def seeded_logs(
+    session_lines: Optional[list[str]] = None,
+    errors_lines: Optional[list[str]] = None,
+) -> Iterator[None]:
+    """Засевает журнал панели (logs/) и возвращает исходное состояние.
+
+    Сид-файл называется «в будущем» (2099): засеянные строки всегда первые
+    в выдаче, поэтому реальные логи среды не мешают проверке порядка.
+    """
+    folder = REPO_ROOT / "logs"
+    folder.mkdir(parents=True, exist_ok=True)
+
+    session_file = folder / "jarvis_2099-01-01_00-00-00.log"
+    errors_file = folder / "errors.log"
+    original_errors = errors_file.read_bytes() if errors_file.exists() else None
+
+    session_file.write_text(
+        "".join(f"{line}\n" for line in (session_lines or [])), encoding="utf-8"
+    )
+
+    if errors_lines:
+        with errors_file.open("a", encoding="utf-8") as handle:
+            for line in errors_lines:
+                handle.write(line + "\n")
+
+    try:
+        yield
+    finally:
+        session_file.unlink(missing_ok=True)
+
+        if original_errors is None:
+            errors_file.unlink(missing_ok=True)
+        else:
+            errors_file.write_bytes(original_errors)
+
+
+def test_logs_get_matches_spec() -> None:
+    with running_panel() as (panel, _), seeded_logs(
+        [
+            "[2099-01-01 00:00:00] [INFO] seeded-info",
+            "[2099-01-01 00:00:01] [WARN] seeded-warn",
+        ]
+    ):
+        status, raw, _ = call(panel, "GET", "/api/logs")
+        assert status == 200
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("LogList"), payload)
+
+        for item in payload["items"]:
+            assert_schema(schema("LogEntry"), item)
+
+        assert payload["total"] >= 2
+
+        # Засеянные (2099-й год) — сверху, в порядке времени DESC
+        top = payload["items"][:2]
+        assert [item["time"] for item in top] == [
+            "2099-01-01T00:00:01",
+            "2099-01-01T00:00:00",
+        ]
+        assert [item["level"] for item in top] == ["warn", "info"]
+        assert top[0]["message"] == "seeded-warn"
+        assert top[1]["message"] == "seeded-info"
+        assert top[1]["source"] is None  # сессионный файл — без источника
+
+
+def test_logs_level_filter() -> None:
+    with running_panel() as (panel, _), seeded_logs(
+        [
+            "[2099-01-01 00:01:00] [INFO] seeded-info",
+            "[2099-01-01 00:01:01] [WARN] seeded-warn",
+            "[2099-01-01 00:01:02] [ERROR] seeded-error",
+        ]
+    ):
+        for level, expected in (
+            ("info", "seeded-info"),
+            ("warn", "seeded-warn"),
+            ("error", "seeded-error"),
+        ):
+            status, raw, _ = call(panel, "GET", f"/api/logs?level={level}")
+            assert status == 200, level
+
+            payload = json.loads(raw.decode("utf-8"))
+            assert payload["total"] >= 1, level
+            assert all(item["level"] == level for item in payload["items"]), level
+            assert any(item["message"] == expected for item in payload["items"]), level
+
+
+def test_logs_pagination() -> None:
+    with running_panel() as (panel, _), seeded_logs(
+        ["[2099-01-01 00:02:00] [INFO] seeded-page"]
+    ):
+        status, raw, _ = call(panel, "GET", "/api/logs?limit=1")
+        assert status == 200
+
+        page = json.loads(raw.decode("utf-8"))
+        assert len(page["items"]) == 1
+        assert page["items"][0]["message"] == "seeded-page"
+
+        # offset за концом — пустая страница, total не меняется
+        status, raw, _ = call(panel, "GET", f"/api/logs?limit=1&offset={page['total']}")
+        assert status == 200
+
+        tail = json.loads(raw.decode("utf-8"))
+        assert tail["items"] == []
+        assert tail["total"] == page["total"]
+
+
+def test_logs_rejects_bad_params() -> None:
+    with running_panel() as (panel, _):
+        for query in ("limit=0", "limit=501", "limit=abc", "offset=-1", "level=trace"):
+            status, raw, _ = call(panel, "GET", f"/api/logs?{query}")
+            assert status == 400, query
+            assert error_payload(raw)["code"] == "VALIDATION_ERROR", query
+
+
+def test_logs_requires_token() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/logs", token=None)
+        assert status == 401
+        assert error_payload(raw)["code"] == "UNAUTHORIZED"
+
+
+def test_logs_errors_file_has_source() -> None:
+    """Источник — по имени файла: сообщение с [скобками] не съедает поле."""
+    with running_panel() as (panel, _), seeded_logs(
+        errors_lines=[
+            "[2099-01-01 00:03:00] [ERROR] [PanelServer] [Errno 32] Broken pipe"
+        ]
+    ):
+        status, raw, _ = call(panel, "GET", "/api/logs?level=error")
+        assert status == 200
+
+        payload = json.loads(raw.decode("utf-8"))
+        found = [
+            item
+            for item in payload["items"]
+            if item["time"] == "2099-01-01T00:03:00"
+        ]
+        assert found, "засеянная строка errors.log не найдена"
+        assert found[0]["source"] == "PanelServer"
+        assert found[0]["message"] == "[Errno 32] Broken pipe"
+        assert found[0]["level"] == "error"
 
 
 def main() -> None:
