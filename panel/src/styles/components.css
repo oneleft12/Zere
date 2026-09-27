@@ -773,3 +773,29 @@ select:focus-visible {
   font-size: 12px;
   font-family: var(--font-mono);
 }
+
+/* ── Память: таблица воспоминаний (этап 3) ──────────────────────── */
+
+.table-wrap {
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.table-wrap .empty-state {
+  border: none;
+  background: transparent;
+}
+
+.table td.table--mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.mem-table__actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  white-space: nowrap;
+}

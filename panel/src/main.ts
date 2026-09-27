@@ -19,6 +19,7 @@ import { settingsScreen } from "./screens/settings";
 import { personalitiesScreen } from "./screens/personalities";
 import { chatScreen } from "./screens/chat";
 import { historyScreen } from "./screens/history";
+import { memoryScreen } from "./screens/memory";
 
 const theme = initTheme();
 const shell = createShell((path) => navigate(path));
@@ -37,7 +38,7 @@ registerRoute({ path: "/settings", title: "Настройки", factory: setting
 registerRoute({ path: "/personalities", title: "Личности", factory: personalitiesScreen });
 registerRoute({ path: "/chat", title: "Чат", factory: chatScreen });
 registerRoute({ path: "/history", title: "История", factory: historyScreen });
-registerRoute({ path: "/memory", title: "Память", factory: futureScreen("Память", 3) });
+registerRoute({ path: "/memory", title: "Память", factory: memoryScreen });
 registerRoute({ path: "/voice", title: "Голос", factory: futureScreen("Голос", 4) });
 registerRoute({ path: "/processes", title: "Процессы", factory: futureScreen("Процессы", 4) });
 registerRoute({ path: "/apps", title: "Приложения", factory: futureScreen("Приложения", 4) });
