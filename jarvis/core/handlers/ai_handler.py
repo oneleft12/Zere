@@ -26,9 +26,10 @@ class AIHandler(IJarvisHandler):
         personality = self._plugin_manager.active_personality
         system_prompt = self._get_system_prompt()
 
+        # P1-2: system-промпт в prompt НЕ встраивается — он уходит отдельным
+        # полем system в OllamaClient, иначе модель получала его дважды.
         prompt = (
             PromptBuilder()
-            .system_prompt(system_prompt)
             .memory(self._context.build_memory())
             .history(self._context.build_history())
             .user_message(message)

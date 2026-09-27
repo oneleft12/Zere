@@ -40,14 +40,14 @@ public class OllamaClient : IDisposable
         {
             try
             {
-                var effectivePrompt = systemPrompt != null
-                    ? $"{systemPrompt}\n\nПользователь: {prompt}"
-                    : $"{SystemPrompt.Jarvis}\n\nПользователь: {prompt}";
-
+                // P1-2: system-промпт передаётся ТОЛЬКО полем system Ollama API,
+                // prompt идёт как есть — раньше он дублировался (PromptBuilder
+                // вставлял его в prompt, клиент дополнительно префиксовал).
                 var request = new
                 {
                     model = _model,
-                    prompt = effectivePrompt,
+                    system = systemPrompt ?? SystemPrompt.Jarvis,
+                    prompt,
                     stream = true,
                     options = temperature.HasValue
                         ? new { temperature = temperature.Value }

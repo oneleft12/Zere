@@ -30,8 +30,9 @@ public class AIHandler : IJarvisHandler
         var personality = _pluginManager.ActivePersonality;
         var systemPrompt = GetSystemPrompt();
 
+        // P1-2: system-промпт в prompt НЕ встраивается — он уходит отдельным
+        // полем system в OllamaClient, иначе модель получала его дважды.
         var prompt = new PromptBuilder()
-            .SystemPrompt(systemPrompt)
             .Memory(_context.BuildMemory())
             .History(_context.BuildHistory())
             .UserMessage(message)

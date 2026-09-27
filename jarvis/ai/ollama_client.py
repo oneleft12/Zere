@@ -78,15 +78,13 @@ class OllamaClient:
         # C#: for (int attempt = 0; ; attempt++)
         while True:
             try:
-                effective_prompt = (
-                    f"{system_prompt}\n\nПользователь: {prompt}"
-                    if system_prompt is not None
-                    else f"{SystemPrompt.Jarvis}\n\nПользователь: {prompt}"
-                )
-
+                # P1-2: system-промпт передаётся ТОЛЬКО полем system Ollama API,
+                # prompt идёт как есть — раньше он дублировался (PromptBuilder
+                # вставлял его в prompt, клиент дополнительно префиксовал).
                 request = {
                     "model": self._model,
-                    "prompt": effective_prompt,
+                    "system": system_prompt if system_prompt is not None else SystemPrompt.Jarvis,
+                    "prompt": prompt,
                     "stream": True,
                     # C#: options = temperature.HasValue ? new { temperature = temperature.Value } : null
                     "options": {"temperature": temperature} if temperature is not None else None,
