@@ -5,15 +5,20 @@
 
 Запуск:
 - `python3 tests/test_panel_api.py` — без зависимостей (только pyyaml);
-- `pytest tests/ -q` — в CI (функции test_* без аргументов).
+- `pytest tests/ -q` — в CI (функции test_* без аргументов);
+- `JARVIS_PANEL_EXTERNAL=1` — против уже запущенной панели в отдельном
+  процессе (CI-джоба C#: `dotnet run --project JARVIS.App -- --panel`),
+  тогда контракт проверяется на второй реализации тем же набором тестов.
 """
 
 from __future__ import annotations
 
 import http.client
 import json
+import os
 import sys
 import tempfile
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator, Optional
@@ -38,6 +43,10 @@ SPEC: dict[str, Any] = yaml.safe_load(
 TOKEN = "b" * 64
 _UNSET = object()
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+EXTERNAL = os.environ.get("JARVIS_PANEL_EXTERNAL") == "1"
+EXTERNAL_PORT = int(os.environ.get("JARVIS_PANEL_PORT", "8080"))
+
 
 class FakeEngine:
     """Подмена JarvisEngine: детерминированный ответ без LLM."""
@@ -58,9 +67,54 @@ class FakeMemory:
 # ── Инфраструктура ────────────────────────────────────────────────
 
 
+class _ExternalPanel:
+    """Панель в отдельном процессе (CI: dotnet run --panel).
+
+    engine недоступен из тестового процесса, поэтому точные тексты ответов
+    здесь не проверяются — только форма контракта.
+    """
+
+    def __init__(self, port: int, token: str) -> None:
+        self.port = port
+        self.token = token
+        self.engine: Any = None
+
+
+def _wait_external_panel(timeout: float = 120.0) -> _ExternalPanel:
+    token_file = REPO_ROOT / "config" / "panel.token"
+    deadline = time.monotonic() + timeout
+
+    while not token_file.exists():
+        if time.monotonic() > deadline:
+            raise AssertionError("внешняя панель не создала config/panel.token")
+        time.sleep(1)
+
+    panel = _ExternalPanel(EXTERNAL_PORT, token_file.read_text(encoding="utf-8").strip())
+
+    while True:
+        try:
+            status, _, _ = call(panel, "GET", "/api/health")
+            if status == 200:
+                return panel
+        except OSError:
+            pass  # сервер ещё не принял сокет
+
+        if time.monotonic() > deadline:
+            raise AssertionError("внешняя панель не ответила за отведённое время")
+        time.sleep(1)
+
+
 @contextmanager
-def running_panel() -> Iterator[tuple[PanelServer, Path]]:
-    """Панель на эфемерном порту, config.json — во временной папке."""
+def running_panel() -> Iterator[tuple[Any, Path]]:
+    """Панель на эфемерном порту, config.json — во временной папке.
+
+    В режиме JARVIS_PANEL_EXTERNAL — уже запущенная панель в отдельном
+    процессе, конфигурация берётся из config/ репозитория.
+    """
+    if EXTERNAL:
+        yield _wait_external_panel(), REPO_ROOT / "config"
+        return
+
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         original_config_path = paths_module.config_path
@@ -83,15 +137,18 @@ def running_panel() -> Iterator[tuple[PanelServer, Path]]:
 
 
 def call(
-    panel: PanelServer,
+    panel: Any,
     method: str,
     path: str,
     *,
     host: Any = _UNSET,
     origin: Optional[str] = None,
-    token: Optional[str] = TOKEN,
+    token: Any = _UNSET,
     body: Any = _UNSET,
 ) -> tuple[int, bytes, dict[str, str]]:
+    if token is _UNSET:
+        token = panel.token
+
     conn = http.client.HTTPConnection("127.0.0.1", panel.port, timeout=15)
     headers: dict[str, str] = {}
     if host is not _UNSET:
@@ -204,6 +261,12 @@ def test_host_rebinding_is_rejected() -> None:
     """Гейт этапа 1: панель не отвечает на Host: evil.local."""
     with running_panel() as (panel, _):
         status, raw, _ = call(panel, "GET", "/api/health", host="evil.local")
+
+        if EXTERNAL and status == 400:
+            # C# (http.sys) может отклонить запрос ещё до приложения —
+            # главное, что ответа 200 нет: панель не отвечает на evil.local.
+            return
+
         assert status == 403
         assert error_payload(raw)["code"] == "FORBIDDEN_HOST"
 
@@ -314,7 +377,7 @@ def test_config_post_rejects_bad_json() -> None:
             "POST",
             "/api/config",
             body=b"{not json",
-            headers={"X-JARVIS-Token": TOKEN, "Content-Type": "application/json"},
+            headers={"X-JARVIS-Token": panel.token, "Content-Type": "application/json"},
         )
         response = conn.getresponse()
         raw = response.read()
@@ -334,9 +397,16 @@ def test_chat_stream_emits_token_and_done() -> None:
 
         events = parse_sse(raw)
         assert [name for name, _ in events] == ["token", "done"]
-        assert events[0][1] == {"text": "ответ: привет"}
-        assert events[1][1] == {"answer": "ответ: привет"}
-        assert panel.engine.processed == ["привет"]
+
+        if EXTERNAL:
+            # Внешняя панель — настоящий engine: в CI без Ollama текст ответа
+            # может быть сообщением об ошибке. Контрактна форма событий.
+            assert isinstance(events[0][1].get("text"), str)
+            assert isinstance(events[1][1].get("answer"), str)
+        else:
+            assert events[0][1] == {"text": "ответ: привет"}
+            assert events[1][1] == {"answer": "ответ: привет"}
+            assert panel.engine.processed == ["привет"]
 
 
 def test_chat_stream_requires_text() -> None:
