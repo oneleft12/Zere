@@ -535,6 +535,22 @@ select:focus-visible {
 
 /* ── Лента событий (дашборд) ───────────────────────────────────── */
 
+.pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.metrics-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px 36px;
+}
+
+.events-box {
+  min-height: 140px;
+}
+
 .event-list {
   list-style: none;
   margin: 0;
