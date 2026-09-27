@@ -24,6 +24,8 @@ export interface Attrs {
   onclick?: (event: MouseEvent) => void;
   oninput?: (event: Event) => void;
   onchange?: (event: Event) => void;
+  onkeydown?: (event: KeyboardEvent) => void;
+  onsubmit?: (event: Event) => void;
 }
 
 export function h<K extends keyof HTMLElementTagNameMap>(
@@ -51,6 +53,8 @@ export function h<K extends keyof HTMLElementTagNameMap>(
   if (attrs.onclick) el.addEventListener("click", attrs.onclick as EventListener);
   if (attrs.oninput) el.addEventListener("input", attrs.oninput);
   if (attrs.onchange) el.addEventListener("change", attrs.onchange);
+  if (attrs.onkeydown) el.addEventListener("keydown", attrs.onkeydown as EventListener);
+  if (attrs.onsubmit) el.addEventListener("submit", attrs.onsubmit);
 
   append(el, children);
   return el;
