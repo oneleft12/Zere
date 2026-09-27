@@ -1,0 +1,261 @@
+openapi: 3.0.3
+
+info:
+  title: JARVIS Local Panel API
+  description: >
+    Единый API-контракт локальной панели JARVIS для обеих реализаций
+    (C# и Python). Этап 1 «API-ядро» (docs/GUI_DEVELOPMENT_PLAN.md §6).
+
+    Правила контракта:
+    - сервер слушает только 127.0.0.1 (loopback);
+    - все запросы требуют заголовок `X-JARVIS-Token`
+      (токен лежит в `config/panel.token`, создаётся при первом старте);
+    - заголовок `Host` должен быть `127.0.0.1` или `localhost`;
+    - заголовок `Origin`, если присутствует, должен принадлежать
+      тому же origin — иначе 403;
+    - ошибки нормализованы: `{code, message}` без сырых исключений
+      и внутренних путей.
+  version: 1.0.0
+
+servers:
+  - url: http://127.0.0.1:8080
+    description: Локальная панель (loopback only)
+
+security:
+  - tokenHeader: []
+
+paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      summary: Статус сервисов ассистента
+      tags: [system]
+      responses:
+        "200":
+          description: Текущие статусы
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/config:
+    get:
+      operationId: getConfig
+      summary: Читаемая конфигурация (единая схема C#/Python)
+      tags: [config]
+      responses:
+        "200":
+          description: Текущая конфигурация
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Config"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      operationId: setConfig
+      summary: Валидация и атомарное сохранение конфигурации
+      tags: [config]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Config"
+      responses:
+        "200":
+          description: Сохранённая конфигурация
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Config"
+        "400":
+          description: >
+            Ошибка валидации: неизвестный ключ или неверный тип значения.
+            Тело — нормализованная ошибка.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/chat/stream:
+    get:
+      operationId: streamChat
+      summary: Диалог с ассистентом потоком (SSE)
+      description: >
+        Односторонний поток ассистента: события `token` (фрагменты ответа),
+        затем `done` с полным ответом, либо `error` с нормализованной
+        ошибкой. Ответ формируется через штатный конвейер обработчиков
+        (handlers pipeline), LLM — fallback.
+      tags: [chat]
+      parameters:
+        - name: text
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 4000
+          description: Реплика пользователя
+      responses:
+        "200":
+          description: SSE-поток
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/ChatEvent"
+        "400":
+          description: Пустой или слишком длинный текст
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+components:
+  securitySchemes:
+    tokenHeader:
+      type: apiKey
+      in: header
+      name: X-JARVIS-Token
+      description: >
+        Токен панели, 32 байта в hex, создаётся при первом старте
+        и сохраняется в `config/panel.token`.
+
+  responses:
+    Unauthorized:
+      description: Отсутствует или неверен X-JARVIS-Token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Недопустимый Host или Origin (защита от DNS-rebinding/CSRF)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      additionalProperties: false
+      properties:
+        code:
+          type: string
+          description: Машиночитаемый код (UNAUTHORIZED, FORBIDDEN_HOST, ...)
+        message:
+          type: string
+          description: Понятное сообщение без сырых исключений и путей
+
+    Health:
+      type: object
+      required: [ollama, whisper, tts, memory, version, branch]
+      additionalProperties: false
+      properties:
+        ollama:
+          type: string
+          enum: [ok, down]
+        whisper:
+          type: string
+          enum: [ok, missing]
+        tts:
+          type: object
+          required: [engine, status]
+          additionalProperties: false
+          properties:
+            engine:
+              type: string
+              enum: [pocket, piper]
+            status:
+              type: string
+              enum: [configured]
+              description: >
+                Этап 1: движок из конфигурации. Прямой пробинг TTS-сервера
+                появится позже (этап 4).
+        memory:
+          type: object
+          required: [count]
+          additionalProperties: false
+          properties:
+            count:
+              type: integer
+              minimum: 0
+        version:
+          type: string
+        branch:
+          type: string
+          description: Ветка git (из .git/HEAD) или "unknown"
+
+    Config:
+      type: object
+      required:
+        - version
+        - assistantName
+        - language
+        - model
+        - voiceEnabled
+        - voiceVolume
+        - autoMemory
+        - ollamaTimeoutMinutes
+        - ttsEngine
+        - voiceReferencePath
+      additionalProperties: false
+      properties:
+        version:
+          type: string
+        assistantName:
+          type: string
+        language:
+          type: string
+          enum: [ru, en]
+        model:
+          type: string
+          description: Имя модели Ollama (например qwen3.5:2b)
+        voiceEnabled:
+          type: boolean
+        voiceVolume:
+          type: number
+          minimum: 0
+          maximum: 1
+        autoMemory:
+          type: boolean
+        ollamaTimeoutMinutes:
+          type: integer
+          minimum: 1
+          maximum: 120
+        ttsEngine:
+          type: string
+          enum: [pocket, piper]
+        voiceReferencePath:
+          type: string
+          description: Путь к WAV-референсу голоса, пусто = встроенный голос
+
+    ChatEvent:
+      description: >
+        SSE-события: `event: token` c `{"text": "..."}` (может повторяться),
+        `event: done` c `{"answer": "..."}` (финал), `event: error`
+        c объектом Error (нормализованная ошибка, поток завершается).
+      oneOf:
+        - type: object
+          required: [event, data]
+          properties:
+            event:
+              type: string
+              enum: [token, done, error]
+            data:
+              type: object
