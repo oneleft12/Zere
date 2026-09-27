@@ -634,6 +634,38 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/plugins:
+    get:
+      operationId: listPlugins
+      summary: >
+        Инвентарь загруженных плагинов и активная личность. Флага enabled
+        нет (его не хранит PluginManager); handlersConnected всегда false —
+        пайплайн состоит из 9 фиксированных обработчиков
+      tags: [plugins]
+      responses:
+        "200":
+          description: Список плагинов и активная личность (null — если не задана)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluginList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Метод не поддерживается (маршрут принимает только GET)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "405":
+          description: Метод не поддерживается
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   securitySchemes:
     tokenHeader:
@@ -1090,6 +1122,51 @@ components:
         total:
           type: integer
           description: Размер журнала после фильтра level (до пагинации)
+
+    Plugin:
+      type: object
+      required: [id, name, description, version, author, type]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        version:
+          type: string
+        author:
+          type: string
+        type:
+          type: string
+          enum: [Personality, CommandHandler, MemoryProvider, VoiceEngine, Other]
+
+    PluginList:
+      type: object
+      required: [items, handlersConnected, commandHandlersCount, activePersonality]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Plugin"
+        handlersConnected:
+          type: boolean
+          description: Всегда false — пайплайн не подключает плагины-обработчики
+        commandHandlersCount:
+          type: integer
+        activePersonality:
+          type: object
+          nullable: true
+          required: [id, style]
+          additionalProperties: false
+          properties:
+            id:
+              type: string
+            style:
+              type: string
+              description: Активный стиль (Friendly, Formal, …)
 
     ChatEvent:
       description: >

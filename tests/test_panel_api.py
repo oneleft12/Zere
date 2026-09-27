@@ -38,6 +38,7 @@ from jarvis import paths as paths_module
 from jarvis.ai.ollama_url_resolver import OllamaUrlResolver
 from jarvis.api.server import PanelServer
 from jarvis.core.configuration.jarvis_config import JarvisConfig
+from jarvis.core.plugins.interfaces.plugin import PluginType
 from jarvis.core.plugins.plugin_config import PluginConfig
 from jarvis.memory.models.conversation import Conversation
 from jarvis.memory.models.memory_item import MemoryItem
@@ -93,9 +94,23 @@ class FakePersonality:
         self.style = _Style[style_name]
 
 
+class FakePlugin:
+    """Подмена IPlugin: поля как у встроенного плагина личности."""
+
+    def __init__(self) -> None:
+        self.id = "personality"
+        self.name = "Личность JARVIS"
+        self.description = "Встроенные стили общения ассистента"
+        self.version = "1.0.0"
+        self.author = "JARVIS"
+        self.type = PluginType.Personality
+
+
 class FakePluginManager:
     def __init__(self) -> None:
         self.active_personality = FakePersonality()
+        self.plugins: list[Any] = [FakePlugin()]
+        self.command_handlers: list[Any] = []
 
 
 class FakeEngine:
@@ -1759,6 +1774,53 @@ def test_logs_errors_file_has_source() -> None:
         assert found[0]["source"] == "PanelServer"
         assert found[0]["message"] == "[Errno 32] Broken pipe"
         assert found[0]["level"] == "error"
+
+
+# ── /api/plugins (этап 4) ─────────────────────────────────────────
+
+
+def test_plugins_get_matches_spec() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/plugins")
+        assert status == 200
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("PluginList"), payload)
+
+        for item in payload["items"]:
+            assert_schema(schema("Plugin"), item)
+
+        # Честный false: пайплайн — 9 фиксированных обработчиков
+        assert payload["handlersConnected"] is False
+        assert isinstance(payload["commandHandlersCount"], int)
+        assert payload["commandHandlersCount"] >= 0
+
+        # Встроенный плагин личности есть в обеих реализациях
+        found = [item for item in payload["items"] if item["id"] == "personality"]
+        assert found, "встроенный плагин личности не найден"
+        assert found[0]["name"] == "Личность JARVIS"
+        assert found[0]["version"] == "1.0.0"
+        assert found[0]["author"] == "JARVIS"
+        assert found[0]["type"] == "Personality"
+
+        active = payload["activePersonality"]
+        assert active is not None
+        assert active["id"] == "personality"
+        assert active["style"] == "Friendly"
+
+
+def test_plugins_requires_token() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/plugins", token=None)
+        assert status == 401
+        assert error_payload(raw)["code"] == "UNAUTHORIZED"
+
+
+def test_plugins_wrong_method_is_405() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "DELETE", "/api/plugins")
+        assert status == 405
+        assert error_payload(raw)["code"] == "METHOD_NOT_ALLOWED"
 
 
 def main() -> None:

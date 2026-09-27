@@ -56,6 +56,7 @@ public sealed class PanelServer : IDisposable
         ["/api/apps"] = ["GET"],
         ["/api/apps/reindex"] = ["POST"],
         ["/api/logs"] = ["GET"],
+        ["/api/plugins"] = ["GET"],
     };
 
     private const string MemoryPrefix = "/api/memory/";
@@ -335,6 +336,10 @@ public sealed class PanelServer : IDisposable
             else if (path == "/api/logs")
             {
                 await HandleLogsGetAsync(request, response);
+            }
+            else if (path == "/api/plugins")
+            {
+                await HandlePluginsGetAsync(response);
             }
             else
             {
@@ -1224,6 +1229,40 @@ public sealed class PanelServer : IDisposable
                 Source = entry.Source,
             })
             .ToList();
+    }
+
+    // ── Плагины (этап 4, §6 плана) ────────────────────────────────
+
+    /// <summary>Инвентарь плагинов и активная личность (без флага enabled: его нет).</summary>
+    private async Task HandlePluginsGetAsync(HttpListenerResponse response)
+    {
+        var manager = _engine.PluginManager;
+
+        var items = manager.Plugins
+            .Select(plugin => new
+            {
+                Id = plugin.Id,
+                Name = plugin.Name,
+                Description = plugin.Description,
+                Version = plugin.Version,
+                Author = plugin.Author,
+                Type = plugin.Type.ToString(),
+            })
+            .ToList();
+
+        var active = manager.ActivePersonality;
+
+        await SendJsonAsync(response, 200, new
+        {
+            items,
+            // Честное false: пайплайн — 9 фиксированных обработчиков,
+            // плагины-обработчики в него не встраиваются.
+            handlersConnected = false,
+            commandHandlersCount = manager.CommandHandlers.Count,
+            activePersonality = active is null
+                ? null
+                : (object?)new { Id = active.Id, Style = active.Style.ToString() },
+        });
     }
 
     // ── Процессы и питание (этап 4, §6 плана) ────────────────────

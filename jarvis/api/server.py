@@ -54,6 +54,7 @@ _ROUTES = {
     "/api/apps": frozenset({"GET"}),
     "/api/apps/reindex": frozenset({"POST"}),
     "/api/logs": frozenset({"GET"}),
+    "/api/plugins": frozenset({"GET"}),
 }
 
 _MEMORY_PREFIX = "/api/memory/"
@@ -379,6 +380,8 @@ class _PanelHandler(BaseHTTPRequestHandler):
                 self._handle_apps_reindex()
             elif path == "/api/logs":
                 self._handle_logs_get()
+            elif path == "/api/plugins":
+                self._handle_plugins_get()
             else:  # /api/chat/stream
                 self._handle_chat_stream()
         except Exception as ex:  # noqa: BLE001 — нормализуем любую ошибку
@@ -783,6 +786,46 @@ class _PanelHandler(BaseHTTPRequestHandler):
             200,
             None,
             {"items": entries[offset : offset + limit], "total": len(entries)},
+        )
+
+    # ── Плагины (этап 4, §6 плана) ────────────────────────────────
+
+    def _handle_plugins_get(self) -> None:
+        """Инвентарь плагинов и активная личность (без флага enabled: его нет)."""
+        plugin_manager = self.panel.engine.plugin_manager
+
+        items = [
+            {
+                "id": str(getattr(plugin, "id", "")),
+                "name": str(getattr(plugin, "name", "")),
+                "description": str(getattr(plugin, "description", "")),
+                "version": str(getattr(plugin, "version", "")),
+                "author": str(getattr(plugin, "author", "")),
+                "type": _enum_name(getattr(plugin, "type", "")),
+            }
+            for plugin in plugin_manager.plugins
+        ]
+
+        active = plugin_manager.active_personality
+        active_payload = None
+
+        if active is not None:
+            active_payload = {
+                "id": str(getattr(active, "id", "")),
+                "style": _enum_name(getattr(active, "style", "")),
+            }
+
+        self._send_json(
+            200,
+            None,
+            {
+                "items": items,
+                # Честное false: пайплайн — 9 фиксированных обработчиков,
+                # плагины-обработчики в него не встраиваются.
+                "handlersConnected": False,
+                "commandHandlersCount": len(plugin_manager.command_handlers),
+                "activePersonality": active_payload,
+            },
         )
 
     # ── Процессы и питание (этап 4, §6 плана) ────────────────────
@@ -1218,6 +1261,10 @@ def _app_payload(info: Any) -> dict[str, Any]:
         "aliases": [str(alias) for alias in info.aliases],
         "lastSeen": last_seen_text,
     }
+
+def _enum_name(value: Any) -> str:
+    """Enum (PluginType/PersonalityStyle) → имя члена; иначе строка как есть."""
+    return value.name if isinstance(value, enum.Enum) else str(value)
 
 # Журнал: строка сессии `[ts] [LEVEL] msg` vs errors.log `[ts] [LEVEL] [src] msg`.
 # Источник определяется по ИМЕНИ файла, а не по разбору строки: сообщение
