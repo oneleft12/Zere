@@ -28,6 +28,10 @@ if (args.Contains("--panel"))
     var panelEngine = panelServices.GetRequiredService<JarvisEngine>();
     var panelMemory = panelServices.GetRequiredService<MemoryRepository>();
 
+    // Ленивые сервисы (Whisper/Piper/Pocket): конструктор только строит пути,
+    // поэтому панель в режиме --panel получает голос без инициализации звука.
+    var panelVoice = new VoiceManager();
+
     var testPanel = new PanelServer(
         config,
         panelEngine,
@@ -36,7 +40,8 @@ if (args.Contains("--panel"))
         panelServices.GetRequiredService<PluginConfig>(),
         panelServices.GetRequiredService<ProcessService>(),
         panelServices.GetRequiredService<SafeActionManager>(),
-        panelServices.GetRequiredService<ApplicationLauncher>());
+        panelServices.GetRequiredService<ApplicationLauncher>(),
+        panelVoice);
     testPanel.Start();
 
     Console.WriteLine($"[Панель] http://127.0.0.1:{testPanel.Port} (токен: config/panel.token)");
@@ -108,7 +113,8 @@ var panel = new PanelServer(
     services.GetRequiredService<PluginConfig>(),
     services.GetRequiredService<ProcessService>(),
     services.GetRequiredService<SafeActionManager>(),
-    services.GetRequiredService<ApplicationLauncher>());
+    services.GetRequiredService<ApplicationLauncher>(),
+    voiceManager);
 
 try
 {

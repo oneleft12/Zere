@@ -16,6 +16,7 @@ using JARVIS.Tools.Applications;
 using JARVIS.Tools.Applications.Indexing;
 using JARVIS.Tools.Windows;
 using JARVIS.Tools.Windows.Processes;
+using JARVIS.Voice;
 
 namespace JARVIS.App.Api;
 
@@ -34,6 +35,7 @@ public sealed class PanelServer : IDisposable
 
     private const int MaxBodyBytes = 64 * 1024;
     private const int MaxTextLength = 4000;
+    private const int MaxVoiceTestLength = 500;
 
     // UTF-8 без \uXXXX-эскейпов — как ensure_ascii=False в Python-реализации.
     private static readonly JsonSerializerOptions WriteOptions = new()
@@ -57,6 +59,10 @@ public sealed class PanelServer : IDisposable
         ["/api/apps/reindex"] = ["POST"],
         ["/api/logs"] = ["GET"],
         ["/api/plugins"] = ["GET"],
+        ["/api/voice"] = ["GET", "POST"],
+        ["/api/voice/reference"] = ["POST"],
+        ["/api/voice/test"] = ["POST"],
+        ["/api/voice/listen"] = ["POST"],
     };
 
     private const string MemoryPrefix = "/api/memory/";
@@ -97,6 +103,7 @@ public sealed class PanelServer : IDisposable
     private readonly ProcessService? _processes;
     private readonly SafeActionManager? _safeActions;
     private readonly ApplicationLauncher? _apps;
+    private readonly VoiceManager? _voice;
     private readonly object _challengeLock = new();
 
     // Одноразовый токен подтверждения (kill/power): (token, action, issuedAt).
@@ -118,6 +125,7 @@ public sealed class PanelServer : IDisposable
         ProcessService? processes = null,
         SafeActionManager? safeActions = null,
         ApplicationLauncher? apps = null,
+        VoiceManager? voice = null,
         string? token = null,
         int port = DefaultPort)
     {
@@ -129,6 +137,7 @@ public sealed class PanelServer : IDisposable
         _processes = processes;
         _safeActions = safeActions;
         _apps = apps;
+        _voice = voice;
         _token = token ?? PanelToken.LoadOrCreate();
         _port = port;
     }
@@ -340,6 +349,25 @@ public sealed class PanelServer : IDisposable
             else if (path == "/api/plugins")
             {
                 await HandlePluginsGetAsync(response);
+            }
+            else if (path == "/api/voice")
+            {
+                if (string.Equals(request.HttpMethod, "GET", StringComparison.Ordinal))
+                    await HandleVoiceGetAsync(response);
+                else
+                    await HandleVoicePostAsync(request, response);
+            }
+            else if (path == "/api/voice/reference")
+            {
+                await HandleVoiceReferenceAsync(response);
+            }
+            else if (path == "/api/voice/test")
+            {
+                await HandleVoiceTestAsync(request, response);
+            }
+            else if (path == "/api/voice/listen")
+            {
+                await HandleVoiceListenAsync(response);
             }
             else
             {
@@ -1263,6 +1291,244 @@ public sealed class PanelServer : IDisposable
                 ? null
                 : (object?)new { Id = active.Id, Style = active.Style.ToString() },
         });
+    }
+
+    // ── Голос (этап 4, §6 плана) ──────────────────────────────────
+
+    /// <summary>Что эта реализация умеет фактически (описания — в openapi).</summary>
+    private static object BuildVoiceCapabilities(bool voiceAvailable) => new
+    {
+        recordReference = true,   // запись референса — только в C#-версии
+        pocketCloning = true,     // PocketTTS только в C#-версии
+        speechSpeedConfig = true, // piper получает --length_scale при Initialize
+        liveVolumeApply = true,   // Volume читается на каждое воспроизведение
+        sttTest = voiceAvailable,
+    };
+
+    private async Task HandleVoiceGetAsync(HttpListenerResponse response)
+    {
+        if (_voice is null)
+        {
+            await SendErrorAsync(response, 503, "NOT_READY", "Голосовой модуль не готов.");
+            return;
+        }
+
+        await SendJsonAsync(response, 200, new
+        {
+            voiceEnabled = _config.VoiceEnabled,
+            voiceVolume = _config.VoiceVolume,
+            ttsEngine = _config.TtsEngine,
+            voiceReferencePath = _config.VoiceReferencePath,
+            capabilities = BuildVoiceCapabilities(_voice.IsVoiceAvailable),
+        });
+    }
+
+    /// <summary>Обновление голоса: громкость применяется сразу, остальное — после рестарта.</summary>
+    private async Task HandleVoicePostAsync(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        if (_voice is null)
+        {
+            await SendErrorAsync(response, 503, "NOT_READY", "Голосовой модуль не готов.");
+            return;
+        }
+
+        var document = await ReadRequestBodyObjectAsync(request, response);
+
+        if (document is null)
+            return;
+
+        using (document)
+        {
+            var supplied = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+
+            foreach (var property in document.RootElement.EnumerateObject())
+                supplied[property.Name] = property.Value.Clone();
+
+            var error = ValidateVoicePayload(supplied);
+
+            if (error is not null)
+            {
+                await SendErrorAsync(response, 400, "VALIDATION_ERROR", error);
+                return;
+            }
+
+            var beforeEnabled = _config.VoiceEnabled;
+            var beforeEngine = _config.TtsEngine;
+            var beforeReference = _config.VoiceReferencePath;
+
+            if (supplied.TryGetValue("voiceVolume", out var volumeElement))
+            {
+                var volume = (float)volumeElement.GetDouble();
+                _config.VoiceVolume = volume;
+                // liveVolumeApply: VoiceConfig читается на каждое воспроизведение
+                _voice.Config.Volume = volume;
+            }
+
+            if (supplied.TryGetValue("voiceEnabled", out var enabledElement))
+                _config.VoiceEnabled = enabledElement.GetBoolean();
+
+            if (supplied.TryGetValue("ttsEngine", out var engineElement))
+                _config.TtsEngine = engineElement.GetString() ?? _config.TtsEngine;
+
+            if (supplied.TryGetValue("voiceReferencePath", out var referenceElement))
+                _config.VoiceReferencePath = referenceElement.GetString() ?? _config.VoiceReferencePath;
+
+            _config.Save();
+
+            var appliedOnRestart =
+                _config.VoiceEnabled != beforeEnabled ||
+                !string.Equals(_config.TtsEngine, beforeEngine, StringComparison.Ordinal) ||
+                !string.Equals(_config.VoiceReferencePath, beforeReference, StringComparison.Ordinal);
+
+            await SendJsonAsync(response, 200, new
+            {
+                voiceEnabled = _config.VoiceEnabled,
+                voiceVolume = _config.VoiceVolume,
+                ttsEngine = _config.TtsEngine,
+                voiceReferencePath = _config.VoiceReferencePath,
+                appliedOnRestart,
+            });
+        }
+    }
+
+    /// <summary>Запись WAV-референса голоса с сохранением пути в конфигурации.</summary>
+    private async Task HandleVoiceReferenceAsync(HttpListenerResponse response)
+    {
+        if (_voice is null)
+        {
+            await SendErrorAsync(response, 503, "NOT_READY", "Голосовой модуль не готов.");
+            return;
+        }
+
+        var path = await _voice.RecordVoiceReferenceAsync();
+
+        if (string.IsNullOrEmpty(path))
+        {
+            await SendErrorAsync(response, 503, "NOT_READY", "Не удалось записать референс голоса.");
+            return;
+        }
+
+        _config.VoiceReferencePath = path;
+        _config.Save();
+
+        await SendJsonAsync(response, 200, new { voiceReferencePath = path });
+    }
+
+    /// <summary>Синтез фразы: 503, если TTS не инициализирован (как в консоли).</summary>
+    private async Task HandleVoiceTestAsync(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        if (_voice is null)
+        {
+            await SendErrorAsync(response, 503, "NOT_READY", "Голосовой модуль не готов.");
+            return;
+        }
+
+        var document = await ReadRequestBodyObjectAsync(request, response);
+
+        if (document is null)
+            return;
+
+        using (document)
+        {
+            var root = document.RootElement;
+
+            foreach (var property in root.EnumerateObject())
+            {
+                if (!string.Equals(property.Name, "text", StringComparison.Ordinal))
+                {
+                    await SendErrorAsync(response, 400, "VALIDATION_ERROR", $"Неизвестный ключ: «{property.Name}».");
+                    return;
+                }
+            }
+
+            if (!root.TryGetProperty("text", out var textElement) ||
+                textElement.ValueKind != JsonValueKind.String)
+            {
+                await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Ключ «text» должен быть строкой.");
+                return;
+            }
+
+            var text = textElement.GetString() ?? "";
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Ключ «text» не может быть пустым.");
+                return;
+            }
+
+            if (text.Length > MaxVoiceTestLength)
+            {
+                await SendErrorAsync(response, 400, "VALIDATION_ERROR", $"Ключ «text» длиннее {MaxVoiceTestLength} символов.");
+                return;
+            }
+
+            if (!_voice.IsTtsAvailable)
+            {
+                await SendErrorAsync(response, 503, "NOT_READY", "Синтез речи недоступен.");
+                return;
+            }
+
+            await _voice.SpeakAsync(text);
+
+            await SendJsonAsync(response, 200, new { status = "ok" });
+        }
+    }
+
+    /// <summary>Тест STT: распознавание одной фразы с микрофона.</summary>
+    private async Task HandleVoiceListenAsync(HttpListenerResponse response)
+    {
+        if (_voice is null)
+        {
+            await SendErrorAsync(response, 503, "NOT_READY", "Голосовой модуль не готов.");
+            return;
+        }
+
+        if (!_voice.IsVoiceAvailable)
+        {
+            await SendErrorAsync(response, 503, "NOT_READY", "Распознавание речи недоступно.");
+            return;
+        }
+
+        var text = await _voice.ListenAsync();
+
+        await SendJsonAsync(response, 200, new { text });
+    }
+
+    private static string? ValidateVoicePayload(Dictionary<string, JsonElement> supplied)
+    {
+        string[] allowed = ["voiceEnabled", "voiceVolume", "ttsEngine", "voiceReferencePath"];
+
+        foreach (var name in supplied.Keys)
+        {
+            if (Array.IndexOf(allowed, name) < 0)
+                return $"Неизвестный ключ голосовых настроек: «{name}».";
+        }
+
+        if (supplied.Count == 0)
+            return "Не задано ни одного голосового поля.";
+
+        if (supplied.TryGetValue("voiceEnabled", out var enabled) &&
+            enabled.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            return "Ключ «voiceEnabled» должен быть логическим значением.";
+
+        if (supplied.TryGetValue("voiceVolume", out var volume))
+        {
+            if (volume.ValueKind != JsonValueKind.Number || !volume.TryGetDouble(out var value))
+                return "Ключ «voiceVolume» должен быть числом.";
+
+            if (value is < 0 or > 1)
+                return "Ключ «voiceVolume» должен быть в диапазоне 0…1.";
+        }
+
+        if (supplied.TryGetValue("ttsEngine", out var engine) &&
+            (engine.ValueKind != JsonValueKind.String || engine.GetString() is not ("pocket" or "piper")))
+            return "Ключ «ttsEngine» допускает только «pocket» или «piper».";
+
+        if (supplied.TryGetValue("voiceReferencePath", out var referencePath) &&
+            referencePath.ValueKind != JsonValueKind.String)
+            return "Ключ «voiceReferencePath» должен быть строкой.";
+
+        return null;
     }
 
     // ── Процессы и питание (этап 4, §6 плана) ────────────────────

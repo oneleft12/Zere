@@ -55,6 +55,10 @@ _ROUTES = {
     "/api/apps/reindex": frozenset({"POST"}),
     "/api/logs": frozenset({"GET"}),
     "/api/plugins": frozenset({"GET"}),
+    "/api/voice": frozenset({"GET", "POST"}),
+    "/api/voice/reference": frozenset({"POST"}),
+    "/api/voice/test": frozenset({"POST"}),
+    "/api/voice/listen": frozenset({"POST"}),
 }
 
 _MEMORY_PREFIX = "/api/memory/"
@@ -71,6 +75,7 @@ _MAX_APP_QUERY_LENGTH = 200
 _LOG_DEFAULT_LIMIT = 50
 _LOG_MAX_LIMIT = 500
 _LOG_LEVELS = ("info", "warn", "error")
+_MAX_VOICE_TEST_LENGTH = 500
 _POWER_ACTIONS = ("shutdown", "restart", "sleep")
 _PENDING_BY_ACTION = {
     "shutdown": PendingAction.SHUTDOWN,
@@ -99,6 +104,7 @@ class PanelServer:
         process_service: Optional[Any] = None,
         safe_actions: Optional[Any] = None,
         app_launcher: Optional[Any] = None,
+        voice: Optional[Any] = None,
         token: Optional[str] = None,
         port: int = DEFAULT_PORT,
     ) -> None:
@@ -110,6 +116,7 @@ class PanelServer:
         self._process_service = process_service
         self._safe_actions = safe_actions
         self._app_launcher = app_launcher
+        self._voice = voice
         self._token = token if token is not None else load_or_create_token()
         self._requested_port = port
         self._httpd: Optional[ThreadingHTTPServer] = None
@@ -151,6 +158,10 @@ class PanelServer:
     @property
     def app_launcher(self) -> Optional[Any]:
         return self._app_launcher
+
+    @property
+    def voice(self) -> Optional[Any]:
+        return self._voice
 
     # ── Подтверждения опасных действий (серверный TTL, P0-3) ──────
 
@@ -382,6 +393,17 @@ class _PanelHandler(BaseHTTPRequestHandler):
                 self._handle_logs_get()
             elif path == "/api/plugins":
                 self._handle_plugins_get()
+            elif path == "/api/voice":
+                if method == "GET":
+                    self._handle_voice_get()
+                else:
+                    self._handle_voice_post()
+            elif path == "/api/voice/reference":
+                self._handle_voice_reference()
+            elif path == "/api/voice/test":
+                self._handle_voice_test()
+            elif path == "/api/voice/listen":
+                self._handle_voice_listen()
             else:  # /api/chat/stream
                 self._handle_chat_stream()
         except Exception as ex:  # noqa: BLE001 — нормализуем любую ошибку
@@ -827,6 +849,167 @@ class _PanelHandler(BaseHTTPRequestHandler):
                 "activePersonality": active_payload,
             },
         )
+
+    # ── Голос (этап 4, §6 плана) ──────────────────────────────────
+
+    def _voice_settings(self) -> dict[str, Any]:
+        """Читаемые поля голоса из конфигурации (без полей-призраков)."""
+        config = self.panel.config
+
+        return {
+            "voiceEnabled": bool(config.voice_enabled),
+            "voiceVolume": float(config.voice_volume),
+            "ttsEngine": str(config.tts_engine),
+            "voiceReferencePath": str(config.voice_reference_path),
+        }
+
+    def _voice_capabilities(self, voice: Any) -> dict[str, Any]:
+        """Что эта реализация умеет фактически (описания — в openapi)."""
+        return {
+            # Python-порт не записывает референс: у VoiceManager нет метода
+            "recordReference": hasattr(voice, "record_voice_reference"),
+            "pocketCloning": False,  # PocketTTS только в C#-версии
+            "speechSpeedConfig": False,  # piper хардкодит --length_scale
+            "liveVolumeApply": True,  # громкость читается на каждое воспроизведение
+            "sttTest": bool(getattr(voice, "is_voice_available", False)),
+        }
+
+    def _require_voice(self) -> Any:
+        voice = self.panel.voice
+
+        if voice is None:
+            self._send_json(503, "NOT_READY", "Голосовой модуль не готов.")
+            return None
+
+        return voice
+
+    def _handle_voice_get(self) -> None:
+        voice = self._require_voice()
+        if voice is None:
+            return
+
+        self._send_json(
+            200,
+            None,
+            {**self._voice_settings(), "capabilities": self._voice_capabilities(voice)},
+        )
+
+    def _handle_voice_post(self) -> None:
+        """Обновление голоса: громкость применяется сразу, остальное — после рестарта."""
+        voice = self._require_voice()
+        if voice is None:
+            return
+
+        payload = self._read_json_object()
+        if payload is None:
+            return
+
+        error = _validate_voice_payload(payload)
+        if error is not None:
+            self._send_json(400, "VALIDATION_ERROR", error)
+            return
+
+        config = self.panel.config
+        restart_keys = ("voiceEnabled", "ttsEngine", "voiceReferencePath")
+        before = tuple(getattr(config, _camel_to_snake(key)) for key in restart_keys)
+
+        if "voiceVolume" in payload:
+            volume = float(payload["voiceVolume"])
+            config.voice_volume = volume
+            # liveVolumeApply: VoiceConfig читается на каждое воспроизведение
+            voice.config.volume = volume
+
+        for key in restart_keys:
+            if key in payload:
+                setattr(config, _camel_to_snake(key), payload[key])
+
+        config.save()
+
+        after = tuple(getattr(config, _camel_to_snake(key)) for key in restart_keys)
+
+        self._send_json(
+            200,
+            None,
+            {**self._voice_settings(), "appliedOnRestart": after != before},
+        )
+
+    def _handle_voice_reference(self) -> None:
+        """Запись WAV-референса: в C#-версии настоящая, в Python-порте — 503."""
+        voice = self._require_voice()
+        if voice is None:
+            return
+
+        if not self._voice_capabilities(voice)["recordReference"]:
+            self._send_json(
+                503,
+                "NOT_READY",
+                "Запись референса голоса недоступна в этой реализации.",
+            )
+            return
+
+        path_text = voice.record_voice_reference()
+
+        if not path_text:
+            self._send_json(503, "NOT_READY", "Не удалось записать референс голоса.")
+            return
+
+        self.panel.config.voice_reference_path = str(path_text)
+        self.panel.config.save()
+
+        self._send_json(200, None, {"voiceReferencePath": str(path_text)})
+
+    def _handle_voice_test(self) -> None:
+        """Синтез фразы: 503, если TTS не инициализирован (как в консоли)."""
+        voice = self._require_voice()
+        if voice is None:
+            return
+
+        payload = self._read_json_object()
+        if payload is None:
+            return
+
+        for key in payload:
+            if key != "text":
+                self._send_json(400, "VALIDATION_ERROR", f"Неизвестный ключ: «{key}».")
+                return
+
+        text = payload.get("text")
+
+        if not isinstance(text, str):
+            self._send_json(400, "VALIDATION_ERROR", "Ключ «text» должен быть строкой.")
+            return
+
+        if not text.strip():
+            self._send_json(400, "VALIDATION_ERROR", "Ключ «text» не может быть пустым.")
+            return
+
+        if len(text) > _MAX_VOICE_TEST_LENGTH:
+            self._send_json(
+                400,
+                "VALIDATION_ERROR",
+                f"Ключ «text» длиннее {_MAX_VOICE_TEST_LENGTH} символов.",
+            )
+            return
+
+        if not getattr(voice, "is_tts_available", False):
+            self._send_json(503, "NOT_READY", "Синтез речи недоступен.")
+            return
+
+        voice.speak(text)
+        self._send_json(200, None, {"status": "ok"})
+
+    def _handle_voice_listen(self) -> None:
+        """Тест STT: распознавание одной фразы с микрофона."""
+        voice = self._require_voice()
+        if voice is None:
+            return
+
+        if not getattr(voice, "is_voice_available", False):
+            self._send_json(503, "NOT_READY", "Распознавание речи недоступно.")
+            return
+
+        text = voice.listen()
+        self._send_json(200, None, {"text": str(text)})
 
     # ── Процессы и питание (этап 4, §6 плана) ────────────────────
 
@@ -1435,5 +1618,41 @@ def _validate_config_payload(payload: Any) -> Optional[str]:
         return "Ключ «ollamaTimeoutMinutes» должен быть целым числом."
     if not 1 <= timeout <= 120:
         return "Ключ «ollamaTimeoutMinutes» должен быть в диапазоне 1…120."
+
+    return None
+
+
+def _validate_voice_payload(payload: Any) -> Optional[str]:
+    """Подмножество голосовых ключей (POST /api/voice): строго, как config.
+
+    Любой из четырёх голосовых полей, но не все вместе и не посторонние.
+    """
+    if not isinstance(payload, dict):
+        return "Ожидался JSON-объект голосовых настроек."
+
+    allowed = {"voiceEnabled", "voiceVolume", "ttsEngine", "voiceReferencePath"}
+
+    for key in payload:
+        if key not in allowed:
+            return f"Неизвестный ключ голосовых настроек: «{key}»."
+
+    if not payload:
+        return "Не задано ни одного голосового поля."
+
+    if "voiceEnabled" in payload and not isinstance(payload["voiceEnabled"], bool):
+        return "Ключ «voiceEnabled» должен быть логическим значением."
+
+    if "voiceVolume" in payload:
+        volume = payload["voiceVolume"]
+        if isinstance(volume, bool) or not isinstance(volume, (int, float)):
+            return "Ключ «voiceVolume» должен быть числом."
+        if not 0 <= volume <= 1:
+            return "Ключ «voiceVolume» должен быть в диапазоне 0…1."
+
+    if "ttsEngine" in payload and payload["ttsEngine"] not in _ALLOWED_TTS_ENGINES:
+        return "Ключ «ttsEngine» допускает только «pocket» или «piper»."
+
+    if "voiceReferencePath" in payload and not isinstance(payload["voiceReferencePath"], str):
+        return "Ключ «voiceReferencePath» должен быть строкой."
 
     return None

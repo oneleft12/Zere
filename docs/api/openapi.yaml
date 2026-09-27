@@ -666,6 +666,181 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/voice:
+    get:
+      operationId: getVoice
+      summary: Голосовые настройки из конфигурации + возможности реализации
+      tags: [voice]
+      responses:
+        "200":
+          description: Настройки голоса и capabilities
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceSettings"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Метод не поддерживается
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/NotReady"
+    post:
+      operationId: updateVoice
+      summary: >
+        Обновление любого непустого подмножества голосовых полей.
+        voiceVolume применяется сразу (liveVolumeApply); voiceEnabled,
+        ttsEngine и voiceReferencePath — после рестарта: appliedOnRestart
+        становится true, если одно из них изменилось
+      tags: [voice]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VoiceUpdate"
+      responses:
+        "200":
+          description: Сохранённые настройки и признак отложенного применения
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceSettingsApplied"
+        "400":
+          description: Некорректное тело или неизвестный/неверный ключ
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Метод не поддерживается
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/NotReady"
+
+  /api/voice/reference:
+    post:
+      operationId: recordVoiceReference
+      summary: >
+        Запись WAV-референса голоса для клонирования и сохранение пути в
+        конфигурации. C# записывает реально (capabilities.recordReference
+        всегда true); Python-порт не умеет — стабильно 503 NOT_READY
+        (recordReference:false)
+      tags: [voice]
+      responses:
+        "200":
+          description: Путь к записанному референсу
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceReferenceResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Метод не поддерживается
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          description: >
+            Голосовой модуль не готов, реализация не записывает референс
+            или запись не удалась (нет микрофона)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/voice/test:
+    post:
+      operationId: testVoice
+      summary: >
+        Синтез фразы через активный TTS-движок; 503 NOT_READY, если TTS
+        не инициализирован (в режиме --panel CI — всегда)
+      tags: [voice]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VoiceTest"
+      responses:
+        "200":
+          description: Фраза озвучена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceTestResult"
+        "400":
+          description: text отсутствует, не строка, пуст или длиннее 500
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Метод не поддерживается
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/NotReady"
+
+  /api/voice/listen:
+    post:
+      operationId: listenVoice
+      summary: >
+        Тест STT: распознавание одной фразы с микрофона; 503 NOT_READY,
+        если Whisper не установлен
+      tags: [voice]
+      responses:
+        "200":
+          description: Распознанный текст
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceListenResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Метод не поддерживается
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/NotReady"
+
 components:
   securitySchemes:
     tokenHeader:
@@ -1167,6 +1342,126 @@ components:
             style:
               type: string
               description: Активный стиль (Friendly, Formal, …)
+
+    VoiceCapabilities:
+      type: object
+      description: >
+        Фактические возможности голосовой подсистемы текущей реализации.
+        C# и Python различаются честно (см. descriptions полей).
+      required: [recordReference, pocketCloning, speechSpeedConfig, liveVolumeApply, sttTest]
+      additionalProperties: false
+      properties:
+        recordReference:
+          type: boolean
+          description: C# записывает WAV-референс; Python-порт нет (POST → 503)
+        pocketCloning:
+          type: boolean
+          description: PocketTTS-клонирование есть только в C#-версии
+        speechSpeedConfig:
+          type: boolean
+          description: >
+            C# задаёт speechSpeed при Initialize; Python-пайплайн хардкодит
+            --length_scale 1.15 — настройка не подключена
+        liveVolumeApply:
+          type: boolean
+          description: Громкость читается на каждое воспроизведение (обе реализации)
+        sttTest:
+          type: boolean
+          description: STT сейчас доступен (модель Whisper установлена)
+
+    VoiceSettings:
+      type: object
+      required: [voiceEnabled, voiceVolume, ttsEngine, voiceReferencePath, capabilities]
+      additionalProperties: false
+      properties:
+        voiceEnabled:
+          type: boolean
+        voiceVolume:
+          type: number
+          minimum: 0
+          maximum: 1
+        ttsEngine:
+          type: string
+          enum: [pocket, piper]
+        voiceReferencePath:
+          type: string
+        capabilities:
+          $ref: "#/components/schemas/VoiceCapabilities"
+
+    VoiceSettingsApplied:
+      type: object
+      required: [voiceEnabled, voiceVolume, ttsEngine, voiceReferencePath, appliedOnRestart]
+      additionalProperties: false
+      properties:
+        voiceEnabled:
+          type: boolean
+        voiceVolume:
+          type: number
+          minimum: 0
+          maximum: 1
+        ttsEngine:
+          type: string
+          enum: [pocket, piper]
+        voiceReferencePath:
+          type: string
+        appliedOnRestart:
+          type: boolean
+          description: >
+            true, если изменилось voiceEnabled/ttsEngine/voiceReferencePath
+            (громкость применяется сразу и не влияет на флаг)
+
+    VoiceUpdate:
+      type: object
+      description: Любое непустое подмножество голосовых полей; посторонние ключи — 400
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        voiceEnabled:
+          type: boolean
+        voiceVolume:
+          type: number
+          minimum: 0
+          maximum: 1
+        ttsEngine:
+          type: string
+          enum: [pocket, piper]
+        voiceReferencePath:
+          type: string
+
+    VoiceReferenceResult:
+      type: object
+      required: [voiceReferencePath]
+      additionalProperties: false
+      properties:
+        voiceReferencePath:
+          type: string
+
+    VoiceTest:
+      type: object
+      required: [text]
+      additionalProperties: false
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 500
+
+    VoiceTestResult:
+      type: object
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [ok]
+
+    VoiceListenResult:
+      type: object
+      required: [text]
+      additionalProperties: false
+      properties:
+        text:
+          type: string
 
     ChatEvent:
       description: >

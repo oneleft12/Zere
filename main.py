@@ -85,6 +85,7 @@ def main() -> None:
         process_service=services.get(ProcessService),
         safe_actions=services.get(SafeActionManager),
         app_launcher=services.get(ApplicationLauncher),
+        voice=voice_manager,
     )
     try:
         panel.start()

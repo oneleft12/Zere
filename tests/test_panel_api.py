@@ -396,6 +396,39 @@ def _wait_external_panel(timeout: float = 120.0) -> _ExternalPanel:
         time.sleep(1)
 
 
+class FakeVoiceConfig:
+    """Как JARVIS.Voice.VoiceConfig: volume читается на каждое воспроизведение."""
+
+    def __init__(self) -> None:
+        self.volume = 1.0
+
+
+class FakeVoiceManager:
+    """Порт-замена C# VoiceManager: capabilities честные для C#-стороны.
+
+    record_voice_reference есть → recordReference=True (как в C#);
+    TTS/STT «установлены» — локально проверяем happy-path,
+    в CI (EXTERNAL, --panel) голос не инициализирован → 503.
+    """
+
+    def __init__(self) -> None:
+        self.config = FakeVoiceConfig()
+        self.is_tts_available = True
+        self.is_voice_available = True
+        self.spoken: list[str] = []
+
+    def record_voice_reference(self) -> str:
+        # C# пишет <cwd>/voice/reference.wav; файл не создаём — контракт
+        # панели проверяет только путь и его сохранение в конфигурации.
+        return str(Path(tempfile.gettempdir()) / "jarvis_fake_reference.wav")
+
+    def speak(self, text: str) -> None:
+        self.spoken.append(text)
+
+    def listen(self) -> str:
+        return "привет из микрофона"
+
+
 @contextmanager
 def running_panel() -> Iterator[tuple[Any, Path]]:
     """Панель на эфемерном порту, config.json — во временной папке.
@@ -431,6 +464,7 @@ def running_panel() -> Iterator[tuple[Any, Path]]:
                     process_service=FakeProcessService(),
                     safe_actions=FakeSafeActionManager(),
                     app_launcher=FakeApplicationLauncher(),
+                    voice=FakeVoiceManager(),
                     token=TOKEN,
                     port=0,
                 )
@@ -1821,6 +1855,201 @@ def test_plugins_wrong_method_is_405() -> None:
         status, raw, _ = call(panel, "DELETE", "/api/plugins")
         assert status == 405
         assert error_payload(raw)["code"] == "METHOD_NOT_ALLOWED"
+
+
+# ── Голос (этап 4, §6 плана) ──────────────────────────────────────
+
+
+def test_voice_get_matches_spec() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/voice")
+        assert status == 200, raw
+        data = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("VoiceSettings"), data)
+
+        assert isinstance(data["voiceEnabled"], bool)
+        assert data["voiceVolume"] == 0.5
+        assert data["ttsEngine"] == "pocket"
+        assert isinstance(data["voiceReferencePath"], str)
+
+        caps = data["capabilities"]
+        assert_schema(schema("VoiceCapabilities"), caps)
+        # Одинаково в обеих реализациях:
+        assert caps["liveVolumeApply"] is True
+        assert caps["recordReference"] is True  # C# записывает; фейк локально — тоже
+        # Значения зависят от реализации (C# vs Python) — проверяем только тип:
+        for key in ("pocketCloning", "speechSpeedConfig", "sttTest"):
+            assert isinstance(caps[key], bool), key
+
+
+def test_voice_requires_token() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/voice", token=None)
+        assert status == 401
+        assert error_payload(raw)["code"] == "UNAUTHORIZED"
+
+
+def test_voice_wrong_method_is_405() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "DELETE", "/api/voice")
+        assert status == 405
+        assert error_payload(raw)["code"] == "METHOD_NOT_ALLOWED"
+
+        # /api/voice/test принимает только POST
+        status, raw, _ = call(panel, "GET", "/api/voice/test")
+        assert status == 405
+        assert error_payload(raw)["code"] == "METHOD_NOT_ALLOWED"
+
+
+def test_voice_post_applies_volume_live() -> None:
+    with running_panel() as (panel, _):
+        # EXTERNAL: значение совпадает с текущим — конфиг репозитория не трогаем
+        volume = 0.5 if EXTERNAL else 0.75
+
+        status, raw, _ = call(panel, "POST", "/api/voice", body={"voiceVolume": volume})
+        assert status == 200, raw
+        data = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("VoiceSettingsApplied"), data)
+        assert data["voiceVolume"] == volume
+        # Только громкость — рестарт не нужен
+        assert data["appliedOnRestart"] is False
+
+        if not EXTERNAL:
+            # liveVolumeApply: громкость ушла в голосовой модуль сразу
+            assert panel.voice.config.volume == 0.75
+
+            status, raw, _ = call(panel, "GET", "/api/voice")
+            assert status == 200, raw
+            assert json.loads(raw.decode("utf-8"))["voiceVolume"] == 0.75
+
+
+def test_voice_post_applies_on_restart() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/voice")
+        assert status == 200, raw
+        initial = json.loads(raw.decode("utf-8"))
+
+        # ttsEngine: переключаем и возвращаем исходное (репозиторий/темп чистые)
+        other_engine = "piper" if initial["ttsEngine"] != "piper" else "pocket"
+
+        status, raw, _ = call(panel, "POST", "/api/voice", body={"ttsEngine": other_engine})
+        assert status == 200, raw
+        data = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("VoiceSettingsApplied"), data)
+        assert data["ttsEngine"] == other_engine
+        assert data["appliedOnRestart"] is True
+
+        status, raw, _ = call(panel, "POST", "/api/voice", body={"ttsEngine": initial["ttsEngine"]})
+        assert status == 200, raw
+        assert json.loads(raw.decode("utf-8"))["appliedOnRestart"] is True
+
+        # voiceEnabled: bool-путь тоже «отложенный»
+        status, raw, _ = call(panel, "POST", "/api/voice", body={"voiceEnabled": not initial["voiceEnabled"]})
+        assert status == 200, raw
+        data = json.loads(raw.decode("utf-8"))
+        assert data["voiceEnabled"] is (not initial["voiceEnabled"])
+        assert data["appliedOnRestart"] is True
+
+        status, raw, _ = call(panel, "POST", "/api/voice", body={"voiceEnabled": initial["voiceEnabled"]})
+        assert status == 200, raw
+        assert json.loads(raw.decode("utf-8"))["appliedOnRestart"] is True
+
+        # всё возвращено к исходному состоянию
+        status, raw, _ = call(panel, "GET", "/api/voice")
+        data = json.loads(raw.decode("utf-8"))
+        assert data["ttsEngine"] == initial["ttsEngine"]
+        assert data["voiceEnabled"] is initial["voiceEnabled"]
+        assert data["voiceVolume"] == initial["voiceVolume"]
+
+
+def test_voice_post_rejects_bad_payload() -> None:
+    with running_panel() as (panel, _):
+        bad_bodies: list[Any] = [
+            {},  # ни одного поля
+            {"assistantName": "X"},  # посторонний ключ
+            {"voiceVolume": 1.5},  # вне диапазона
+            {"voiceVolume": -0.1},
+            {"voiceVolume": "loud"},  # не число
+            {"voiceVolume": True},  # bool ≠ число
+            {"ttsEngine": "elevenlabs"},  # не тот движок
+            {"voiceEnabled": "yes"},  # не bool
+            {"voiceReferencePath": 42},  # не строка
+            [1, 2],  # не объект
+        ]
+        for body in bad_bodies:
+            status, raw, _ = call(panel, "POST", "/api/voice", body=body)
+            assert status == 400, (body, raw)
+            assert error_payload(raw)["code"] == "VALIDATION_ERROR", body
+
+        # точное сообщение — в стиле валидации /api/config
+        status, raw, _ = call(panel, "POST", "/api/voice", body={"speed": 2})
+        assert status == 400
+        assert error_payload(raw)["message"] == "Неизвестный ключ голосовых настроек: «speed»."
+
+        # ничего не применилось
+        status, raw, _ = call(panel, "GET", "/api/voice")
+        data = json.loads(raw.decode("utf-8"))
+        assert data["voiceVolume"] == 0.5
+        assert data["ttsEngine"] == "pocket"
+
+
+def test_voice_test_speaks_or_not_ready() -> None:
+    with running_panel() as (panel, _):
+        # валидация текста — до проверки доступности TTS, одинаково везде
+        for body, needle in [
+            ({"t": 1}, "Неизвестный ключ"),
+            ({}, "должен быть строкой"),
+            ({"text": "   "}, "не может быть пустым"),
+            ({"text": "х" * 501}, "длиннее 500"),
+        ]:
+            status, raw, _ = call(panel, "POST", "/api/voice/test", body=body)
+            assert status == 400, (body, raw)
+            assert error_payload(raw)["code"] == "VALIDATION_ERROR", body
+            assert needle in error_payload(raw)["message"], body
+
+        status, raw, _ = call(panel, "POST", "/api/voice/test", body={"text": "скажи привет"})
+
+        if EXTERNAL:
+            # --panel не инициализирует голос → детерминированный 503
+            assert status == 503, raw
+            assert error_payload(raw)["code"] == "NOT_READY"
+        else:
+            assert status == 200, raw
+            data = json.loads(raw.decode("utf-8"))
+            assert_schema(schema("VoiceTestResult"), data)
+            assert data["status"] == "ok"
+            assert panel.voice.spoken == ["скажи привет"]
+
+
+def test_voice_reference_records() -> None:
+    if EXTERNAL:
+        print("\n[пропущено] /api/voice/reference в EXTERNAL: запись с микрофона (15 с)")
+        return
+
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "POST", "/api/voice/reference")
+        assert status == 200, raw
+        data = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("VoiceReferenceResult"), data)
+        assert data["voiceReferencePath"].endswith(".wav")
+
+        # путь сохранён в конфигурации и виден через GET
+        status, raw, _ = call(panel, "GET", "/api/voice")
+        assert status == 200, raw
+        assert json.loads(raw.decode("utf-8"))["voiceReferencePath"] == data["voiceReferencePath"]
+
+
+def test_voice_listen_transcribes() -> None:
+    if EXTERNAL:
+        print("\n[пропущено] /api/voice/listen в EXTERNAL: микрофон")
+        return
+
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "POST", "/api/voice/listen")
+        assert status == 200, raw
+        data = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("VoiceListenResult"), data)
+        assert data["text"] == "привет из микрофона"
 
 
 def main() -> None:
