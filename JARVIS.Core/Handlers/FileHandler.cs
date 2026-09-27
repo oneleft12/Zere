@@ -64,11 +64,16 @@ public class FileHandler : IJarvisHandler
                 return _files.FindFile(command.Value);
 
             case FileCommandType.DeleteFile:
-                _safeActions.Request(PendingAction.None);
+                // Удаление необратимо: подтверждение с TTL вместо мгновенного
+                // удаления (раньше здесь был Request(PendingAction.None) — no-op).
+                if (!_files.Exists(command.Value))
+                    return $"Файл \"{command.Value}\" не найден.";
 
-                return _files.DeleteFile(command.Value)
-                    ? $"Файл \"{command.Value}\" удалён."
-                    : $"Файл \"{command.Value}\" не найден.";
+                _safeActions.Request(PendingAction.DeleteFile, command.Value);
+
+                return $"Удалить файл «{command.Value}» с рабочего стола? " +
+                       $"Напишите «да» или «нет» (подтверждение действует " +
+                       $"{SafeActionManager.ConfirmTtlSeconds} секунд).";
         }
 
         return "Команда файлов не распознана.";

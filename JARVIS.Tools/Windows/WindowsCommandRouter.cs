@@ -2,9 +2,54 @@ namespace JARVIS.Tools.Windows;
 
 public class WindowsCommandRouter
 {
+    /// <summary>Ключевые слова-стемы команд питания (для поиска отрицания перед ними).</summary>
+    private static readonly string[] PowerStems =
+    {
+        "выключ", "выруб", "перезагруз", "перезапусти", "заверши",
+        "заморозь", "уходи спать", "shutdown", "restart", "reboot", "рестарт"
+    };
+
+    /// <summary>
+    /// Есть ли в сообщении отрицание команды питания: «не выключай компьютер»,
+    /// «нет, перезагружай сам», «не надо shutdown». Такие фразы не должны
+    /// распознаваться как команды.
+    /// </summary>
+    public static bool IsNegated(string text)
+    {
+        var tokens = text.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        if (tokens.Length == 0)
+            return false;
+
+        // Отрицание в начале фразы: «не выключай…», «нет, вырубай сам».
+        if (tokens[0] is "не" or "нет")
+            return true;
+
+        // Отрицание непосредственно перед ключевым словом:
+        // «точно не выключай», «я бы не перезагружал».
+        for (var i = 1; i < tokens.Length; i++)
+        {
+            if (tokens[i - 1] is not ("не" or "нет"))
+                continue;
+
+            foreach (var stem in PowerStems)
+            {
+                if (tokens[i].Contains(stem, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
     public WindowsCommandType Parse(string message)
     {
         var text = message.ToLower().Trim();
+
+        // Отрицания — не команды («не выключай компьютер» → None,
+        // ответ отдаётся LLM).
+        if (IsNegated(text))
+            return WindowsCommandType.None;
 
         // Команды звука не относятся к Windows Power.
         if (text.Contains("звук") || text.Contains("громкость") ||
@@ -36,7 +81,10 @@ public class WindowsCommandRouter
             text.Contains("перезагрузить компьютер") ||
             text.Contains("перезагрузи комп") ||
             text.Contains("перезагрузить комп") ||
-            text.Contains("перезагрузка") ||
+            // Существительное — только как самостоятельная команда,
+            // иначе «после перезагрузки файлы сохранятся?» запрашивало рестарт.
+            text == "перезагрузка" ||
+            text.StartsWith("перезагрузка ") ||
             text.Contains("reboot") ||
             text.Contains("restart") ||
             text.Contains("рестарт") ||

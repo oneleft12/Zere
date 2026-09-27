@@ -108,6 +108,13 @@ public class FileManager
                         $"• {Path.GetFileName(file)}\n{file}"));
     }
 
+    /// <summary>Существует ли файл с таким именем внутри рабочего стола.</summary>
+    public bool Exists(string name)
+    {
+        var path = ResolvePath(name);
+        return path != null && File.Exists(path);
+    }
+
     public bool DeleteFile(string name)
     {
         var file = Directory

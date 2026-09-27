@@ -213,7 +213,10 @@ def create_services() -> ServiceContainer:
     services.add_singleton_factory(lambda sp: FileManager(), FileManager)
 
     # services.AddSingleton<SafeActionManager>();
-    services.add_singleton_factory(lambda sp: SafeActionManager(), SafeActionManager)
+    services.add_singleton_factory(
+        lambda sp: SafeActionManager(sp.get(ProcessService), sp.get(FileManager)),
+        SafeActionManager,
+    )
 
     # services.AddSingleton<MemoryHandler>();
     services.add_singleton_factory(
@@ -232,7 +235,8 @@ def create_services() -> ServiceContainer:
 
     # services.AddSingleton<ProcessHandler>();
     services.add_singleton_factory(
-        lambda sp: ProcessHandler(sp.get(ProcessService)), ProcessHandler
+        lambda sp: ProcessHandler(sp.get(ProcessService), sp.get(SafeActionManager)),
+        ProcessHandler,
     )
 
     # services.AddSingleton<WindowsHandler>();

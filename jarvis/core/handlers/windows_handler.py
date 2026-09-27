@@ -5,7 +5,7 @@ from __future__ import annotations
 from jarvis.core.handlers.i_jarvis_handler import IJarvisHandler
 from jarvis.tools.applications.application_launcher import ApplicationLauncher
 from jarvis.tools.windows.pending_action import PendingAction
-from jarvis.tools.windows.safe_action_manager import SafeActionManager
+from jarvis.tools.windows.safe_action_manager import ConfirmOutcome, SafeActionManager
 from jarvis.tools.windows.windows_command_router import WindowsCommandRouter
 from jarvis.tools.windows.windows_command_type import WindowsCommandType
 
@@ -19,13 +19,15 @@ class WindowsHandler(IJarvisHandler):
     def can_handle(self, message: str) -> bool:
         lower = message.lower().strip()
 
-        return (
-            lower.startswith("открой ")
-            or lower == "обнови индекс"
-            or lower == "сколько приложений"
-            or lower.startswith("найди ")
-            # Shutdown
-            or "выключи компьютер" in lower
+        # Отмена ожидающего действия — всегда наша команда.
+        if lower == "нет":
+            return True
+
+        # Отрицания («не выключай компьютер») не считаем командами
+        # питания — ответ отдаёт LLM.
+        negated = WindowsCommandRouter.is_negated(lower)
+        power = not negated and (
+            "выключи компьютер" in lower
             or "выключить компьютер" in lower
             or "выруби компьютер" in lower
             or "выключай компьютер" in lower
@@ -44,7 +46,8 @@ class WindowsHandler(IJarvisHandler):
             or "перезагрузить компьютер" in lower
             or "перезагрузи комп" in lower
             or "перезагрузить комп" in lower
-            or "перезагрузка" in lower
+            or lower == "перезагрузка"
+            or lower.startswith("перезагрузка ")
             or "reboot" in lower
             or "restart" in lower
             or "рестарт" in lower
@@ -61,9 +64,16 @@ class WindowsHandler(IJarvisHandler):
             or "заморозь" in lower
             or "hibernate" in lower
             or "уходи спать" in lower
+        )
+
+        return (
+            lower.startswith("открой ")
+            or lower == "обнови индекс"
+            or lower == "сколько приложений"
+            or lower.startswith("найди ")
+            or power
             # Confirmations
             or lower == "да"
-            or lower == "нет"
             or lower == "подтверди"
             or lower == "выполни"
             or lower == "сделай"
@@ -74,7 +84,15 @@ class WindowsHandler(IJarvisHandler):
         lower = message.lower().strip()
 
         if lower in ("да", "подтверди", "выполни", "сделай", "выполняй"):
-            return "Выполняю команду." if self._safe_actions.confirm() else "Нет команды для подтверждения."
+            outcome = self._safe_actions.confirm()
+            if outcome is ConfirmOutcome.EXECUTED:
+                return "Выполняю команду."
+            if outcome is ConfirmOutcome.EXPIRED:
+                ttl = SafeActionManager.CONFIRM_TTL_SECONDS
+                return f"Время подтверждения истекло ({ttl} секунд) — команда сброшена. Повторите команду."
+            if outcome is ConfirmOutcome.FAILED:
+                return "Не удалось выполнить команду."
+            return "Нет команды для подтверждения."
 
         if lower == "нет":
             self._safe_actions.cancel()
@@ -111,15 +129,18 @@ class WindowsHandler(IJarvisHandler):
         command = self._router.parse(message)
 
         if command == WindowsCommandType.Shutdown:
-            self._safe_actions.request(PendingAction.Shutdown)
-            return "Вы уверены, что хотите выключить компьютер? Напишите «да», «подтверди», «выполни» или «нет»."
+            self._safe_actions.request(PendingAction.SHUTDOWN)
+            ttl = SafeActionManager.CONFIRM_TTL_SECONDS
+            return f"Вы уверены, что хотите выключить компьютер? Напишите «да» или «нет» (подтверждение действует {ttl} секунд)."
 
         if command == WindowsCommandType.Restart:
-            self._safe_actions.request(PendingAction.Restart)
-            return "Вы уверены, что хотите перезагрузить компьютер? Напишите «да», «подтверди», «выполни» или «нет»."
+            self._safe_actions.request(PendingAction.RESTART)
+            ttl = SafeActionManager.CONFIRM_TTL_SECONDS
+            return f"Вы уверены, что хотите перезагрузить компьютер? Напишите «да» или «нет» (подтверждение действует {ttl} секунд)."
 
         if command == WindowsCommandType.Sleep:
-            self._safe_actions.request(PendingAction.Sleep)
-            return "Перевести компьютер в сон? Напишите «да», «подтверди», «выполни» или «нет»."
+            self._safe_actions.request(PendingAction.SLEEP)
+            ttl = SafeActionManager.CONFIRM_TTL_SECONDS
+            return f"Перевести компьютер в сон? Напишите «да» или «нет» (подтверждение действует {ttl} секунд)."
 
         return "Команда Windows не распознана."

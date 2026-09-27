@@ -56,14 +56,18 @@ class FileHandler(IJarvisHandler):
         if command.type == FileCommandType.FindFile:
             return self._files.find_file(command.value)
 
-        if command.type == FileCommandType.DeleteFile:
-            # PendingAction.None — чистит ожидающую команду (в исходнике: Request(PendingAction.None))
-            self._safe_actions.request(PendingAction.None_)
+        if command.type == FileCommandType.DELETE_FILE:
+            # Удаление необратимо: подтверждение с TTL вместо мгновенного
+            # удаления (раньше здесь был Request(PendingAction.None) — no-op).
+            if not self._files.exists(command.value):
+                return f'Файл "{command.value}" не найден.'
 
+            self._safe_actions.request(PendingAction.DELETE_FILE, command.value)
+
+            ttl = SafeActionManager.CONFIRM_TTL_SECONDS
             return (
-                f'Файл "{command.value}" удалён.'
-                if self._files.delete_file(command.value)
-                else f'Файл "{command.value}" не найден.'
+                f"Удалить файл «{command.value}» с рабочего стола? "
+                f"Напишите «да» или «нет» (подтверждение действует {ttl} секунд)."
             )
 
         return "Команда файлов не распознана."

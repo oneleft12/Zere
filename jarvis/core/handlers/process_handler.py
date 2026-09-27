@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from jarvis.core.handlers.i_jarvis_handler import IJarvisHandler
+from jarvis.tools.windows.pending_action import PendingAction
 from jarvis.tools.windows.process_command_router import ProcessCommandRouter
 from jarvis.tools.windows.process_command_type import ProcessCommandType
 from jarvis.tools.windows.process_service import ProcessService
+from jarvis.tools.windows.safe_action_manager import SafeActionManager
 
 
 class ProcessHandler(IJarvisHandler):
-    def __init__(self, service: ProcessService) -> None:
+    def __init__(self, service: ProcessService, safe_actions: SafeActionManager) -> None:
         self._service = service
+        self._safe_actions = safe_actions
         self._router = ProcessCommandRouter()
 
     def can_handle(self, message: str) -> bool:
@@ -60,6 +63,23 @@ class ProcessHandler(IJarvisHandler):
             )
 
         if command.type == ProcessCommandType.Kill:
-            return f"Процесс {command.value} закрыт." if self._service.kill(command.value) else "Процесс не найден."
+            # Завершение процессов — необратимое действие: сначала
+            # защита системных процессов, затем явное подтверждение.
+            if ProcessService.is_protected(command.value):
+                return f"Процесс «{command.value}» системный — его завершение запрещено."
+
+            matches = self._service.search_exact(command.value)
+
+            if not matches:
+                return "Процесс не найден."
+
+            self._safe_actions.request(PendingAction.KILL_PROCESS, command.value)
+
+            pids = ", ".join(str(p.id) for p in matches)
+            ttl = SafeActionManager.CONFIRM_TTL_SECONDS
+            return (
+                f"Найдено процесс(ов) «{command.value}»: {len(matches)} (PID {pids}). "
+                f"Завершить? Напишите «да» или «нет» (подтверждение действует {ttl} секунд)."
+            )
 
         return "Команда процессов не распознана."

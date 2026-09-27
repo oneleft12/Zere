@@ -98,6 +98,11 @@ class FileManager:
             f"• {file.name}\n{file}" for file in matches
         )
 
+    def exists(self, name: str) -> bool:
+        """Существует ли файл с таким именем внутри рабочего стола."""
+        path = self._resolve_path(name)
+        return path is not None and path.is_file()
+
     def delete_file(self, name: str) -> bool:
         name_lower = name.lower()
 

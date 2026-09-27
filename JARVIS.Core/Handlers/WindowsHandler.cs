@@ -19,11 +19,13 @@ public class WindowsHandler : IJarvisHandler
     {
         var lower = message.ToLower().Trim();
 
-        return lower.StartsWith("открой ") ||
-               lower == "обнови индекс" ||
-               lower == "сколько приложений" ||
-               lower.StartsWith("найди ") ||
-               // Shutdown
+        // Отмена ожидающего действия — всегда наша команда.
+        if (lower == "нет")
+            return true;
+
+        // Отрицания («не выключай компьютер») не считаем командами
+        // питания — ответ отдаёт LLM.
+        var power = !WindowsCommandRouter.IsNegated(lower) && (
                lower.Contains("выключи компьютер") ||
                lower.Contains("выключить компьютер") ||
                lower.Contains("выруби компьютер") ||
@@ -43,7 +45,8 @@ public class WindowsHandler : IJarvisHandler
                lower.Contains("перезагрузить компьютер") ||
                lower.Contains("перезагрузи комп") ||
                lower.Contains("перезагрузить комп") ||
-               lower.Contains("перезагрузка") ||
+               lower == "перезагрузка" ||
+               lower.StartsWith("перезагрузка ") ||
                lower.Contains("reboot") ||
                lower.Contains("restart") ||
                lower.Contains("рестарт") ||
@@ -59,10 +62,15 @@ public class WindowsHandler : IJarvisHandler
                lower.Contains("комп в сон") ||
                lower.Contains("заморозь") ||
                lower.Contains("hibernate") ||
-               lower.Contains("уходи спать") ||
+               lower.Contains("уходи спать"));
+
+        return lower.StartsWith("открой ") ||
+               lower == "обнови индекс" ||
+               lower == "сколько приложений" ||
+               lower.StartsWith("найди ") ||
+               power ||
                // Confirmations
                lower == "да" ||
-               lower == "нет" ||
                lower == "подтверди" ||
                lower == "выполни" ||
                lower == "сделай" ||
@@ -80,9 +88,14 @@ public class WindowsHandler : IJarvisHandler
 
         if (lower == "да" || lower == "подтверди" || lower == "выполни" || lower == "сделай" || lower == "выполняй")
         {
-            return _safeActions.Confirm()
-                ? "Выполняю команду."
-                : "Нет команды для подтверждения.";
+            return _safeActions.Confirm() switch
+            {
+                ConfirmOutcome.Executed => "Выполняю команду.",
+                ConfirmOutcome.Expired =>
+                    $"Время подтверждения истекло ({SafeActionManager.ConfirmTtlSeconds} секунд) — команда сброшена. Повторите команду.",
+                ConfirmOutcome.Failed => "Не удалось выполнить команду.",
+                _ => "Нет команды для подтверждения."
+            };
         }
 
         if (lower == "нет")
@@ -134,15 +147,15 @@ public class WindowsHandler : IJarvisHandler
         {
             case WindowsCommandType.Shutdown:
                 _safeActions.Request(PendingAction.Shutdown);
-                return "Вы уверены, что хотите выключить компьютер? Напишите «да», «подтверди», «выполни» или «нет».";
+                return $"Вы уверены, что хотите выключить компьютер? Напишите «да» или «нет» (подтверждение действует {SafeActionManager.ConfirmTtlSeconds} секунд).";
 
             case WindowsCommandType.Restart:
                 _safeActions.Request(PendingAction.Restart);
-                return "Вы уверены, что хотите перезагрузить компьютер? Напишите «да», «подтверди», «выполни» или «нет».";
+                return $"Вы уверены, что хотите перезагрузить компьютер? Напишите «да» или «нет» (подтверждение действует {SafeActionManager.ConfirmTtlSeconds} секунд).";
 
             case WindowsCommandType.Sleep:
                 _safeActions.Request(PendingAction.Sleep);
-                return "Перевести компьютер в сон? Напишите «да», «подтверди», «выполни» или «нет».";
+                return $"Перевести компьютер в сон? Напишите «да» или «нет» (подтверждение действует {SafeActionManager.ConfirmTtlSeconds} секунд).";
         }
 
         return "Команда Windows не распознана.";

@@ -1,3 +1,4 @@
+using JARVIS.Tools.Windows;
 using JARVIS.Tools.Windows.Processes;
 
 namespace JARVIS.Core.Handlers;
@@ -5,11 +6,13 @@ namespace JARVIS.Core.Handlers;
 public class ProcessHandler : IJarvisHandler
 {
     private readonly ProcessService _service;
+    private readonly SafeActionManager _safeActions;
     private readonly ProcessCommandRouter _router = new();
 
-    public ProcessHandler(ProcessService service)
+    public ProcessHandler(ProcessService service, SafeActionManager safeActions)
     {
         _service = service;
+        _safeActions = safeActions;
     }
 
     public bool CanHandle(string message)
@@ -73,9 +76,23 @@ public class ProcessHandler : IJarvisHandler
 
             case ProcessCommandType.Kill:
 
-                return _service.Kill(command.Value)
-                    ? $"Процесс {command.Value} закрыт."
-                    : "Процесс не найден.";
+                // Завершение процессов — необратимое действие: сначала
+                // защита системных процессов, затем явное подтверждение.
+                if (ProcessService.IsProtected(command.Value))
+                    return $"Процесс «{command.Value}» системный — его завершение запрещено.";
+
+                var matches = _service.SearchExact(command.Value);
+
+                if (matches.Count == 0)
+                    return "Процесс не найден.";
+
+                _safeActions.Request(PendingAction.KillProcess, command.Value);
+
+                var pids = string.Join(", ", matches.Select(p => p.Id));
+
+                return $"Найдено процесс(ов) «{command.Value}»: {matches.Count} (PID {pids}). " +
+                       $"Завершить? Напишите «да» или «нет» (подтверждение действует " +
+                       $"{SafeActionManager.ConfirmTtlSeconds} секунд).";
         }
 
         return "Команда процессов не распознана.";
