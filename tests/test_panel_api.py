@@ -1046,6 +1046,15 @@ def test_spa_fallback_serves_index() -> None:
         assert headers.get("content-type", "").startswith("text/html")
 
 
+def test_stage3_routes_serve_spa() -> None:
+    """Прямые ссылки на экраны этапа 3 открываются (SPA-фоллбэк)."""
+    with running_panel() as (panel, _):
+        for path in ("/chat", "/history", "/memory"):
+            status, _, headers = call(panel, "GET", path, token=None)
+            assert status == 200, path
+            assert headers.get("content-type", "").startswith("text/html"), path
+
+
 def test_static_traversal_never_escapes_dist() -> None:
     with running_panel() as (panel, _):
         status, raw, _ = call(
