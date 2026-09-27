@@ -14,10 +14,12 @@ from __future__ import annotations
 import enum
 import hmac
 import json
+import mimetypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from threading import Thread
 from typing import Any, Optional
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from jarvis import paths
 from jarvis.api.token import load_or_create_token
@@ -167,11 +169,22 @@ class _PanelHandler(BaseHTTPRequestHandler):
             self._send_json(403, "FORBIDDEN_ORIGIN", "Недопустимый Origin.")
             return
 
+        path = urlsplit(self.path).path
+
+        # Статика панели (panel/dist) — без токена: <link>/<img> не умеют
+        # шлить заголовки, а токен в HTML читает только same-origin-страница
+        # (SOP), Host/Origin проверяются выше для обоих классов запросов.
+        if not path.startswith("/api/"):
+            if method != "GET":
+                self._send_json(405, "METHOD_NOT_ALLOWED", "Метод не поддерживается.")
+                return
+
+            self._handle_static(path)
+            return
+
         if not self._token_allowed():
             self._send_json(401, "UNAUTHORIZED", "Требуется X-JARVIS-Token.")
             return
-
-        path = urlsplit(self.path).path
 
         allowed = _ROUTES.get(path)
         if allowed is None:
@@ -200,7 +213,36 @@ class _PanelHandler(BaseHTTPRequestHandler):
             log_error("PanelServer", str(ex))
             self._send_json(500, "INTERNAL", "Внутренняя ошибка сервера.")
 
-    # ── Маршруты ──────────────────────────────────────────────────
+    # ── Статика панели (panel/dist) ───────────────────────────────
+
+    def _handle_static(self, path: str) -> None:
+        root = paths.PROJECT_ROOT / "panel" / "dist"
+
+        if not root.is_dir():
+            self._send_json(
+                404, "NOT_FOUND", "Панель не собрана: выполните npm run build в panel/."
+            )
+            return
+
+        target = _resolve_static_target(root, path)
+
+        if target is None:
+            self._send_json(404, "NOT_FOUND", "Ресурс не найден.")
+            return
+
+        if target.name == "index.html":
+            # Токен подставляется только в HTML (см. §6 плана: UI читает
+            # его при загрузке). Кэшировать нельзя — токен может смениться.
+            html = target.read_text(encoding="utf-8").replace(
+                "__JARVIS_TOKEN__", self.panel.token
+            )
+            self._send_bytes(200, "text/html; charset=utf-8", html.encode("utf-8"), cache=False)
+            return
+
+        content_type = _static_content_type(target)
+        self._send_bytes(200, content_type, target.read_bytes())
+
+    # ── Маршруты API ──────────────────────────────────────────────
 
     def _handle_health(self) -> None:
         config = self.panel.config
@@ -411,11 +453,18 @@ class _PanelHandler(BaseHTTPRequestHandler):
             payload = {"code": code, "message": payload}
 
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self._send_bytes(status, "application/json; charset=utf-8", body, cache=False)
 
+    def _send_bytes(
+        self, status: int, content_type: str, body: bytes, *, cache: bool = True
+    ) -> None:
         self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+
+        if not cache:
+            self.send_header("Cache-Control", "no-store")
+
         self.end_headers()
         self.wfile.write(body)
 
@@ -429,6 +478,50 @@ class _PanelHandler(BaseHTTPRequestHandler):
 
 
 # ── Функции-помощники ─────────────────────────────────────────────
+
+
+def _resolve_static_target(root: Path, path: str) -> Optional[Path]:
+    """Безопасное разрешение пути внутри panel/dist (без выхода наружу)."""
+    relative = unquote(path.lstrip("/")) or "index.html"
+    parts = [part for part in relative.split("/") if part not in ("", ".")]
+
+    if not parts or any(part == ".." for part in parts):
+        return None
+
+    try:
+        resolved_root = root.resolve()
+        candidate = (root.joinpath(*parts)).resolve()
+    except OSError:
+        return None
+
+    if candidate != resolved_root and resolved_root not in candidate.parents:
+        return None  # выход за пределы каталога статики
+
+    if candidate.is_dir():
+        index = candidate / "index.html"
+        return index if index.is_file() else None
+
+    if candidate.is_file():
+        return candidate
+
+    # SPA-фоллбэк: маршруты без расширения отдают index.html (роутер сам)
+    if "." not in Path(parts[-1]).name:
+        index = resolved_root / "index.html"
+        return index if index.is_file() else None
+
+    return None
+
+
+_TEXTUAL_TYPES = ("text/", "application/javascript", "image/svg+xml")
+
+
+def _static_content_type(target: Path) -> str:
+    content_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+
+    if content_type.startswith(_TEXTUAL_TYPES) and "charset" not in content_type:
+        return f"{content_type}; charset=utf-8"
+
+    return content_type
 
 
 def _host_name(host: str) -> str:

@@ -161,13 +161,28 @@ public sealed class PanelServer : IDisposable
                 return;
             }
 
+            var path = request.Url?.AbsolutePath ?? "/";
+
+            // Статика панели (panel/dist) — без токена: <link>/<img> не умеют
+            // шлить заголовки, а токен в HTML читает только same-origin-страница
+            // (SOP), Host/Origin проверяются выше для обоих классов запросов.
+            if (!path.StartsWith("/api/", StringComparison.Ordinal))
+            {
+                if (!string.Equals(request.HttpMethod, "GET", StringComparison.Ordinal))
+                {
+                    await SendErrorAsync(response, 405, "METHOD_NOT_ALLOWED", "Метод не поддерживается.");
+                    return;
+                }
+
+                await HandleStaticAsync(path, response);
+                return;
+            }
+
             if (!TokenAllowed(request))
             {
                 await SendErrorAsync(response, 401, "UNAUTHORIZED", "Требуется X-JARVIS-Token.");
                 return;
             }
-
-            var path = request.Url?.AbsolutePath ?? "/";
 
             if (!Routes.TryGetValue(path, out var methods))
             {
@@ -283,7 +298,102 @@ public sealed class PanelServer : IDisposable
         return host;
     }
 
-    // ── Маршруты ──────────────────────────────────────────────────
+    // ── Статика панели (panel/dist) ───────────────────────────────
+
+    private static readonly Dictionary<string, string> StaticContentTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [".html"] = "text/html; charset=utf-8",
+        [".js"] = "text/javascript; charset=utf-8",
+        [".css"] = "text/css; charset=utf-8",
+        [".json"] = "application/json; charset=utf-8",
+        [".map"] = "application/json",
+        [".svg"] = "image/svg+xml",
+        [".png"] = "image/png",
+        [".jpg"] = "image/jpeg",
+        [".ico"] = "image/x-icon",
+        [".woff2"] = "font/woff2",
+        [".txt"] = "text/plain; charset=utf-8",
+    };
+
+    private async Task HandleStaticAsync(string path, HttpListenerResponse response)
+    {
+        var root = Path.Combine(Directory.GetCurrentDirectory(), "panel", "dist");
+
+        if (!Directory.Exists(root))
+        {
+            await SendErrorAsync(response, 404, "NOT_FOUND", "Панель не собрана: выполните npm run build в panel/.");
+            return;
+        }
+
+        var target = ResolveStaticTarget(root, path);
+
+        if (target is null)
+        {
+            await SendErrorAsync(response, 404, "NOT_FOUND", "Ресурс не найден.");
+            return;
+        }
+
+        if (Path.GetFileName(target) == "index.html")
+        {
+            // Токен подставляется только в HTML (см. §6 плана: UI читает
+            // его при загрузке). Кэшировать нельзя — токен может смениться.
+            var html = (await File.ReadAllTextAsync(target)).Replace("__JARVIS_TOKEN__", _token);
+            var body = Encoding.UTF8.GetBytes(html);
+
+            response.Headers["Cache-Control"] = "no-cache";
+            await WriteBytesAsync(response, 200, "text/html; charset=utf-8", body, cache: false);
+            return;
+        }
+
+        var bytes = await File.ReadAllBytesAsync(target);
+        var contentType = StaticContentTypes.TryGetValue(Path.GetExtension(target), out var known)
+            ? known
+            : "application/octet-stream";
+
+        await WriteBytesAsync(response, 200, contentType, bytes);
+    }
+
+    /// <summary>Безопасное разрешение пути внутри panel/dist (без выхода наружу).</summary>
+    private static string? ResolveStaticTarget(string root, string path)
+    {
+        var relative = Uri.UnescapeDataString(path.TrimStart('/'));
+
+        if (string.IsNullOrEmpty(relative))
+            relative = "index.html";
+
+        var parts = relative.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+        if (parts.Length == 0 || parts.Any(p => p is "." or ".."))
+            return null;
+
+        var rootFull = Path.GetFullPath(root);
+        var candidate = Path.GetFullPath(Path.Combine(rootFull, Path.Combine(parts)));
+
+        var rootPrefix = rootFull.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+
+        if (!candidate.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
+            return null; // выход за пределы каталога статики
+
+        if (Directory.Exists(candidate))
+        {
+            var index = Path.Combine(candidate, "index.html");
+            return File.Exists(index) ? index : null;
+        }
+
+        if (File.Exists(candidate))
+            return candidate;
+
+        // SPA-фоллбэк: маршруты без расширения отдают index.html (роутер сам)
+        if (!Path.GetFileName(candidate).Contains('.'))
+        {
+            var index = Path.Combine(rootFull, "index.html");
+            return File.Exists(index) ? index : null;
+        }
+
+        return null;
+    }
+
+    // ── Маршруты API ──────────────────────────────────────────────
 
     private async Task HandleHealthAsync(HttpListenerResponse response)
     {
@@ -654,10 +764,18 @@ public sealed class PanelServer : IDisposable
     private static async Task SendJsonAsync(HttpListenerResponse response, int status, object payload)
     {
         var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload, WriteOptions));
+        await WriteBytesAsync(response, status, "application/json; charset=utf-8", body, cache: false);
+    }
 
+    private static async Task WriteBytesAsync(
+        HttpListenerResponse response, int status, string contentType, byte[] body, bool cache = true)
+    {
         response.StatusCode = status;
-        response.ContentType = "application/json; charset=utf-8";
-        response.Headers["Cache-Control"] = "no-store";
+        response.ContentType = contentType;
+
+        if (!cache)
+            response.Headers["Cache-Control"] = "no-store";
+
         response.ContentLength64 = body.Length;
 
         await response.OutputStream.WriteAsync(body);

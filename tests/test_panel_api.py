@@ -578,6 +578,60 @@ def test_personality_set_validation_errors() -> None:
         assert "extra" in error_payload(raw)["message"]
 
 
+# ── Статика панели (SPA из panel/dist) ────────────────────────────
+
+
+def test_static_index_injects_token() -> None:
+    """UI читает токен из HTML при загрузке (§6 плана) — без заголовка."""
+    with running_panel() as (panel, _):
+        status, raw, headers = call(panel, "GET", "/", token=None)
+        assert status == 200
+        assert headers.get("content-type", "").startswith("text/html")
+
+        html = raw.decode("utf-8")
+        assert "__JARVIS_TOKEN__" not in html  # плейсхолдер заменён
+        assert panel.token in html
+
+
+def test_static_asset_served_without_token() -> None:
+    """<link>/<script> не шлют заголовки — статика доступна без токена."""
+    assets = sorted((REPO_ROOT / "panel" / "dist" / "assets").glob("*.js"))
+    assert assets, "panel/dist не собран — выполните npm run build в panel/"
+
+    with running_panel() as (panel, _):
+        status, _, headers = call(panel, "GET", f"/assets/{assets[0].name}", token=None)
+        assert status == 200
+        assert "javascript" in headers.get("content-type", "")
+
+
+def test_spa_fallback_serves_index() -> None:
+    with running_panel() as (panel, _):
+        status, _, headers = call(panel, "GET", "/dashboard", token=None)
+        assert status == 200
+        assert headers.get("content-type", "").startswith("text/html")
+
+
+def test_static_traversal_never_escapes_dist() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(
+            panel, "GET", "/%2e%2e/%2e%2e/etc/passwd", token=None
+        )
+
+        if status == 200:
+            # нормализация путей может отдать index.html — но никогда
+            # файл с диска за пределами panel/dist
+            assert b"root:" not in raw
+        else:
+            assert status in (400, 403, 404)
+
+
+def test_static_post_is_not_allowed() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "POST", "/", token=None, body={})
+        assert status == 405
+        assert error_payload(raw)["code"] == "METHOD_NOT_ALLOWED"
+
+
 def main() -> None:
     tests = [
         value
