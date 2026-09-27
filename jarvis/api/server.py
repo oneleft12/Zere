@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import enum
 import hmac
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -23,6 +24,7 @@ from jarvis.api.token import load_or_create_token
 from jarvis.ai.ollama_url_resolver import OllamaUrlResolver
 from jarvis.core.configuration.jarvis_config import JarvisConfig
 from jarvis.core.logging.log_service import log_error
+from jarvis.core.plugins.plugin_config import PluginConfig
 
 DEFAULT_PORT = 8080
 _MAX_BODY_BYTES = 64 * 1024
@@ -36,11 +38,13 @@ _ROUTES = {
     "/api/health": frozenset({"GET"}),
     "/api/config": frozenset({"GET", "POST"}),
     "/api/chat/stream": frozenset({"GET"}),
+    "/api/personality": frozenset({"GET"}),
+    "/api/personality/set": frozenset({"POST"}),
 }
 
 
 class PanelServer:
-    """HTTP-сервер панели: статусы, конфигурация, SSE-чат."""
+    """HTTP-сервер панели: статусы, конфигурация, SSE-чат, личности."""
 
     def __init__(
         self,
@@ -48,12 +52,14 @@ class PanelServer:
         config: JarvisConfig,
         memory: Any,
         *,
+        plugin_config: Optional[PluginConfig] = None,
         token: Optional[str] = None,
         port: int = DEFAULT_PORT,
     ) -> None:
         self._engine = engine
         self._config = config
         self._memory = memory
+        self._plugin_config = plugin_config
         self._token = token if token is not None else load_or_create_token()
         self._requested_port = port
         self._httpd: Optional[ThreadingHTTPServer] = None
@@ -72,6 +78,10 @@ class PanelServer:
     @property
     def memory(self) -> Any:
         return self._memory
+
+    @property
+    def plugin_config(self) -> Optional[PluginConfig]:
+        return self._plugin_config
 
     @property
     def token(self) -> str:
@@ -180,6 +190,10 @@ class _PanelHandler(BaseHTTPRequestHandler):
                     self._handle_config_get()
                 else:
                     self._handle_config_post()
+            elif path == "/api/personality":
+                self._handle_personality_get()
+            elif path == "/api/personality/set":
+                self._handle_personality_set()
             else:  # /api/chat/stream
                 self._handle_chat_stream()
         except Exception as ex:  # noqa: BLE001 — нормализуем любую ошибку
@@ -250,6 +264,97 @@ class _PanelHandler(BaseHTTPRequestHandler):
         config.save()
 
         self._send_json(200, None, config.to_camel_dict())
+
+    def _handle_personality_get(self) -> None:
+        payload = self._personality_payload()
+
+        if payload is None:
+            self._send_json(503, "NOT_READY", "Сервис личностей не готов.")
+            return
+
+        self._send_json(200, None, payload)
+
+    def _handle_personality_set(self) -> None:
+        """Смена стиля с персистом в config/plugins.json (чинит P1-3)."""
+        payload_obj = self._personality_payload()
+
+        if payload_obj is None:
+            self._send_json(503, "NOT_READY", "Сервис личностей не готов.")
+            return
+
+        plugin_config = self.panel.plugin_config
+        if plugin_config is None:
+            # Без хранилища стиль не сохранится — не применяем, чтобы не
+            # обещать пользователю персист, которого не будет.
+            self._send_json(503, "NOT_READY", "Хранилище настроек не готово.")
+            return
+
+        body = self._read_body()
+        if body is None:
+            return
+
+        try:
+            request = json.loads(body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json(400, "VALIDATION_ERROR", "Тело запроса не является корректным JSON.")
+            return
+
+        if not isinstance(request, dict):
+            self._send_json(400, "VALIDATION_ERROR", "Ожидался JSON-объект {styleId}.")
+            return
+
+        for key in request:
+            if key != "styleId":
+                self._send_json(400, "VALIDATION_ERROR", f"Неизвестный ключ: «{key}».")
+                return
+
+        if "styleId" not in request:
+            self._send_json(400, "VALIDATION_ERROR", "Отсутствует обязательный ключ: «styleId».")
+            return
+
+        style_id = request["styleId"]
+        if not isinstance(style_id, str):
+            self._send_json(400, "VALIDATION_ERROR", "Ключ «styleId» должен быть строкой.")
+            return
+
+        available = list(payload_obj["styles"])
+        canonical = next((s for s in available if s.lower() == style_id.lower()), None)
+
+        if canonical is None:
+            self._send_json(400, "VALIDATION_ERROR", f"Неизвестный стиль: «{style_id}».")
+            return
+
+        active = self._active_personality()
+        assert active is not None  # payload_obj уже подтвердил наличие личности
+        active.set_style(canonical)
+
+        plugin_config.ActivePersonalityId = payload_obj["activeId"]
+        plugin_config.ActivePersonalityStyle = canonical
+        PluginConfig.save(plugin_config)
+
+        self._send_json(200, None, self._personality_payload())
+
+    def _active_personality(self) -> Any:
+        plugin_manager = getattr(self.panel.engine, "plugin_manager", None)
+        if plugin_manager is None:
+            return None
+        return getattr(plugin_manager, "active_personality", None)
+
+    def _personality_payload(self) -> Optional[dict[str, Any]]:
+        """{activeId, activeStyle, styles} — только фактический список стилей."""
+        active = self._active_personality()
+
+        if active is None:
+            return None
+
+        style = getattr(active, "style", "")
+        style_name = style.name if isinstance(style, enum.Enum) else str(style)
+
+        return {
+            "activeId": str(getattr(active, "id", "")),
+            "activeStyle": style_name,
+            "styles": [str(s) for s in active.get_available_styles()],
+        }
 
     def _handle_chat_stream(self) -> None:
         params = parse_qs(urlsplit(self.path).query)

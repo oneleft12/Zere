@@ -101,7 +101,9 @@ public class SettingsMenu
                     {
                         p.SetStyle(selectedStyle);
                         _pluginManager.SetActivePersonality(p.Id);
+                        // P1-3: без сохранения стиля он сбрасывался при рестарте
                         _config.ActivePersonalityId = p.Id;
+                        _config.ActivePersonalityStyle = selectedStyle;
                     }
                 }
                 PluginConfig.Save(_config);

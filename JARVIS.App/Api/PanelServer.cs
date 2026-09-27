@@ -7,6 +7,7 @@ using JARVIS.AI;
 using JARVIS.Core;
 using JARVIS.Core.Configuration;
 using JARVIS.Core.Logging;
+using JARVIS.Core.Plugins;
 using JARVIS.Memory.Database;
 
 namespace JARVIS.App.Api;
@@ -40,6 +41,8 @@ public sealed class PanelServer : IDisposable
         ["/api/health"] = ["GET"],
         ["/api/config"] = ["GET", "POST"],
         ["/api/chat/stream"] = ["GET"],
+        ["/api/personality"] = ["GET"],
+        ["/api/personality/set"] = ["POST"],
     };
 
     private static readonly string[] StringFields =
@@ -53,6 +56,7 @@ public sealed class PanelServer : IDisposable
     private readonly JarvisConfig _config;
     private readonly JarvisEngine _engine;
     private readonly MemoryRepository _memory;
+    private readonly PluginConfig _pluginConfig;
     private readonly string _token;
     private readonly int _port;
     private readonly LogService _log = new();
@@ -64,12 +68,14 @@ public sealed class PanelServer : IDisposable
         JarvisConfig config,
         JarvisEngine engine,
         MemoryRepository memory,
+        PluginConfig pluginConfig,
         string? token = null,
         int port = DefaultPort)
     {
         _config = config;
         _engine = engine;
         _memory = memory;
+        _pluginConfig = pluginConfig;
         _token = token ?? PanelToken.LoadOrCreate();
         _port = port;
     }
@@ -185,6 +191,14 @@ public sealed class PanelServer : IDisposable
                     await HandleConfigGetAsync(response);
                 else
                     await HandleConfigPostAsync(request, response);
+            }
+            else if (path == "/api/personality")
+            {
+                await HandlePersonalityGetAsync(response);
+            }
+            else if (path == "/api/personality/set")
+            {
+                await HandlePersonalitySetAsync(request, response);
             }
             else
             {
@@ -460,6 +474,129 @@ public sealed class PanelServer : IDisposable
         _config.OllamaTimeoutMinutes = supplied["ollamaTimeoutMinutes"].GetInt32();
         _config.TtsEngine = supplied["ttsEngine"].GetString() ?? _config.TtsEngine;
         _config.VoiceReferencePath = supplied["voiceReferencePath"].GetString() ?? _config.VoiceReferencePath;
+    }
+
+    // ── Личности (смена стиля с персистом — чинит P1-3) ──────────
+
+    private object? BuildPersonalityPayload()
+    {
+        var active = _engine.PluginManager.ActivePersonality;
+
+        if (active is null)
+            return null;
+
+        return new
+        {
+            activeId = active.Id,
+            activeStyle = active.Style.ToString(),
+            styles = active.GetAvailableStyles(),
+        };
+    }
+
+    private async Task HandlePersonalityGetAsync(HttpListenerResponse response)
+    {
+        var payload = BuildPersonalityPayload();
+
+        if (payload is null)
+        {
+            await SendErrorAsync(response, 503, "NOT_READY", "Сервис личностей не готов.");
+            return;
+        }
+
+        await SendJsonAsync(response, 200, payload);
+    }
+
+    private async Task HandlePersonalitySetAsync(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        if (BuildPersonalityPayload() is null)
+        {
+            await SendErrorAsync(response, 503, "NOT_READY", "Сервис личностей не готов.");
+            return;
+        }
+
+        // Без хранилища стиль не сохранится — не применяем, чтобы не
+        // обещать пользователю персист, которого не будет.
+        if (_pluginConfig is null)
+        {
+            await SendErrorAsync(response, 503, "NOT_READY", "Хранилище настроек не готово.");
+            return;
+        }
+
+        if (request.ContentLength64 > MaxBodyBytes)
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Недопустимый размер тела запроса.");
+            return;
+        }
+
+        string body;
+
+        using (var reader = new StreamReader(request.InputStream, Encoding.UTF8))
+        {
+            body = await reader.ReadToEndAsync();
+        }
+
+        JsonDocument document;
+
+        try
+        {
+            document = JsonDocument.Parse(body);
+        }
+        catch (JsonException)
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Тело запроса не является корректным JSON.");
+            return;
+        }
+
+        using (document)
+        {
+            var root = document.RootElement;
+
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Ожидался JSON-объект {styleId}.");
+                return;
+            }
+
+            foreach (var property in root.EnumerateObject())
+            {
+                if (!string.Equals(property.Name, "styleId", StringComparison.Ordinal))
+                {
+                    await SendErrorAsync(response, 400, "VALIDATION_ERROR", $"Неизвестный ключ: «{property.Name}».");
+                    return;
+                }
+            }
+
+            if (!root.TryGetProperty("styleId", out var styleElement))
+            {
+                await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Отсутствует обязательный ключ: «styleId».");
+                return;
+            }
+
+            if (styleElement.ValueKind != JsonValueKind.String)
+            {
+                await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Ключ «styleId» должен быть строкой.");
+                return;
+            }
+
+            var styleId = styleElement.GetString() ?? string.Empty;
+            var active = _engine.PluginManager.ActivePersonality!;
+            var canonical = active.GetAvailableStyles()
+                .FirstOrDefault(s => string.Equals(s, styleId, StringComparison.OrdinalIgnoreCase));
+
+            if (canonical is null)
+            {
+                await SendErrorAsync(response, 400, "VALIDATION_ERROR", $"Неизвестный стиль: «{styleId}».");
+                return;
+            }
+
+            active.SetStyle(canonical);
+
+            _pluginConfig.ActivePersonalityId = active.Id;
+            _pluginConfig.ActivePersonalityStyle = canonical;
+            PluginConfig.Save(_pluginConfig);
+
+            await SendJsonAsync(response, 200, BuildPersonalityPayload());
+        }
     }
 
     private async Task HandleChatStreamAsync(HttpListenerRequest request, HttpListenerResponse response)

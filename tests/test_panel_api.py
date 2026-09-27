@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import enum
 import http.client
 import json
 import os
@@ -33,6 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from jarvis import paths as paths_module
 from jarvis.api.server import PanelServer
 from jarvis.core.configuration.jarvis_config import JarvisConfig
+from jarvis.core.plugins.plugin_config import PluginConfig
 
 SPEC: dict[str, Any] = yaml.safe_load(
     (Path(__file__).resolve().parents[1] / "docs" / "api" / "openapi.yaml").read_text(
@@ -47,12 +49,48 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 EXTERNAL = os.environ.get("JARVIS_PANEL_EXTERNAL") == "1"
 EXTERNAL_PORT = int(os.environ.get("JARVIS_PANEL_PORT", "8080"))
 
+# Фактические стили встроенной личности (Custom исключён — урок «6 → 5»)
+ACTUAL_STYLES = ["Friendly", "Formal", "Sarcastic", "Professional", "Casual"]
+
+
+class _Style(enum.Enum):
+    Friendly = "Friendly"
+    Formal = "Formal"
+    Sarcastic = "Sarcastic"
+    Professional = "Professional"
+    Casual = "Casual"
+    Custom = "Custom"
+
+
+class FakePersonality:
+    """Подмена PersonalityPlugin: стиль меняется только через set_style."""
+
+    id = "personality"
+
+    def __init__(self) -> None:
+        self.style = _Style.Friendly
+
+    def get_available_styles(self) -> list[str]:
+        return list(ACTUAL_STYLES)
+
+    def set_style(self, style_name: str) -> None:
+        self.style = _Style[style_name]
+
+    def set_initial_style(self, style_name: str) -> None:
+        self.style = _Style[style_name]
+
+
+class FakePluginManager:
+    def __init__(self) -> None:
+        self.active_personality = FakePersonality()
+
 
 class FakeEngine:
     """Подмена JarvisEngine: детерминированный ответ без LLM."""
 
     def __init__(self) -> None:
         self.processed: list[str] = []
+        self.plugin_manager = FakePluginManager()
 
     def process(self, text: str) -> str:
         self.processed.append(text)
@@ -118,12 +156,15 @@ def running_panel() -> Iterator[tuple[Any, Path]]:
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         original_config_path = paths_module.config_path
+        original_plugins_config_path = paths_module.plugins_config_path
         paths_module.config_path = lambda: tmp / "config.json"
+        paths_module.plugins_config_path = lambda: tmp / "plugins.json"
         try:
             panel = PanelServer(
                 engine=FakeEngine(),
                 config=JarvisConfig(),
                 memory=FakeMemory(),
+                plugin_config=PluginConfig(),
                 token=TOKEN,
                 port=0,
             )
@@ -134,6 +175,7 @@ def running_panel() -> Iterator[tuple[Any, Path]]:
                 panel.stop()
         finally:
             paths_module.config_path = original_config_path
+            paths_module.plugins_config_path = original_plugins_config_path
 
 
 def call(
@@ -443,6 +485,97 @@ def test_wrong_method_is_405() -> None:
         status, raw, _ = call(panel, "POST", "/api/health", body={})
         assert status == 405
         assert error_payload(raw)["code"] == "METHOD_NOT_ALLOWED"
+
+
+# ── /api/personality (смена стиля с персистом — чинит P1-3) ───────
+
+
+def test_personality_get_matches_spec() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/personality")
+        assert status == 200
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("Personality"), payload)
+        assert payload["activeId"] == "personality"
+        assert payload["activeStyle"] == "Friendly"
+        # урок отчёта «6 стилей → 5»: список только фактический
+        assert payload["styles"] == ACTUAL_STYLES
+        assert "Custom" not in payload["styles"]
+
+
+def test_personality_requires_token() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/personality", token=None)
+        assert status == 401
+        assert error_payload(raw)["code"] == "UNAUTHORIZED"
+
+
+def test_personality_set_persists_style_across_restart() -> None:
+    """Гейт этапа 2: смена стиля переживает рестарт (закрывает P1-3)."""
+    with running_panel() as (panel, cfg_dir):
+        status, raw, _ = call(panel, "POST", "/api/personality/set", body={"styleId": "Sarcastic"})
+        assert status == 200, raw
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("Personality"), payload)
+        assert payload["activeStyle"] == "Sarcastic"
+
+        # GET отражает новое состояние
+        _, raw_get, _ = call(panel, "GET", "/api/personality")
+        assert json.loads(raw_get.decode("utf-8"))["activeStyle"] == "Sarcastic"
+
+        # Персист: config/plugins.json (PascalCase — формат PluginConfig)
+        saved = json.loads((cfg_dir / "plugins.json").read_text(encoding="utf-8"))
+        assert saved["ActivePersonalityStyle"] == "Sarcastic"
+        assert saved["ActivePersonalityId"] == "personality"
+
+        # Рестарт: PluginConfig.load() + восстановление стиля при старте
+        reloaded = PluginConfig.load()
+        assert reloaded.ActivePersonalityStyle == "Sarcastic"
+
+        restored = FakePersonality()
+        restored.set_initial_style(reloaded.ActivePersonalityStyle)
+        assert restored.style is _Style.Sarcastic
+
+
+def test_personality_set_is_case_insensitive() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "POST", "/api/personality/set", body={"styleId": "formal"})
+        assert status == 200, raw
+        # каноническое имя из списка стилей, а не присланное
+        assert json.loads(raw.decode("utf-8"))["activeStyle"] == "Formal"
+
+
+def test_personality_set_rejects_unknown_style() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "POST", "/api/personality/set", body={"styleId": "Custom"})
+        assert status == 400
+
+        error = error_payload(raw)
+        assert_schema(schema("Error"), error)
+        assert error["code"] == "VALIDATION_ERROR"
+        assert "Custom" in error["message"]
+
+
+def test_personality_set_validation_errors() -> None:
+    with running_panel() as (panel, _):
+        # отсутствует styleId
+        status, raw, _ = call(panel, "POST", "/api/personality/set", body={})
+        assert status == 400
+        assert "styleId" in error_payload(raw)["message"]
+
+        # неверный тип
+        status, raw, _ = call(panel, "POST", "/api/personality/set", body={"styleId": 42})
+        assert status == 400
+        assert error_payload(raw)["code"] == "VALIDATION_ERROR"
+
+        # лишний ключ
+        status, raw, _ = call(
+            panel, "POST", "/api/personality/set", body={"styleId": "Formal", "extra": 1}
+        )
+        assert status == 400
+        assert "extra" in error_payload(raw)["message"]
 
 
 def main() -> None:

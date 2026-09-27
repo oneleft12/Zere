@@ -125,6 +125,59 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /api/personality:
+    get:
+      operationId: getPersonality
+      summary: Активная личность и фактический список стилей
+      description: >
+        Только фактические стили из API (этап 2: карточки стилей без
+        хардкода — урок «6 стилей → 5» из отчёта анализа).
+      tags: [personality]
+      responses:
+        "200":
+          description: Текущая личность и стили
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Personality"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/NotReady"
+
+  /api/personality/set:
+    post:
+      operationId: setPersonalityStyle
+      summary: Смена стиля с сохранением (переживает рестарт — чинит P1-3)
+      tags: [personality]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StyleSetRequest"
+      responses:
+        "200":
+          description: Обновлённая личность
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Personality"
+        "400":
+          description: Неизвестный стиль, битое тело или неверный тип
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/NotReady"
+
 components:
   securitySchemes:
     tokenHeader:
@@ -144,6 +197,12 @@ components:
             $ref: "#/components/schemas/Error"
     Forbidden:
       description: Недопустимый Host или Origin (защита от DNS-rebinding/CSRF)
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotReady:
+      description: Сервис личностей или хранилище настроек не готовы
       content:
         application/json:
           schema:
@@ -244,6 +303,32 @@ components:
         voiceReferencePath:
           type: string
           description: Путь к WAV-референсу голоса, пусто = встроенный голос
+
+    Personality:
+      type: object
+      required: [activeId, activeStyle, styles]
+      additionalProperties: false
+      properties:
+        activeId:
+          type: string
+          description: Идентификатор активного плагина личности
+        activeStyle:
+          type: string
+          description: Текущий стиль (например Friendly)
+        styles:
+          type: array
+          description: Фактический список доступных стилей (без хардкода)
+          items:
+            type: string
+
+    StyleSetRequest:
+      type: object
+      required: [styleId]
+      additionalProperties: false
+      properties:
+        styleId:
+          type: string
+          description: Идентификатор стиля из Personality.styles
 
     ChatEvent:
       description: >

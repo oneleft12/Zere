@@ -76,6 +76,7 @@ def main() -> None:
         engine=jarvis,
         config=services.get(JarvisConfig),
         memory=services.get(MemoryRepository),
+        plugin_config=services.get(PluginConfig),
     )
     try:
         panel.start()

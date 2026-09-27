@@ -25,7 +25,11 @@ if (args.Contains("--panel"))
     var panelEngine = panelServices.GetRequiredService<JarvisEngine>();
     var panelMemory = panelServices.GetRequiredService<MemoryRepository>();
 
-    var testPanel = new PanelServer(config, panelEngine, panelMemory);
+    var testPanel = new PanelServer(
+        config,
+        panelEngine,
+        panelMemory,
+        panelServices.GetRequiredService<PluginConfig>());
     testPanel.Start();
 
     Console.WriteLine($"[Панель] http://127.0.0.1:{testPanel.Port} (токен: config/panel.token)");
@@ -89,7 +93,11 @@ var voiceManager = new VoiceManager();
 
 // Локальная панель (этап 1 GUI-плана): loopback + токен, контракт
 // docs/api/openapi.yaml. Сбой порта не должен ронять консоль.
-var panel = new PanelServer(config, jarvis, services.GetRequiredService<MemoryRepository>());
+var panel = new PanelServer(
+    config,
+    jarvis,
+    services.GetRequiredService<MemoryRepository>(),
+    services.GetRequiredService<PluginConfig>());
 
 try
 {

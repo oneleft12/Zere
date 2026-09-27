@@ -123,7 +123,9 @@ class SettingsMenu:
                     if selected_style in available_styles:
                         p.set_style(selected_style)
                         self._plugin_manager.set_active_personality(p.id)
+                        # P1-3: без сохранения стиля он сбрасывался при рестарте
                         self._config.ActivePersonalityId = p.id
+                        self._config.ActivePersonalityStyle = selected_style
 
                 PluginConfig.save(self._config)
 
