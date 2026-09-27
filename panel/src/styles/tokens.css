@@ -1,0 +1,56 @@
+/* Токены дизайна JARVIS (docs/GUI_DEVELOPMENT_PLAN.md §5.2).
+   Тёмная тема — по умолчанию; светлая — инверсия токенов. */
+
+:root {
+  color-scheme: dark;
+
+  /* Палитра */
+  --bg: #0a0e14;
+  --surface: #11161f;
+  --surface-2: #1a2130;
+  --accent: #00e5ff;
+  --accent-2: #7c4dff;
+  --text: #e6edf3;
+  --text-dim: #8b949e;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --danger: #f85149;
+
+  /* Производные */
+  --border: rgba(230, 237, 243, 0.09);
+  --accent-soft: rgba(0, 229, 255, 0.12);
+  --accent-glow: rgba(0, 229, 255, 0.25);
+  --danger-soft: rgba(248, 81, 73, 0.12);
+  --ok-soft: rgba(63, 185, 80, 0.14);
+  --warn-soft: rgba(210, 153, 34, 0.14);
+  --backdrop: rgba(4, 7, 11, 0.72);
+
+  /* Типографика (§5.1) */
+  --font-ui: "Inter", "Manrope", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", ui-monospace, "Consolas", monospace;
+
+  /* Размеры каркаса (§5.3) */
+  --sidebar-w: 220px;
+  --header-h: 52px;
+  --status-h: 36px;
+  --radius: 10px;
+  --radius-sm: 6px;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f6f8fa;
+  --surface: #ffffff;
+  --surface-2: #eef1f5;
+  --text: #1f2328;
+  --text-dim: #59636e;
+
+  --border: rgba(31, 35, 40, 0.14);
+  --accent-soft: rgba(0, 122, 138, 0.1);
+  --accent-glow: rgba(0, 150, 170, 0.28);
+  --danger-soft: rgba(248, 81, 73, 0.1);
+  --ok-soft: rgba(63, 185, 80, 0.12);
+  --warn-soft: rgba(210, 153, 34, 0.12);
+  --backdrop: rgba(31, 35, 40, 0.45);
+}
