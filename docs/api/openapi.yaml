@@ -178,6 +178,168 @@ paths:
         "503":
           $ref: "#/components/responses/NotReady"
 
+  /api/history:
+    get:
+      operationId: getHistory
+      summary: Страница истории диалогов (новые сверху)
+      tags: [history]
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Страница истории и общее число записей
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HistoryPage"
+        "400":
+          description: Некорректные limit/offset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/NotReady"
+    delete:
+      operationId: clearHistory
+      summary: Очистка истории — только с явным подтверждением
+      description: >
+        Необратимое действие: тело обязано быть {confirm: "DELETE"}
+        (см. P0-3 — строгие подтверждения).
+      tags: [history]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HistoryDeleteRequest"
+      responses:
+        "200":
+          description: Число удалённых записей
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HistoryDeleteResponse"
+        "400":
+          description: Нет подтверждения или неверное тело
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/NotReady"
+
+  /api/memory:
+    get:
+      operationId: getMemory
+      summary: Все записи памяти или поиск по ним
+      tags: [memory]
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Подстрока для поиска по ключу и значению; пусто — все записи
+      responses:
+        "200":
+          description: Записи памяти
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      operationId: createMemory
+      summary: Создать или обновить запись памяти (upsert по ключу)
+      tags: [memory]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemoryCreateRequest"
+      responses:
+        "200":
+          description: Сохранённая запись
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryItem"
+        "400":
+          description: Некорректное тело записи
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/NotReady"
+
+  /api/memory/{id}:
+    delete:
+      operationId: deleteMemory
+      summary: Удалить запись памяти по идентификатору
+      tags: [memory]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Запись удалена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemoryDeleteResponse"
+        "400":
+          description: Идентификатор не число
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Запись не найдена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
 components:
   securitySchemes:
     tokenHeader:
@@ -202,7 +364,8 @@ components:
           schema:
             $ref: "#/components/schemas/Error"
     NotReady:
-      description: Сервис личностей или хранилище настроек не готовы
+      description: >
+        Хранилище (личности, история, память) или настройки ещё не готовы
       content:
         application/json:
           schema:
@@ -329,6 +492,108 @@ components:
         styleId:
           type: string
           description: Идентификатор стиля из Personality.styles
+
+    HistoryPage:
+      type: object
+      required: [items, total]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          description: Страница истории, новые сверху
+          items:
+            $ref: "#/components/schemas/HistoryItem"
+        total:
+          type: integer
+          minimum: 0
+          description: Всего записей (для пагинации)
+
+    HistoryItem:
+      type: object
+      required: [id, userMessage, jarvisResponse, timestamp]
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+        userMessage:
+          type: string
+        jarvisResponse:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    HistoryDeleteRequest:
+      type: object
+      required: [confirm]
+      additionalProperties: false
+      properties:
+        confirm:
+          type: string
+          enum: [DELETE]
+
+    HistoryDeleteResponse:
+      type: object
+      required: [deleted]
+      additionalProperties: false
+      properties:
+        deleted:
+          type: integer
+          minimum: 0
+          description: Число удалённых записей
+
+    MemoryList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MemoryItem"
+
+    MemoryItem:
+      type: object
+      required: [id, key, value, category, createdAt]
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+        key:
+          type: string
+        value:
+          type: string
+        category:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    MemoryCreateRequest:
+      type: object
+      required: [key, value]
+      additionalProperties: false
+      properties:
+        key:
+          type: string
+          minLength: 1
+          maxLength: 200
+        value:
+          type: string
+          maxLength: 2000
+        category:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: По умолчанию "User"
+
+    MemoryDeleteResponse:
+      type: object
+      required: [deleted]
+      additionalProperties: false
+      properties:
+        deleted:
+          type: boolean
 
     ChatEvent:
       description: >

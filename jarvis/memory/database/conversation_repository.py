@@ -70,3 +70,38 @@ class ConversationRepository:
             ]
         finally:
             connection.close()
+
+    def count(self) -> int:
+        """Всего записей истории (для пагинации /api/history)."""
+        connection = self._database.create_connection()
+        try:
+            cursor = connection.execute("SELECT COUNT(*) FROM Conversations")
+            row = cursor.fetchone()
+            return int(row[0]) if row is not None else 0
+        finally:
+            connection.close()
+
+    def get_page(self, limit: int, offset: int) -> list[Conversation]:
+        """Страница истории: новые сверху (Id DESC), с учётом смещения."""
+        connection = self._database.create_connection()
+        try:
+            cursor = connection.execute(
+                """
+        SELECT Id, UserMessage, JarvisResponse, Timestamp
+        FROM Conversations
+        ORDER BY Id DESC
+        LIMIT $limit OFFSET $offset
+        """,
+                {"limit": limit, "offset": offset},
+            )
+            return [
+                Conversation(
+                    id=row[0],
+                    user_message=row[1],
+                    jarvis_response=row[2],
+                    timestamp=_parse_datetime(row[3]),
+                )
+                for row in cursor
+            ]
+        finally:
+            connection.close()

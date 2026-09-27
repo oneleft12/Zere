@@ -42,7 +42,16 @@ _ROUTES = {
     "/api/chat/stream": frozenset({"GET"}),
     "/api/personality": frozenset({"GET"}),
     "/api/personality/set": frozenset({"POST"}),
+    "/api/history": frozenset({"GET", "DELETE"}),
+    "/api/memory": frozenset({"GET", "POST"}),
 }
+
+_MEMORY_PREFIX = "/api/memory/"
+_HISTORY_DEFAULT_LIMIT = 50
+_HISTORY_MAX_LIMIT = 500
+_MAX_MEMORY_KEY_LENGTH = 200
+_MAX_MEMORY_VALUE_LENGTH = 2000
+_MAX_MEMORY_CATEGORY_LENGTH = 100
 
 
 class PanelServer:
@@ -54,6 +63,7 @@ class PanelServer:
         config: JarvisConfig,
         memory: Any,
         *,
+        conversation: Optional[Any] = None,
         plugin_config: Optional[PluginConfig] = None,
         token: Optional[str] = None,
         port: int = DEFAULT_PORT,
@@ -61,6 +71,7 @@ class PanelServer:
         self._engine = engine
         self._config = config
         self._memory = memory
+        self._conversation = conversation
         self._plugin_config = plugin_config
         self._token = token if token is not None else load_or_create_token()
         self._requested_port = port
@@ -80,6 +91,10 @@ class PanelServer:
     @property
     def memory(self) -> Any:
         return self._memory
+
+    @property
+    def conversation(self) -> Optional[Any]:
+        return self._conversation
 
     @property
     def plugin_config(self) -> Optional[PluginConfig]:
@@ -134,6 +149,20 @@ class _PanelHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         self._dispatch("POST")
 
+    # Без собственных обработчиков BaseHTTPRequestHandler отдаёт 501, что
+    # расходится с C# (404/405 из таблицы маршрутов) — реализуем все явно.
+    def do_DELETE(self) -> None:  # noqa: N802
+        self._dispatch("DELETE")
+
+    def do_PUT(self) -> None:  # noqa: N802
+        self._dispatch("PUT")
+
+    def do_PATCH(self) -> None:  # noqa: N802
+        self._dispatch("PATCH")
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        self._dispatch("OPTIONS")
+
     def log_message(self, format: str, *args: Any) -> None:
         pass  # сырой лог запросов не пишем — только нормализованные события
 
@@ -186,6 +215,15 @@ class _PanelHandler(BaseHTTPRequestHandler):
             self._send_json(401, "UNAUTHORIZED", "Требуется X-JARVIS-Token.")
             return
 
+        # Динамический маршрут DELETE /api/memory/{id}
+        if path.startswith(_MEMORY_PREFIX):
+            if method != "DELETE":
+                self._send_json(405, "METHOD_NOT_ALLOWED", "Метод не поддерживается.")
+                return
+
+            self._handle_memory_delete(path[len(_MEMORY_PREFIX):])
+            return
+
         allowed = _ROUTES.get(path)
         if allowed is None:
             self._send_json(404, "NOT_FOUND", "Маршрут не найден.")
@@ -207,6 +245,16 @@ class _PanelHandler(BaseHTTPRequestHandler):
                 self._handle_personality_get()
             elif path == "/api/personality/set":
                 self._handle_personality_set()
+            elif path == "/api/history":
+                if method == "GET":
+                    self._handle_history_get()
+                else:
+                    self._handle_history_delete()
+            elif path == "/api/memory":
+                if method == "GET":
+                    self._handle_memory_get()
+                else:
+                    self._handle_memory_post()
             else:  # /api/chat/stream
                 self._handle_chat_stream()
         except Exception as ex:  # noqa: BLE001 — нормализуем любую ошибку
@@ -398,6 +446,121 @@ class _PanelHandler(BaseHTTPRequestHandler):
             "styles": [str(s) for s in active.get_available_styles()],
         }
 
+    def _handle_history_get(self) -> None:
+        params = parse_qs(urlsplit(self.path).query)
+
+        limit, error = _query_int(params, "limit", _HISTORY_DEFAULT_LIMIT, 1, _HISTORY_MAX_LIMIT)
+        if error is not None:
+            self._send_json(400, "VALIDATION_ERROR", error)
+            return
+
+        offset, error = _query_int(params, "offset", 0, 0, 10**9)
+        if error is not None:
+            self._send_json(400, "VALIDATION_ERROR", error)
+            return
+
+        repo = self.panel.conversation
+        if repo is None:
+            self._send_json(503, "NOT_READY", "Хранилище истории не готово.")
+            return
+
+        items = [
+            {
+                "id": int(c.id),
+                "userMessage": c.user_message,
+                "jarvisResponse": c.jarvis_response,
+                "timestamp": c.timestamp.isoformat(),
+            }
+            for c in repo.get_page(limit, offset)
+        ]
+
+        self._send_json(200, None, {"items": items, "total": repo.count()})
+
+    def _handle_history_delete(self) -> None:
+        """Очистка истории — требует явного подтверждения {confirm: "DELETE"}."""
+        body = self._read_body()
+        if body is None:
+            return
+
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json(400, "VALIDATION_ERROR", "Тело запроса не является корректным JSON.")
+            return
+
+        error = _validate_confirm_payload(payload)
+        if error is not None:
+            self._send_json(400, "VALIDATION_ERROR", error)
+            return
+
+        repo = self.panel.conversation
+        if repo is None:
+            self._send_json(503, "NOT_READY", "Хранилище истории не готово.")
+            return
+
+        deleted = repo.count()
+        repo.clear_history()
+
+        self._send_json(200, None, {"deleted": deleted})
+
+    def _handle_memory_get(self) -> None:
+        params = parse_qs(urlsplit(self.path).query)
+        search = (params.get("search") or [""])[0]
+
+        try:
+            items = (
+                self.panel.memory.search(search) if search else self.panel.memory.get_all()
+            )
+        except Exception as ex:  # noqa: BLE001
+            log_error("PanelServer.memory", str(ex))
+            self._send_json(500, "INTERNAL", "Внутренняя ошибка сервера.")
+            return
+
+        self._send_json(200, None, {"items": [_memory_item_payload(i) for i in items]})
+
+    def _handle_memory_post(self) -> None:
+        body = self._read_body()
+        if body is None:
+            return
+
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json(400, "VALIDATION_ERROR", "Тело запроса не является корректным JSON.")
+            return
+
+        error = _validate_memory_payload(payload)
+        if error is not None:
+            self._send_json(400, "VALIDATION_ERROR", error)
+            return
+
+        try:
+            self.panel.memory.remember(
+                payload["key"], payload["value"], payload.get("category", "User")
+            )
+            saved = self.panel.memory.find(payload["key"])
+        except Exception as ex:  # noqa: BLE001
+            log_error("PanelServer.memory", str(ex))
+            self._send_json(500, "INTERNAL", "Внутренняя ошибка сервера.")
+            return
+
+        if saved is None:
+            self._send_json(503, "NOT_READY", "Хранилище памяти не готово.")
+            return
+
+        self._send_json(200, None, _memory_item_payload(saved))
+
+    def _handle_memory_delete(self, raw_id: str) -> None:
+        if not (raw_id.isascii() and raw_id.isdigit()):
+            self._send_json(400, "VALIDATION_ERROR", "Идентификатор памяти должен быть числом.")
+            return
+
+        if not self.panel.memory.forget_by_id(int(raw_id)):
+            self._send_json(404, "NOT_FOUND", "Запись памяти не найдена.")
+            return
+
+        self._send_json(200, None, {"deleted": True})
+
     def _handle_chat_stream(self) -> None:
         params = parse_qs(urlsplit(self.path).query)
         text = (params.get("text") or [""])[0]
@@ -548,6 +711,96 @@ def _git_branch() -> str:
     if text.startswith(prefix):
         return text[len(prefix):]
     return "detached" if text else "unknown"
+
+
+def _query_int(
+    params: dict[str, list[str]],
+    name: str,
+    default: int,
+    minimum: int,
+    maximum: int,
+) -> tuple[int, Optional[str]]:
+    """Целочисленный query-параметр: (значение, ошибка)."""
+    raw = params.get(name)
+
+    if raw is None or raw[0] == "":
+        return default, None
+
+    try:
+        value = int(raw[0])
+    except ValueError:
+        return default, f"Параметр «{name}» должен быть целым числом."
+
+    if not minimum <= value <= maximum:
+        return default, f"Параметр «{name}» должен быть в диапазоне {minimum}…{maximum}."
+
+    return value, None
+
+
+def _validate_confirm_payload(payload: Any) -> Optional[str]:
+    """Подтверждение необратимого действия: ровно {confirm: "DELETE"}."""
+    if not isinstance(payload, dict):
+        return 'Ожидался JSON-объект {confirm: "DELETE"}.'
+
+    for key in payload:
+        if key != "confirm":
+            return f"Неизвестный ключ: «{key}»."
+
+    if "confirm" not in payload:
+        return "Отсутствует обязательный ключ: «confirm»."
+
+    if payload["confirm"] != "DELETE":
+        return 'Ожидалось подтверждение confirm = "DELETE".'
+
+    return None
+
+
+def _validate_memory_payload(payload: Any) -> Optional[str]:
+    """Валидация записи памяти: {key, value, category?}."""
+    if not isinstance(payload, dict):
+        return "Ожидался JSON-объект записи памяти."
+
+    allowed = {"key", "value", "category"}
+
+    for key in payload:
+        if key not in allowed:
+            return f"Неизвестный ключ: «{key}»."
+
+    for required in ("key", "value"):
+        if required not in payload:
+            return f"Отсутствует обязательный ключ: «{required}»."
+        if not isinstance(payload[required], str):
+            return f"Ключ «{required}» должен быть строкой."
+
+    if not payload["key"].strip():
+        return "Ключ «key» не может быть пустым."
+
+    if len(payload["key"]) > _MAX_MEMORY_KEY_LENGTH:
+        return f"Ключ «key» длиннее {_MAX_MEMORY_KEY_LENGTH} символов."
+
+    if len(payload["value"]) > _MAX_MEMORY_VALUE_LENGTH:
+        return f"Значение длиннее {_MAX_MEMORY_VALUE_LENGTH} символов."
+
+    if "category" in payload:
+        category = payload["category"]
+        if not isinstance(category, str):
+            return "Ключ «category» должен быть строкой."
+        if not category.strip():
+            return "Ключ «category» не может быть пустым."
+        if len(category) > _MAX_MEMORY_CATEGORY_LENGTH:
+            return f"Ключ «category» длиннее {_MAX_MEMORY_CATEGORY_LENGTH} символов."
+
+    return None
+
+
+def _memory_item_payload(item: Any) -> dict[str, Any]:
+    return {
+        "id": int(item.id),
+        "key": item.key,
+        "value": item.value,
+        "category": item.category,
+        "createdAt": item.created_at.isoformat(),
+    }
 
 
 def _camel_to_snake(key: str) -> str:

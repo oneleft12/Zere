@@ -21,6 +21,7 @@ import sys
 import tempfile
 import time
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator, Optional
 from urllib.parse import quote
@@ -35,6 +36,8 @@ from jarvis import paths as paths_module
 from jarvis.api.server import PanelServer
 from jarvis.core.configuration.jarvis_config import JarvisConfig
 from jarvis.core.plugins.plugin_config import PluginConfig
+from jarvis.memory.models.conversation import Conversation
+from jarvis.memory.models.memory_item import MemoryItem
 
 SPEC: dict[str, Any] = yaml.safe_load(
     (Path(__file__).resolve().parents[1] / "docs" / "api" / "openapi.yaml").read_text(
@@ -48,6 +51,10 @@ _UNSET = object()
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXTERNAL = os.environ.get("JARVIS_PANEL_EXTERNAL") == "1"
 EXTERNAL_PORT = int(os.environ.get("JARVIS_PANEL_PORT", "8080"))
+
+# Необратимые операции (очистка истории) против ВНЕШНЕЙ панели запускаются
+# только по явному флагу: там настоящая jarvis.db, а локальная база — фейк.
+DESTRUCTIVE = os.environ.get("JARVIS_PANEL_DESTRUCTIVE") == "1"
 
 # Фактические стили встроенной личности (Custom исключён — урок «6 → 5»)
 ACTUAL_STYLES = ["Friendly", "Formal", "Sarcastic", "Professional", "Casual"]
@@ -98,8 +105,89 @@ class FakeEngine:
 
 
 class FakeMemory:
-    def get_all(self) -> list[Any]:
-        return []
+    """In-memory замена MemoryRepository: upsert по ключу, порядок Category/Key.
+
+    Повторяет реальные семантики (register: case-insensitive ключи,
+    ON CONFLICT по lower(Key)), но без SQLite — тесты идут в tmp-окружении.
+    """
+
+    def __init__(self) -> None:
+        self._rows: dict[int, MemoryItem] = {}
+        self._next_id = 1
+
+    def remember(self, key: str, value: str, category: str = "User") -> None:
+        normalized = key.lower()
+
+        for row in self._rows.values():
+            if row.key.lower() == normalized:
+                row.value = value
+                row.category = category
+                return
+
+        now = datetime.now()
+        # Реальный репозиторий хранит ключ в нижнем регистре (key.ToLower()).
+        self._rows[self._next_id] = MemoryItem(self._next_id, key.lower(), value, category, now)
+        self._next_id += 1
+
+    def find(self, key: str) -> Optional[MemoryItem]:
+        normalized = key.lower()
+        for row in self._rows.values():
+            if row.key.lower() == normalized:
+                return row
+        return None
+
+    def get_all(self) -> list[MemoryItem]:
+        return sorted(
+            self._rows.values(),
+            key=lambda row: (row.category, row.key),
+        )
+
+    def search(self, query: str) -> list[MemoryItem]:
+        needle = query.lower()
+        return [
+            row
+            for row in self.get_all()
+            if needle in row.key.lower() or needle in row.value.lower()
+        ]
+
+    def forget(self, key: str) -> bool:
+        found = self.find(key)
+        if found is None:
+            return False
+        del self._rows[found.id]
+        return True
+
+    def forget_by_id(self, memory_id: int) -> bool:
+        if memory_id not in self._rows:
+            return False
+        del self._rows[memory_id]
+        return True
+
+
+class FakeConversationRepository:
+    """Порт-замена ConversationRepository: get_page/count/clear_history."""
+
+    def __init__(self) -> None:
+        self._rows: list[Conversation] = []
+        self._next_id = 1
+
+    def seed(self, user_message: str, jarvis_response: str) -> int:
+        """Добавляет запись, как сделал бы реальный ConversationHandler."""
+        now = datetime.now()
+        row = Conversation(self._next_id, user_message, jarvis_response, now)
+        self._rows.append(row)
+        self._next_id += 1
+        return row.id
+
+    def count(self) -> int:
+        return len(self._rows)
+
+    def get_page(self, limit: int, offset: int) -> list[Conversation]:
+        ordered = sorted(self._rows, key=lambda row: row.id, reverse=True)
+        return ordered[offset:offset + limit]
+
+    def clear_history(self) -> None:
+        self._rows.clear()
 
 
 # ── Инфраструктура ────────────────────────────────────────────────
@@ -116,6 +204,10 @@ class _ExternalPanel:
         self.port = port
         self.token = token
         self.engine: Any = None
+        # Настоящий PanelServer вне процесса недоступен: засеивание фейками
+        # (history/memory) в этом режиме невозможно — тесты ветвятся на EXTERNAL.
+        self.memory: Any = None
+        self.conversation: Any = None
 
 
 def _wait_external_panel(timeout: float = 120.0) -> _ExternalPanel:
@@ -164,6 +256,7 @@ def running_panel() -> Iterator[tuple[Any, Path]]:
                 engine=FakeEngine(),
                 config=JarvisConfig(),
                 memory=FakeMemory(),
+                conversation=FakeConversationRepository(),
                 plugin_config=PluginConfig(),
                 token=TOKEN,
                 port=0,
@@ -266,6 +359,13 @@ def assert_schema(schema: dict[str, Any], value: Any, path: str = "$") -> None:
         assert isinstance(value, (int, float)) and not isinstance(value, bool), (
             f"{path}: ожидалось число, получено {value!r}"
         )
+    elif stype == "array":
+        assert isinstance(value, list), f"{path}: ожидался список, получен {value!r}"
+        if "items" in schema:
+            for index, element in enumerate(value):
+                assert_schema(schema["items"], element, f"{path}[{index}]")
+        if "minItems" in schema:
+            assert len(value) >= schema["minItems"], f"{path}: длина {len(value)} < minItems"
     elif stype == "string":
         assert isinstance(value, str), f"{path}: ожидалась строка, получена {value!r}"
 
@@ -576,6 +676,294 @@ def test_personality_set_validation_errors() -> None:
         )
         assert status == 400
         assert "extra" in error_payload(raw)["message"]
+
+
+# ── /api/history (этап 3 «Чат, История, Память») ─────────────────
+
+
+def test_history_get_matches_spec() -> None:
+    with running_panel() as (panel, _):
+        if not EXTERNAL:
+            panel.conversation.seed("привет", "здравствуйте")
+            panel.conversation.seed("как дела", "нормально")
+
+        status, raw, _ = call(panel, "GET", "/api/history")
+        assert status == 200
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("HistoryPage"), payload)
+        assert len(payload["items"]) <= 50  # limit по умолчанию
+        assert payload["total"] >= len(payload["items"])
+
+        for item in payload["items"]:
+            assert_schema(schema("HistoryItem"), item)
+
+        if not EXTERNAL:
+            assert payload["total"] == 2
+            # новые сверху
+            assert [i["userMessage"] for i in payload["items"]] == ["как дела", "привет"]
+
+
+def test_history_pagination() -> None:
+    with running_panel() as (panel, _):
+        if not EXTERNAL:
+            for index in range(5):
+                panel.conversation.seed(f"вопрос {index}", f"ответ {index}")
+
+        status, raw, _ = call(panel, "GET", "/api/history?limit=2")
+        assert status == 200
+        first = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("HistoryPage"), first)
+        assert len(first["items"]) <= 2
+        total = first["total"]
+
+        status, raw, _ = call(panel, "GET", f"/api/history?limit=2&offset=2")
+        assert status == 200
+        second = json.loads(raw.decode("utf-8"))
+        assert len(second["items"]) <= 2
+        assert second["total"] == total
+
+        if not EXTERNAL:
+            assert total == 5
+            assert len(first["items"]) == 2
+            assert len(second["items"]) == 2
+            # страницы не пересекаются
+            first_ids = {item["id"] for item in first["items"]}
+            second_ids = {item["id"] for item in second["items"]}
+            assert not first_ids & second_ids
+            assert [i["userMessage"] for i in first["items"]] == ["вопрос 4", "вопрос 3"]
+            assert [i["userMessage"] for i in second["items"]] == ["вопрос 2", "вопрос 1"]
+
+            # последняя неполная страница
+            _, raw_last, _ = call(panel, "GET", "/api/history?limit=2&offset=4")
+            last = json.loads(raw_last.decode("utf-8"))
+            assert len(last["items"]) == 1
+
+
+def test_history_rejects_bad_params() -> None:
+    with running_panel() as (panel, _):
+        for query in ("limit=0", "limit=501", "limit=abc", "offset=-1", "offset=x"):
+            status, raw, _ = call(panel, "GET", f"/api/history?{query}")
+            assert status == 400, f"{query}: {status}"
+            error = error_payload(raw)
+            assert_schema(schema("Error"), error)
+            assert error["code"] == "VALIDATION_ERROR"
+
+
+def test_history_requires_token() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/history", token=None)
+        assert status == 401
+        assert error_payload(raw)["code"] == "UNAUTHORIZED"
+
+
+def test_history_wrong_method_is_405() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "POST", "/api/history", body={})
+        assert status == 405
+        assert error_payload(raw)["code"] == "METHOD_NOT_ALLOWED"
+
+
+def test_history_delete_requires_confirmation() -> None:
+    """P0-3: необратимая очистка без подтверждения — всегда 400, ничего не стёрто."""
+    with running_panel() as (panel, _):
+        if not EXTERNAL:
+            panel.conversation.seed("не трогай", "меня")
+
+        for body in (
+            {},
+            {"confirm": "yes"},
+            {"confirm": "delete"},
+            {"confir": "DELETE"},
+            {"confirm": "DELETE", "extra": 1},
+        ):
+            status, raw, _ = call(panel, "DELETE", "/api/history", body=body)
+            assert status == 400, body
+            error = error_payload(raw)
+            assert_schema(schema("Error"), error)
+            assert error["code"] == "VALIDATION_ERROR"
+
+        # история не тронута
+        _, raw, _ = call(panel, "GET", "/api/history")
+        payload = json.loads(raw.decode("utf-8"))
+        if not EXTERNAL:
+            assert payload["total"] == 1
+        else:
+            assert payload["total"] >= 0
+
+
+def test_history_delete_clears_all() -> None:
+    """Гейт этапа 3: очистка истории подтверждённым DELETE."""
+    if EXTERNAL and not DESTRUCTIVE:
+        print(
+            "\n[пропущено] очистка истории внешней панели требует "
+            "JARVIS_PANEL_DESTRUCTIVE=1"
+        )
+        return
+
+    with running_panel() as (panel, _):
+        if not EXTERNAL:
+            panel.conversation.seed("раз", "два")
+            panel.conversation.seed("три", "четыре")
+
+        status, raw, _ = call(panel, "DELETE", "/api/history", body={"confirm": "DELETE"})
+        assert status == 200, raw
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("HistoryDeleteResponse"), payload)
+        if not EXTERNAL:
+            assert payload["deleted"] == 2
+
+        _, raw, _ = call(panel, "GET", "/api/history")
+        assert json.loads(raw.decode("utf-8"))["total"] == 0
+
+
+def test_history_delete_requires_token() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(
+            panel, "DELETE", "/api/history", token=None, body={"confirm": "DELETE"}
+        )
+        assert status == 401
+        assert error_payload(raw)["code"] == "UNAUTHORIZED"
+
+
+# ── /api/memory (CRUD — этап 3) ───────────────────────────────────
+
+
+def test_memory_get_matches_spec() -> None:
+    with running_panel() as (panel, _):
+        if not EXTERNAL:
+            panel.memory.remember("Любимый язык", "Python", "User")
+
+        status, raw, _ = call(panel, "GET", "/api/memory")
+        assert status == 200
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("MemoryList"), payload)
+
+        for item in payload["items"]:
+            assert_schema(schema("MemoryItem"), item)
+
+        if not EXTERNAL:
+            assert any(item["key"] == "любимый язык" for item in payload["items"])
+
+
+def test_memory_create_update_search_delete() -> None:
+    with running_panel() as (panel, _):
+        # создание
+        status, raw, _ = call(
+            panel,
+            "POST",
+            "/api/memory",
+            body={"key": "панельная_проба", "value": "1", "category": "Test"},
+        )
+        assert status == 200, raw
+
+        created = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("MemoryItem"), created)
+        assert created["key"] == "панельная_проба"
+        assert created["category"] == "Test"
+        item_id = created["id"]
+
+        # upsert по ключу: тот же id, новое значение, категория по умолчанию
+        status, raw, _ = call(
+            panel, "POST", "/api/memory", body={"key": "панельная_проба", "value": "2"}
+        )
+        assert status == 200, raw
+
+        updated = json.loads(raw.decode("utf-8"))
+        assert updated["id"] == item_id
+        assert updated["value"] == "2"
+        assert updated["category"] == "User"
+
+        # поиск
+        status, raw, _ = call(panel, "GET", "/api/memory?search=панельная")
+        assert status == 200
+
+        found = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("MemoryList"), found)
+        assert [row["id"] for row in found["items"]] == [item_id]
+
+        # поиск без совпадений пуст
+        _, raw, _ = call(panel, "GET", "/api/memory?search=несуществующее_ключ")
+        assert json.loads(raw.decode("utf-8"))["items"] == []
+
+        # удаление по id
+        status, raw, _ = call(panel, "DELETE", f"/api/memory/{item_id}")
+        assert status == 200, raw
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("MemoryDeleteResponse"), payload)
+        assert payload["deleted"] is True
+
+        # повторное удаление → 404
+        status, raw, _ = call(panel, "DELETE", f"/api/memory/{item_id}")
+        assert status == 404
+        assert error_payload(raw)["code"] == "NOT_FOUND"
+
+
+def test_memory_requires_token() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(
+            panel, "POST", "/api/memory", token=None, body={"key": "a", "value": "b"}
+        )
+        assert status == 401
+        assert error_payload(raw)["code"] == "UNAUTHORIZED"
+
+
+def test_memory_validation_errors() -> None:
+    with running_panel() as (panel, _):
+        cases = (
+            ({} , "«key»"),
+            ({"key": "a"}, "«value»"),
+            ({"key": "a", "value": 42}, "строкой"),
+            ({"key": "   ", "value": "v"}, "пустым"),
+            ({"key": "a", "value": "v", "zz": 1}, "Неизвестный ключ"),
+            ({"key": "a" * 201, "value": "v"}, "200"),
+            ({"key": "a", "value": "v" * 2001}, "2000"),
+            ({"key": "a", "value": "v", "category": "c" * 101}, "100"),
+        )
+
+        for body, expected in cases:
+            status, raw, _ = call(panel, "POST", "/api/memory", body=body)
+            assert status == 400, body
+            error = error_payload(raw)
+            assert_schema(schema("Error"), error)
+            assert error["code"] == "VALIDATION_ERROR"
+            assert expected in error["message"], f"{body!r} → {error['message']!r}"
+
+
+def test_memory_post_rejects_bad_json() -> None:
+    with running_panel() as (panel, _):
+        conn = http.client.HTTPConnection("127.0.0.1", panel.port, timeout=15)
+        conn.request(
+            "POST",
+            "/api/memory",
+            body=b"[not json",
+            headers={"X-JARVIS-Token": panel.token, "Content-Type": "application/json"},
+        )
+        response = conn.getresponse()
+        raw = response.read()
+        conn.close()
+        assert response.status == 400
+        assert error_payload(raw)["code"] == "VALIDATION_ERROR"
+
+
+def test_memory_delete_rejects_bad_id() -> None:
+    with running_panel() as (panel, _):
+        for raw_id, expected in (("abc", 400), ("", 400), ("-1", 400), ("1.5", 400)):
+            status, raw, _ = call(panel, "DELETE", f"/api/memory/{raw_id}")
+            assert status == expected, f"{raw_id!r} → {status}"
+            assert error_payload(raw)["code"] == "VALIDATION_ERROR"
+
+        # валидный, но отсутствующий id → 404
+        status, raw, _ = call(panel, "DELETE", "/api/memory/9223372036854775807")
+        assert status == 404
+        assert error_payload(raw)["code"] == "NOT_FOUND"
+
+        # динамический маршрут принимает только DELETE
+        status, raw, _ = call(panel, "GET", "/api/memory/1")
+        assert status == 405
+        assert error_payload(raw)["code"] == "METHOD_NOT_ALLOWED"
 
 
 # ── Статика панели (SPA из panel/dist) ────────────────────────────

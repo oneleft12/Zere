@@ -59,6 +59,18 @@ class MemoryRepository:
         finally:
             connection.close()
 
+    def forget_by_id(self, memory_id: int) -> bool:
+        """Удаление по первичному ключу (для DELETE /api/memory/{id})."""
+        connection = self._database.create_connection()
+        try:
+            cursor = connection.execute(
+                "DELETE FROM Memories WHERE Id=$id",
+                {"id": memory_id},
+            )
+            return cursor.rowcount > 0
+        finally:
+            connection.close()
+
     def get(self, key: str) -> Optional[MemoryItem]:
         return self.find(key)
 

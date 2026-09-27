@@ -54,6 +54,20 @@ public class MemoryRepository
         return command.ExecuteNonQuery() > 0;
     }
 
+    /// <summary>Удаление по первичному ключу (для DELETE /api/memory/{id}).</summary>
+    public bool ForgetById(long id)
+    {
+        using var connection = _database.CreateConnection();
+        connection.Open();
+
+        var command = connection.CreateCommand();
+
+        command.CommandText = "DELETE FROM Memories WHERE Id=$id";
+        command.Parameters.AddWithValue("$id", id);
+
+        return command.ExecuteNonQuery() > 0;
+    }
+
     public MemoryItem? Get(string key)
     {
         return Find(key);

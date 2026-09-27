@@ -81,4 +81,55 @@ public class ConversationRepository
 
         return conversations;
     }
+
+    /// <summary>Всего записей истории (для пагинации /api/history).</summary>
+    public long Count()
+    {
+        using var connection = _database.CreateConnection();
+
+        connection.Open();
+
+        var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM Conversations";
+
+        return (long)command.ExecuteScalar()!;
+    }
+
+    /// <summary>Страница истории: новые сверху (Id DESC), с учётом смещения.</summary>
+    public List<Conversation> GetPage(int limit, int offset)
+    {
+        using var connection = _database.CreateConnection();
+
+        connection.Open();
+
+        var command = connection.CreateCommand();
+
+        command.CommandText =
+        """
+        SELECT Id, UserMessage, JarvisResponse, Timestamp
+        FROM Conversations
+        ORDER BY Id DESC
+        LIMIT $limit OFFSET $offset
+        """;
+
+        command.Parameters.AddWithValue("$limit", limit);
+        command.Parameters.AddWithValue("$offset", offset);
+
+        using var reader = command.ExecuteReader();
+
+        var conversations = new List<Conversation>();
+
+        while (reader.Read())
+        {
+            conversations.Add(new Conversation
+            {
+                Id = reader.GetInt64(0),
+                UserMessage = reader.GetString(1),
+                JarvisResponse = reader.GetString(2),
+                Timestamp = DateTime.Parse(reader.GetString(3), System.Globalization.CultureInfo.InvariantCulture)
+            });
+        }
+
+        return conversations;
+    }
 }

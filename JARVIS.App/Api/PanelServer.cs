@@ -9,6 +9,7 @@ using JARVIS.Core.Configuration;
 using JARVIS.Core.Logging;
 using JARVIS.Core.Plugins;
 using JARVIS.Memory.Database;
+using JARVIS.Memory.Models;
 
 namespace JARVIS.App.Api;
 
@@ -43,7 +44,16 @@ public sealed class PanelServer : IDisposable
         ["/api/chat/stream"] = ["GET"],
         ["/api/personality"] = ["GET"],
         ["/api/personality/set"] = ["POST"],
+        ["/api/history"] = ["GET", "DELETE"],
+        ["/api/memory"] = ["GET", "POST"],
     };
+
+    private const string MemoryPrefix = "/api/memory/";
+    private const int HistoryDefaultLimit = 50;
+    private const int HistoryMaxLimit = 500;
+    private const int MaxMemoryKeyLength = 200;
+    private const int MaxMemoryValueLength = 2000;
+    private const int MaxMemoryCategoryLength = 100;
 
     private static readonly string[] StringFields =
         ["version", "assistantName", "language", "model", "ttsEngine", "voiceReferencePath"];
@@ -56,6 +66,7 @@ public sealed class PanelServer : IDisposable
     private readonly JarvisConfig _config;
     private readonly JarvisEngine _engine;
     private readonly MemoryRepository _memory;
+    private readonly ConversationRepository _conversations;
     private readonly PluginConfig _pluginConfig;
     private readonly string _token;
     private readonly int _port;
@@ -68,6 +79,7 @@ public sealed class PanelServer : IDisposable
         JarvisConfig config,
         JarvisEngine engine,
         MemoryRepository memory,
+        ConversationRepository conversations,
         PluginConfig pluginConfig,
         string? token = null,
         int port = DefaultPort)
@@ -75,6 +87,7 @@ public sealed class PanelServer : IDisposable
         _config = config;
         _engine = engine;
         _memory = memory;
+        _conversations = conversations;
         _pluginConfig = pluginConfig;
         _token = token ?? PanelToken.LoadOrCreate();
         _port = port;
@@ -184,6 +197,19 @@ public sealed class PanelServer : IDisposable
                 return;
             }
 
+            // Динамический маршрут DELETE /api/memory/{id}
+            if (path.StartsWith(MemoryPrefix, StringComparison.Ordinal))
+            {
+                if (!string.Equals(request.HttpMethod, "DELETE", StringComparison.Ordinal))
+                {
+                    await SendErrorAsync(response, 405, "METHOD_NOT_ALLOWED", "Метод не поддерживается.");
+                    return;
+                }
+
+                await HandleMemoryDeleteAsync(path[MemoryPrefix.Length..], response);
+                return;
+            }
+
             if (!Routes.TryGetValue(path, out var methods))
             {
                 await SendErrorAsync(response, 404, "NOT_FOUND", "Маршрут не найден.");
@@ -214,6 +240,20 @@ public sealed class PanelServer : IDisposable
             else if (path == "/api/personality/set")
             {
                 await HandlePersonalitySetAsync(request, response);
+            }
+            else if (path == "/api/history")
+            {
+                if (string.Equals(request.HttpMethod, "GET", StringComparison.Ordinal))
+                    await HandleHistoryGetAsync(response);
+                else
+                    await HandleHistoryDeleteAsync(request, response);
+            }
+            else if (path == "/api/memory")
+            {
+                if (string.Equals(request.HttpMethod, "GET", StringComparison.Ordinal))
+                    await HandleMemoryGetAsync(response);
+                else
+                    await HandleMemoryPostAsync(request, response);
             }
             else
             {
@@ -707,6 +747,280 @@ public sealed class PanelServer : IDisposable
 
             await SendJsonAsync(response, 200, BuildPersonalityPayload());
         }
+    }
+
+    // ── История (/api/history) ────────────────────────────────────
+
+    private async Task HandleHistoryGetAsync(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        if (!TryReadIntQuery(request, "limit", HistoryDefaultLimit, 1, HistoryMaxLimit, out var limit, out var limitError))
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", limitError!);
+            return;
+        }
+
+        if (!TryReadIntQuery(request, "offset", 0, 0, 1_000_000_000, out var offset, out var offsetError))
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", offsetError!);
+            return;
+        }
+
+        var items = _conversations.GetPage(limit, offset)
+            .Select(c => new
+            {
+                Id = c.Id,
+                UserMessage = c.UserMessage,
+                JarvisResponse = c.JarvisResponse,
+                Timestamp = c.Timestamp.ToString("O"),
+            })
+            .ToList();
+
+        await SendJsonAsync(response, 200, new { Items = items, Total = _conversations.Count() });
+    }
+
+    private async Task HandleHistoryDeleteAsync(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        var document = await ReadJsonObjectAsync(request, response);
+
+        if (document is null)
+            return;
+
+        using (document)
+        {
+            var root = document.RootElement;
+
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Ожидался JSON-объект {confirm: \"DELETE\"}.");
+                return;
+            }
+
+            foreach (var property in root.EnumerateObject())
+            {
+                if (!string.Equals(property.Name, "confirm", StringComparison.Ordinal))
+                {
+                    await SendErrorAsync(response, 400, "VALIDATION_ERROR", $"Неизвестный ключ: «{property.Name}».");
+                    return;
+                }
+            }
+
+            if (!root.TryGetProperty("confirm", out var confirm))
+            {
+                await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Отсутствует обязательный ключ: «confirm».");
+                return;
+            }
+
+            if (confirm.ValueKind != JsonValueKind.String || !string.Equals(confirm.GetString(), "DELETE", StringComparison.Ordinal))
+            {
+                await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Ожидалось подтверждение confirm = \"DELETE\".");
+                return;
+            }
+
+            var deleted = _conversations.Count();
+            _conversations.ClearHistory();
+
+            await SendJsonAsync(response, 200, new { Deleted = deleted });
+        }
+    }
+
+    // ── Память (/api/memory, /api/memory/{id}) ────────────────────
+
+    private async Task HandleMemoryGetAsync(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        var search = request.QueryString["search"] ?? "";
+
+        var items = (string.IsNullOrEmpty(search) ? _memory.GetAll() : _memory.Search(search))
+            .Select(ToMemoryPayload)
+            .ToList();
+
+        await SendJsonAsync(response, 200, new { Items = items });
+    }
+
+    private async Task HandleMemoryPostAsync(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        var document = await ReadJsonObjectAsync(request, response);
+
+        if (document is null)
+            return;
+
+        using (document)
+        {
+            var root = document.RootElement;
+
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Ожидался JSON-объект записи памяти.");
+                return;
+            }
+
+            foreach (var property in root.EnumerateObject())
+            {
+                if (property.Name is not ("key" or "value" or "category"))
+                {
+                    await SendErrorAsync(response, 400, "VALIDATION_ERROR", $"Неизвестный ключ: «{property.Name}».");
+                    return;
+                }
+            }
+
+            foreach (var required in new[] { "key", "value" })
+            {
+                if (!root.TryGetProperty(required, out var element))
+                {
+                    await SendErrorAsync(response, 400, "VALIDATION_ERROR", $"Отсутствует обязательный ключ: «{required}».");
+                    return;
+                }
+
+                if (element.ValueKind != JsonValueKind.String)
+                {
+                    await SendErrorAsync(response, 400, "VALIDATION_ERROR", $"Ключ «{required}» должен быть строкой.");
+                    return;
+                }
+            }
+
+            var key = root.GetProperty("key").GetString()!;
+            var value = root.GetProperty("value").GetString()!;
+
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Ключ «key» не может быть пустым.");
+                return;
+            }
+
+            if (key.Length > MaxMemoryKeyLength)
+            {
+                await SendErrorAsync(response, 400, "VALIDATION_ERROR", $"Ключ «key» длиннее {MaxMemoryKeyLength} символов.");
+                return;
+            }
+
+            if (value.Length > MaxMemoryValueLength)
+            {
+                await SendErrorAsync(response, 400, "VALIDATION_ERROR", $"Значение длиннее {MaxMemoryValueLength} символов.");
+                return;
+            }
+
+            var category = "User";
+
+            if (root.TryGetProperty("category", out var categoryElement))
+            {
+                if (categoryElement.ValueKind != JsonValueKind.String)
+                {
+                    await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Ключ «category» должен быть строкой.");
+                    return;
+                }
+
+                category = categoryElement.GetString()!;
+
+                if (string.IsNullOrWhiteSpace(category))
+                {
+                    await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Ключ «category» не может быть пустым.");
+                    return;
+                }
+
+                if (category.Length > MaxMemoryCategoryLength)
+                {
+                    await SendErrorAsync(response, 400, "VALIDATION_ERROR", $"Ключ «category» длиннее {MaxMemoryCategoryLength} символов.");
+                    return;
+                }
+            }
+
+            _memory.Remember(key, value, category);
+
+            var saved = _memory.Find(key);
+
+            if (saved is null)
+            {
+                await SendErrorAsync(response, 503, "NOT_READY", "Хранилище памяти не готово.");
+                return;
+            }
+
+            await SendJsonAsync(response, 200, ToMemoryPayload(saved));
+        }
+    }
+
+    private async Task HandleMemoryDeleteAsync(string rawId, HttpListenerResponse response)
+    {
+        if (rawId.Length == 0 || !rawId.All(char.IsAsciiDigit))
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Идентификатор памяти должен быть числом.");
+            return;
+        }
+
+        if (!long.TryParse(rawId, out var id) || !_memory.ForgetById(id))
+        {
+            await SendErrorAsync(response, 404, "NOT_FOUND", "Запись памяти не найдена.");
+            return;
+        }
+
+        await SendJsonAsync(response, 200, new { Deleted = true });
+    }
+
+    private static object ToMemoryPayload(MemoryItem item) => new
+    {
+        Id = item.Id,
+        Key = item.Key,
+        Value = item.Value,
+        Category = item.Category,
+        CreatedAt = item.CreatedAt.ToString("O"),
+    };
+
+    /// <summary>Читает тело как JSON-объект; null = ответ об ошибке уже отправлен.</summary>
+    private static async Task<JsonDocument?> ReadJsonObjectAsync(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        if (request.ContentLength64 > MaxBodyBytes)
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Недопустимый размер тела запроса.");
+            return null;
+        }
+
+        string body;
+
+        using (var reader = new StreamReader(request.InputStream, Encoding.UTF8))
+        {
+            body = await reader.ReadToEndAsync();
+        }
+
+        try
+        {
+            return JsonDocument.Parse(body);
+        }
+        catch (JsonException)
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Тело запроса не является корректным JSON.");
+            return null;
+        }
+    }
+
+    private static bool TryReadIntQuery(
+        HttpListenerRequest request,
+        string name,
+        int defaultValue,
+        int minimum,
+        int maximum,
+        out int value,
+        out string? error)
+    {
+        value = defaultValue;
+        error = null;
+
+        var raw = request.QueryString[name];
+
+        if (string.IsNullOrEmpty(raw))
+            return true;
+
+        if (!int.TryParse(raw, out var parsed))
+        {
+            error = $"Параметр «{name}» должен быть целым числом.";
+            return false;
+        }
+
+        if (parsed < minimum || parsed > maximum)
+        {
+            error = $"Параметр «{name}» должен быть в диапазоне {minimum}…{maximum}.";
+            return false;
+        }
+
+        value = parsed;
+        return true;
     }
 
     private async Task HandleChatStreamAsync(HttpListenerRequest request, HttpListenerResponse response)

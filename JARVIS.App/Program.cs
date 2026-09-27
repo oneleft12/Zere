@@ -29,6 +29,7 @@ if (args.Contains("--panel"))
         config,
         panelEngine,
         panelMemory,
+        panelServices.GetRequiredService<ConversationRepository>(),
         panelServices.GetRequiredService<PluginConfig>());
     testPanel.Start();
 
@@ -97,6 +98,7 @@ var panel = new PanelServer(
     config,
     jarvis,
     services.GetRequiredService<MemoryRepository>(),
+    services.GetRequiredService<ConversationRepository>(),
     services.GetRequiredService<PluginConfig>());
 
 try

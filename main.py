@@ -15,6 +15,7 @@ from jarvis.core.plugins.plugin_config import PluginConfig
 from jarvis.core.plugins.plugin_manager import PluginManager
 from jarvis.core.plugins.settings.settings_menu import SettingsMenu
 from jarvis.core.services import create_services
+from jarvis.memory.database.conversation_repository import ConversationRepository
 from jarvis.memory.database.memory_database import MemoryDatabase
 from jarvis.memory.database.memory_repository import MemoryRepository
 from jarvis.voice.voice_manager import VoiceManager
@@ -76,6 +77,7 @@ def main() -> None:
         engine=jarvis,
         config=services.get(JarvisConfig),
         memory=services.get(MemoryRepository),
+        conversation=services.get(ConversationRepository),
         plugin_config=services.get(PluginConfig),
     )
     try:

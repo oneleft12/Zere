@@ -79,6 +79,10 @@ jobs:
 
       - name: Контрактные тесты против C#-панели
         shell: bash
+        env:
+          # Очистка истории в тестах необратима: разрешаем её только здесь,
+          # в CI рабочая копия одноразовая. Локально флаг не задаётся.
+          JARVIS_PANEL_DESTRUCTIVE: "1"
         run: |
           set -euo pipefail
           dotnet run --project JARVIS.App --no-build -- --panel &
