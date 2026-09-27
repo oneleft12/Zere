@@ -474,6 +474,19 @@ select:focus-visible {
 .toast--warn { border-left-color: var(--warn); }
 .toast--danger { border-left-color: var(--danger); }
 
+/* ── Заметка-баннер над сеткой стилей ──────────────────────────── */
+
+.panel-note {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
 /* ── Карточка стиля личности (экран «Личности») ────────────────── */
 
 .style-grid {
