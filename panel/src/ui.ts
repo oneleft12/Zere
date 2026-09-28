@@ -328,6 +328,9 @@ export function modal(opts: {
   actions: Array<{ label: string; variant?: ButtonVariant; onClick: () => void }>;
   onClose: () => void;
 }): HTMLElement {
+  const previouslyFocused =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
   const backdrop = h("div", {
     class: "modal-backdrop",
     onclick: (e) => {
@@ -346,8 +349,67 @@ export function modal(opts: {
       ...opts.actions.map((a) => button(a.label, a.onClick, a.variant ?? "default")),
     ),
   );
+  dialog.setAttribute("aria-modal", "true");
 
   backdrop.appendChild(dialog);
+
+  // ── Клавиатура (этап 5, §9 п.5): Escape закрывает, Tab ходит только
+  // по модалке, фокус возвращается на элемент-источник после закрытия.
+
+  const onKey = (event: KeyboardEvent): void => {
+    if (!backdrop.isConnected) return;
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      opts.onClose();
+      return;
+    }
+
+    if (event.key !== "Tab") return;
+
+    const focusable = Array.from(
+      dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), ' +
+          'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    );
+    if (focusable.length === 0) return;
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    const inside = active instanceof Node && dialog.contains(active);
+
+    if (event.shiftKey) {
+      if (!inside || active === first) {
+        event.preventDefault();
+        last.focus();
+      }
+    } else if (!inside || active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  document.addEventListener("keydown", onKey, true);
+
+  // Начальный фокус — только после вставки в DOM: вызывающий добавляет
+  // модалку синхронно, поэтому кадр рисования достаточно.
+  requestAnimationFrame(() => {
+    if (!backdrop.isConnected || dialog.contains(document.activeElement)) return;
+    const focusable = dialog.querySelector<HTMLElement>("button, input, select, textarea");
+    focusable?.focus();
+  });
+
+  // Снятие слушателей и возврат фокуса, когда модалку удалили из DOM.
+  const observer = new MutationObserver(() => {
+    if (backdrop.isConnected) return;
+    observer.disconnect();
+    document.removeEventListener("keydown", onKey, true);
+    previouslyFocused?.focus();
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+
   return backdrop;
 }
 

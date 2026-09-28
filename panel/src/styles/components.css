@@ -846,3 +846,12 @@ select:focus-visible {
   justify-content: space-between;
   gap: 8px;
 }
+
+/* ── Этап 5: клавиатурная навигация (Tab/фокус/Escape) ─────────── */
+
+/* У невидимого чекбокса toggle прозрачность гасит и outline, поэтому
+   индикатор фокуса рисуем на самом треке. */
+.toggle input:focus-visible + .toggle__track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
