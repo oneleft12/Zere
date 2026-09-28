@@ -20,6 +20,21 @@
 - **Для Python-версии:** Python 3.12+ и `pip install -r requirements.txt`
 - **Опционально:** Whisper (модель ggml-base.bin), Piper (TTS)
 
+## Установка (Windows)
+
+```powershell
+# полная установка: Python-окружение, Ollama + модель, Whisper/Piper, ярлыки
+powershell -ExecutionPolicy Bypass -File installer\install.ps1
+
+# только проверка, ничего не меняет
+powershell -ExecutionPolicy Bypass -File installer\install.ps1 -CheckOnly
+```
+
+- Двойной клик: `installer\Install-Jarvis.bat`
+- Готовый Setup.exe (Inno Setup 6): `installer\build-setup.ps1`
+- Удаление: `installer\Uninstall-Jarvis.bat`
+- Подробности, параметры и диагностика — [docs/INSTALL.md](docs/INSTALL.md)
+
 ## Запуск
 
 ### Python-версия (ветка `python-port`)

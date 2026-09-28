@@ -164,6 +164,13 @@ tools/uvx.exe
 # Токен локальной панели (создаётся при старте, не публикуем)
 config/panel.token
 
+# Артефакты установщика (генерируются)
+/JARVIS.bat
+/installer/install-manifest.json
+/installer/stage/
+/installer/stage.zip
+/installer/Output/
+
 # Зависимости панели (dist — наоборот, коммитим: раздаётся без node)
 panel/node_modules/
 

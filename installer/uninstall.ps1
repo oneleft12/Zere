@@ -1,0 +1,185 @@
+﻿#Requires -Version 5.1
+<#
+.SYNOPSIS
+    Деинсталлятор JARVIS — удаляет установленные установщиком компоненты.
+
+.DESCRIPTION
+    По умолчанию удаляет ТОЛЬКО то, что создал установщик:
+      - ярлыки (рабочий стол, меню «Пуск»)
+      - лаунчер JARVIS.bat
+      - виртуальное окружение .venv
+      - C#-публикацию publish\app
+      - манифест installer\install-manifest.json
+    Исходный код, git-репозиторий и данные НЕ трогаются.
+
+.PARAMETER Prefix
+    Корень установки (по умолчанию — родительская папка скрипта).
+
+.PARAMETER RemoveAssets
+    Дополнительно удалить голосовые артефакты:
+    JARVIS.Voice\Models\*.bin, бинарники Piper (piper.exe, *.dll,
+    espeak-ng-data, *.onnx). Git-трекаемые файлы не удаляются.
+
+.PARAMETER PurgeData
+    Дополнительно удалить пользовательские данные:
+    jarvis.db (память и история), logs\, backups\, config\panel.token,
+    voice\reference.wav (голосовой референс), voice\input\.
+
+.PARAMETER Yes
+    Не запрашивать подтверждений.
+
+.EXAMPLE
+    powershell -ExecutionPolicy Bypass -File installer\uninstall.ps1
+    powershell -ExecutionPolicy Bypass -File installer\uninstall.ps1 -PurgeData -Yes
+#>
+[CmdletBinding()]
+param(
+    [string]$Prefix = '',
+    [switch]$RemoveAssets,
+    [switch]$PurgeData,
+    [switch]$Yes
+)
+
+$ErrorActionPreference = 'Stop'
+
+function Write-Step([string]$Msg) { Write-Host ('' + [char]10 + '== ' + $Msg) -ForegroundColor Cyan }
+function Write-Ok([string]$Msg)   { Write-Host ('   [OK] ' + $Msg) -ForegroundColor Green }
+function Write-Info([string]$Msg) { Write-Host ('   ' + $Msg) -ForegroundColor Gray }
+function Write-Warn2([string]$Msg) { Write-Host ('   [!]  ' + $Msg) -ForegroundColor Yellow }
+
+function Remove-ItemSafe {
+    param([string]$Path, [string]$Label)
+    if (Test-Path -LiteralPath $Path) {
+        try {
+            Remove-Item -LiteralPath $Path -Recurse -Force
+            Write-Ok ('удалено: ' + $Label)
+            return $true
+        } catch {
+            Write-Warn2 ('не удалось удалить ' + $Label + ': ' + $_.Exception.Message)
+            return $false
+        }
+    }
+    Write-Info ('не найдено, пропущено: ' + $Label)
+    return $false
+}
+
+# --- Корень ---
+if ($Prefix -eq '') { $Prefix = Split-Path -Parent $PSScriptRoot }
+$Prefix = [System.IO.Path]::GetFullPath($Prefix)
+
+Write-Host ''
+Write-Host '=================================================' -ForegroundColor Cyan
+Write-Host '   JARVIS — деинсталлятор' -ForegroundColor Cyan
+Write-Host ('   Корень: ' + $Prefix) -ForegroundColor Gray
+Write-Host '=================================================' -ForegroundColor Cyan
+
+if (-not (Test-Path (Join-Path $Prefix 'main.py'))) {
+    Write-Warn2 ('В папке нет main.py — похоже, это не корень JARVIS: ' + $Prefix)
+    exit 2
+}
+
+# Манифест (если есть) — для отчёта
+$manifestPath = Join-Path $PSScriptRoot 'install-manifest.json'
+if (Test-Path $manifestPath) {
+    try {
+        $mf = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        Write-Info ('Установлено: ' + $mf.installedAt + ', редакция ' + $mf.edition + ', модель ' + $mf.model)
+    } catch {
+        Write-Info 'Манифест повреждён — игнорируется'
+    }
+}
+
+# --- План ---
+Write-Step 'Что будет удалено'
+$plan = @(
+    'Ярлыки: рабочий стол (JARVIS.lnk, JARVIS - panel.url) и меню «Пуск»\JARVIS',
+    'Лаунчер JARVIS.bat',
+    'Виртуальное окружение .venv',
+    'C#-публикация publish\app'
+)
+if ($RemoveAssets) {
+    $plan += 'Голосовые артефакты: JARVIS.Voice\Models\*.bin, бинарники Piper (*.exe, *.dll, espeak-ng-data, *.onnx)'
+}
+if ($PurgeData) {
+    $plan += 'Пользовательские данные: jarvis.db, logs\, backups\, config\panel.token, voice\reference.wav, voice\input\'
+}
+$plan += 'Исходный код и git-репозиторий НЕ удаляются'
+foreach ($p in $plan) { Write-Host ('   - ' + $p) -ForegroundColor White }
+
+if (-not $Yes) {
+    $answer = Read-Host 'Продолжить удаление? [y/N]'
+    $answer = $answer.Trim()
+    if ($answer -notmatch '(?i)^(y|д|да|yes)$') {
+        Write-Warn2 'Удаление отменено.'
+        exit 0
+    }
+}
+
+trap {
+    Write-Warn2 ('Фатальная ошибка деинсталлятора: ' + $_.Exception.Message)
+    exit 2
+}
+
+# --- 1. Ярлыки ---
+Write-Step 'Ярлыки'
+$desktop = [Environment]::GetFolderPath('Desktop')
+$startMenu = [Environment]::GetFolderPath('StartMenu')
+$null = Remove-ItemSafe -Path (Join-Path $desktop 'JARVIS.lnk') -Label 'ярлык на рабочем столе'
+$null = Remove-ItemSafe -Path (Join-Path $desktop 'JARVIS - panel.url') -Label 'ярлык панели на рабочем столе'
+$null = Remove-ItemSafe -Path (Join-Path $startMenu 'Programs\JARVIS') -Label 'папка в меню «Пуск»'
+
+# --- 2. Лаунчер ---
+Write-Step 'Лаунчер'
+$null = Remove-ItemSafe -Path (Join-Path $Prefix 'JARVIS.bat') -Label 'JARVIS.bat'
+
+# --- 3. Окружение и публикация ---
+Write-Step 'Окружение и сборки'
+$null = Remove-ItemSafe -Path (Join-Path $Prefix '.venv') -Label '.venv'
+$null = Remove-ItemSafe -Path (Join-Path $Prefix 'publish\app') -Label 'publish\app'
+$pubDir = Join-Path $Prefix 'publish'
+if ((Test-Path $pubDir) -and -not (Get-ChildItem $pubDir -Force | Select-Object -First 1)) {
+    Remove-Item -LiteralPath $pubDir -Force -ErrorAction SilentlyContinue
+}
+$null = Remove-ItemSafe -Path $manifestPath -Label 'install-manifest.json'
+
+# --- 4. Голосовые артефакты ---
+if ($RemoveAssets) {
+    Write-Step 'Голосовые артефакты'
+    $modelsDir = Join-Path $Prefix 'JARVIS.Voice\Models'
+    if (Test-Path $modelsDir) {
+        Get-ChildItem -LiteralPath $modelsDir -Filter '*.bin' -File -ErrorAction SilentlyContinue | ForEach-Object {
+            try { Remove-Item -LiteralPath $_.FullName -Force; Write-Ok ('удалено: ' + $_.Name) }
+            catch { Write-Warn2 ('не удалось удалить ' + $_.Name) }
+        }
+    }
+    $piperDir = Join-Path $Prefix 'JARVIS.Voice\Piper'
+    if (Test-Path $piperDir) {
+        foreach ($pattern in @('*.exe', '*.dll', '*.onnx')) {
+            Get-ChildItem -LiteralPath $piperDir -Filter $pattern -File -ErrorAction SilentlyContinue | ForEach-Object {
+                try { Remove-Item -LiteralPath $_.FullName -Force; Write-Ok ('удалено: ' + $_.Name) }
+                catch { Write-Warn2 ('не удалось удалить ' + $_.Name) }
+            }
+        }
+        foreach ($dirName in @('espeak-ng-data', 'pkgconfig')) {
+            $p = Join-Path $piperDir $dirName
+            if (Test-Path $p) { $null = Remove-ItemSafe -Path $p -Label ('JARVIS.Voice\Piper\' + $dirName) }
+        }
+    }
+}
+
+# --- 5. Пользовательские данные ---
+if ($PurgeData) {
+    Write-Step 'Пользовательские данные'
+    $null = Remove-ItemSafe -Path (Join-Path $Prefix 'jarvis.db') -Label 'jarvis.db (память и история)'
+    $null = Remove-ItemSafe -Path (Join-Path $Prefix 'logs') -Label 'logs\'
+    $null = Remove-ItemSafe -Path (Join-Path $Prefix 'backups') -Label 'backups\'
+    $null = Remove-ItemSafe -Path (Join-Path $Prefix 'config\panel.token') -Label 'config\panel.token'
+    $null = Remove-ItemSafe -Path (Join-Path $Prefix 'voice\reference.wav') -Label 'voice\reference.wav'
+    $null = Remove-ItemSafe -Path (Join-Path $Prefix 'voice\input') -Label 'voice\input\'
+}
+
+Write-Host ''
+Write-Host 'Удаление завершено.' -ForegroundColor Green
+Write-Info 'Не удаляются (и удаляются только вручную): Python, Ollama, модель Ollama, winget-пакеты.'
+Write-Info 'Модель Ollama удалить: ollama rm <имя_модели>'
+exit 0

@@ -133,6 +133,17 @@ Pipeline обработки команд (порядок важен):
 - Тесты: `python3 tests/test_panel_api.py` (83 контрактных) и `cd panel && npm run test:e2e` (Playwright, 5 смоуков)
 - Документация: `docs/WEB_PANEL_PLAN.md`, план и статус этапов — `docs/GUI_DEVELOPMENT_PLAN.md`
 
+### Установщик (`installer/`)
+
+- `install.ps1` — полная установка на Windows: Python 3.12+ (winget), `.venv` + `requirements.txt`, Ollama + модель из конфига, голосовые артефакты (Whisper/Piper/голос — все скачивания проверяются по SHA-256), веб-панель, ярлыки, лаунчер `JARVIS.bat`, манифест, smoke-тест
+- `install.ps1 -CheckOnly` — dry-run (ничего не меняет; коды возврата: 0 — готово, 1 — требуются действия)
+- Параметры: `-Edition python|dotnet|both`, `-Yes`, `-NoLaunch`, `-SkipOllama`, `-SkipVoice`, `-SkipShortcuts`, `-Model`, `-Prefix`
+- `uninstall.ps1` — удаление (ярлыки, `.venv`, `publish`, манифест; `-RemoveAssets` — голосовые артефакты; `-PurgeData` — `jarvis.db`, логи, референс голоса); исходный код не трогает
+- `build-setup.ps1` + `Jarvis.iss` — сборка `JARVIS-Setup-<версия>.exe` (Inno Setup 6; stage из `git archive HEAD`, установка per-user в `%LOCALAPPDATA%\Programs\JARVIS`)
+- Двойной клик: `Install-Jarvis.bat` / `Uninstall-Jarvis.bat`
+- Тесты: `python3 tests/test_installer.py` (+ парсер PowerShell на Windows)
+- Документация: `docs/INSTALL.md`
+
 ---
 
 ## Конфигурация (`config/config.json`)
@@ -252,8 +263,18 @@ Jarvis/
 │   ├── e2e/                    # Playwright-смоук (npm run test:e2e)
 │   └── dist/                   # Сборка — коммитится, раздаётся сервером
 │
+├── installer/                  # Установщик Windows (PowerShell + Inno Setup)
+│   ├── install.ps1             # Установка: Python/Ollama/голос/ярлыки, SHA-256, -CheckOnly
+│   ├── uninstall.ps1           # Деинсталляция (-RemoveAssets, -PurgeData)
+│   ├── JarvisLauncher.bat      # Шаблон лаунчера JARVIS.bat
+│   ├── Install-Jarvis.bat      # Двойной клик → install.ps1
+│   ├── Uninstall-Jarvis.bat    # Двойной клик → uninstall.ps1
+│   ├── Jarvis.iss              # Inno Setup: готовый Setup.exe
+│   └── build-setup.ps1         # Сборка Setup.exe (git archive + ISCC)
+│
 ├── tests/
 │   ├── test_panel_api.py       # Контрактные тесты панели (83, по OpenAPI)
+│   ├── test_installer.py       # Тесты установщика (BOM, CRLF, SHA-256, связность)
 │   ├── test_system_prompt.py   # Тесты P1-2
 │   └── e2e_server.py           # Раннер панели с фейками для E2E
 │
