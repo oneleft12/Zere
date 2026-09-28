@@ -70,13 +70,13 @@ Name: "{userprograms}\{#MyAppName}\{#MyAppName}"; Filename: "{app}\{#MyAppExeNam
 ; Основная настройка: venv, зависимости, Ollama/модель, голос, ярлыки, smoke-тест.
 ; Окно консоли НЕ скрыто — пользователь видит ход установки.
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
-    Parameters: '-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\install.ps1"" -Prefix ""{app}"" -Edition {#Edition} -Yes -NoLaunch'; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\install.ps1"" -Prefix ""{app}"" -Edition {#Edition} -Yes -NoLaunch"; \
     StatusMsg: "Настройка JARVIS ( зависимости, модели, ярлыки )..."; \
     Flags: waituntilterminated postinstall
 
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
-    Parameters: '-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\uninstall.ps1"" -Prefix ""{app}"" -Yes'; \
+    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\uninstall.ps1"" -Prefix ""{app}"" -Yes"; \
     RunOnceId: "UninstallJarvis"; \
     Flags: waituntilterminated
 
@@ -84,9 +84,9 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
 ; Всё, что создали мы (могло быть создано install.ps1 вне журнала Inno)
 Type: files; Name: "{app}\JARVIS.bat"
 Type: files; Name: "{app}\installer\install-manifest.json"
-Type: dirifnotexists; Name: "{app}\.venv"
-Type: dirifnotexists; Name: "{app}\publish"
+Type: filesandordirs; Name: "{app}\.venv"
+Type: filesandordirs; Name: "{app}\publish"
 ; Ярлыки могли быть созданы install.ps1 (вне журнала Inno)
 Type: files; Name: "{userdesktop}\{#MyAppName}.lnk"
 Type: files; Name: "{userdesktop}\JARVIS - panel.url"
-Type: dirifnotexists; Name: "{userprograms}\{#MyAppName}"
+Type: filesandordirs; Name: "{userprograms}\{#MyAppName}"
