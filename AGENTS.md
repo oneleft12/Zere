@@ -139,7 +139,7 @@ Pipeline обработки команд (порядок важен):
 - `install.ps1 -CheckOnly` — dry-run (ничего не меняет; коды возврата: 0 — готово, 1 — требуются действия)
 - Параметры: `-Edition python|dotnet|both`, `-Yes`, `-NoLaunch`, `-SkipOllama`, `-SkipVoice`, `-SkipShortcuts`, `-Model`, `-Prefix`
 - `uninstall.ps1` — удаление (ярлыки, `.venv`, `publish`, манифест; `-RemoveAssets` — голосовые артефакты; `-PurgeData` — `jarvis.db`, логи, референс голоса); исходный код не трогает
-- `build-setup.ps1` + `Jarvis.iss` — сборка `JARVIS-Setup-<версия>.exe` (Inno Setup 6; stage из `git archive HEAD`, установка per-user в `%LOCALAPPDATA%\Programs\JARVIS`)
+- `build-setup.ps1` + `Jarvis.iss` — сборка `installer\Output\JarvisInstaller.exe` (Inno Setup 6; stage из `git archive HEAD`, установка per-user в `%LOCALAPPDATA%\Programs\JARVIS`)
 - Двойной клик: `Install-Jarvis.bat` / `Uninstall-Jarvis.bat`
 - Тесты: `python3 tests/test_installer.py` (+ парсер PowerShell на Windows)
 - Документация: `docs/INSTALL.md`

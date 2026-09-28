@@ -155,7 +155,7 @@ def test_inno_script_wiring() -> None:
     assert "install.ps1" in iss, "Jarvis.iss не запускает install.ps1"
     assert "uninstall.ps1" in iss, "Jarvis.iss не запускает uninstall.ps1"
     assert "PrivilegesRequired=lowest" in iss, "установка должна быть per-user"
-    assert "JARVIS-Setup-" in iss, "нет имени дистрибутива"
+    assert "JarvisInstaller" in iss, "нет имени дистрибутива (JarvisInstaller.exe)"
     build = _read("build-setup.ps1")
     assert "Jarvis.iss" in build, "build-setup.ps1 не компилирует Jarvis.iss"
     assert "git archive" in build or "ls-files" in build, (

@@ -43,7 +43,7 @@ DisableProgramGroupPage=yes
 ; Установка без прав администратора (per-user)
 PrivilegesRequired=lowest
 OutputDir=Output
-OutputBaseFilename=JARVIS-Setup-{#MyAppVersion}
+OutputBaseFilename=JarvisInstaller
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern

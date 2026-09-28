@@ -31,7 +31,7 @@ powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1 -Edition both
 powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1 -WorkingTree # с некоммиченными изменениями
 ```
 
-Результат: `installer\Output\JARVIS-Setup-<версия>.exe` — стандартный мастер
+Результат: `installer\Output\JarvisInstaller.exe` — стандартный мастер
 установки Windows (установка в `%LOCALAPPDATA%\Programs\JARVIS`, без прав
 администратора, с деинсталлятором в «Установка и удаление программ»).
 
@@ -119,7 +119,7 @@ installer/
 ├── Jarvis.iss           # Inno Setup: готовый Setup.exe
 ├── build-setup.ps1      # сборка Setup.exe (stage из git + ISCC)
 ├── install-manifest.json# (генерируется) манифест установки
-└── Output/              # (генерируется) JARVIS-Setup-*.exe
+└── Output/              # (генерируется) JarvisInstaller.exe
 ```
 
 ## Диагностика

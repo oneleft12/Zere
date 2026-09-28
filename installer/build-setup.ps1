@@ -1,14 +1,14 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Сборка дистрибутива JARVIS-Setup-*.exe (Inno Setup 6).
+    Сборка дистрибутива JarvisInstaller.exe (Inno Setup 6).
 
 .DESCRIPTION
     1. Наполняет installer\stage через `git archive HEAD` — в дистрибутив
        попадают только отслеживаемые git-файлы (без .git, .venv, bin/obj,
        jarvis.db, logs и прочих локальных данных).
     2. Запускает ISCC.exe для installer\Jarvis.iss.
-    Результат: installer\Output\JARVIS-Setup-<версия>.exe
+    Результат: installer\Output\JarvisInstaller.exe
 
 .PARAMETER Edition
     Редакция для install.ps1: python (по умолчанию) | dotnet | both.
@@ -144,7 +144,7 @@ if ($code -ne 0) {
     exit 1
 }
 
-$setup = Join-Path $outputDir ('JARVIS-Setup-' + $version + '.exe')
+$setup = Join-Path $outputDir 'JarvisInstaller.exe'
 if (Test-Path $setup) {
     $sizeMb = [math]::Round((Get-Item $setup).Length / 1MB, 1)
     Write-Host ''
