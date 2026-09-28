@@ -166,3 +166,7 @@ config/panel.token
 
 # Зависимости панели (dist — наоборот, коммитим: раздаётся без node)
 panel/node_modules/
+
+# Артефакты E2E (Playwright)
+panel/test-results/
+panel/playwright-report/

@@ -34,6 +34,50 @@ jobs:
             exit 1
           fi
 
+  e2e:
+    name: E2E-смок панели (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: panel/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Зависимости панели
+        working-directory: panel
+        run: npm ci
+
+      - name: Зависимости раннера (pyyaml)
+        run: pip install pyyaml
+
+      - name: Браузер Chromium с системными библиотеками
+        working-directory: panel
+        run: npx playwright install --with-deps chromium
+
+      - name: Сборка панели
+        working-directory: panel
+        run: npm run build
+
+      - name: E2E-смок (дашборд → чат → настройки → i18n)
+        working-directory: panel
+        run: npm run test:e2e
+
+      - name: Артефакты при падении
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: panel/test-results/
+          retention-days: 7
+
   python:
     name: Python-порт
     runs-on: ubuntu-latest
