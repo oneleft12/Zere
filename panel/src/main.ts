@@ -12,7 +12,7 @@ import { logEvent } from "./events";
 import { initToasts } from "./ui";
 import { navigate, registerRoute, startRouter } from "./router";
 import { createShell } from "./shell";
-import { initTheme, toggleTheme } from "./theme";
+import { initTheme, toggleTheme, THEME_EVENT, type Theme } from "./theme";
 import { dashboardScreen } from "./screens/dashboard";
 import { settingsScreen } from "./screens/settings";
 import { personalitiesScreen } from "./screens/personalities";
@@ -34,6 +34,12 @@ shell.themeButton.addEventListener("click", () => {
   const next = toggleTheme();
   shell.themeButton.textContent = next === "dark" ? "☾" : "☀";
   logEvent(`Тема переключена: ${next === "dark" ? "тёмная" : "светлая"}`);
+});
+
+// Кнопка темы в шапке синхронизируется, когда тему меняют из Настроек.
+document.addEventListener(THEME_EVENT, (event) => {
+  const next = (event as CustomEvent<Theme>).detail;
+  shell.themeButton.textContent = next === "dark" ? "☾" : "☀";
 });
 
 // Маршруты. Этап 2: дашборд/настройки/личности; 3: чат/история/память;

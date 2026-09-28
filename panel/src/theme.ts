@@ -4,8 +4,15 @@ export type Theme = "dark" | "light";
 
 const STORAGE_KEY = "jarvis-theme";
 
+/** Имя события смены темы: detail — новая тема. */
+export const THEME_EVENT = "jarvis-theme";
+
 function apply(theme: Theme): void {
   document.documentElement.dataset.theme = theme;
+
+  // Внешние переключатели (экран «Настройки») синхронизируют через это
+  // событие кнопку темы в шапке.
+  document.dispatchEvent(new CustomEvent<Theme>(THEME_EVENT, { detail: theme }));
 
   try {
     localStorage.setItem(STORAGE_KEY, theme);

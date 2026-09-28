@@ -6,6 +6,7 @@
 
 import { ApiError, apiGet, apiPost, type Config, type Health } from "../api";
 import { logEvent } from "../events";
+import { currentTheme, setTheme } from "../theme";
 import {
   button,
   card,
@@ -264,6 +265,29 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
     );
     memoryCard.classList.add("col-6");
 
+    // ── Оформление (этап 5: светлая тема переключается и здесь) ──
+    const appearanceCard = card(
+      "Оформление",
+      h(
+        "div",
+        { class: "form-grid form-grid--single" },
+        toggle({
+          label: "Светлая тема",
+          checked: currentTheme() === "light",
+          onChange: (v) => {
+            setTheme(v ? "light" : "dark");
+            logEvent(`Тема переключена: ${v ? "светлая" : "тёмная"}`);
+          },
+        }),
+        h("p", {
+          class: "panel-note",
+          text: "Тёмная тема — по умолчанию. CSS-анимации автоматически "
+            + "сокращаются при системной настройке «уменьшить движение».",
+        }),
+      ),
+    );
+    appearanceCard.classList.add("col-6");
+
     // ── О программе ──────────────────────────────────────────────
     const aboutCard = card(
       "О программе",
@@ -280,6 +304,7 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
     grid.appendChild(assistantCard);
     grid.appendChild(voiceCard);
     grid.appendChild(memoryCard);
+    grid.appendChild(appearanceCard);
     grid.appendChild(aboutCard);
 
     updateDirty();
