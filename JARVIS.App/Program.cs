@@ -18,6 +18,23 @@ var logger = new LogService();
 
 logger.Info($"{config.AssistantName} OS {config.Version} запускается.");
 
+// Открывает панель в браузере (этап 5 GUI-плана): сбой браузера
+// не должен ронять консоль.
+static void OpenPanelInBrowser(string url, LogService logger)
+{
+    try
+    {
+        System.Diagnostics.Process.Start(
+            new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        Console.WriteLine($"[Панель] Открыта в браузере: {url}");
+    }
+    catch (Exception ex)
+    {
+        logger.Error($"PanelBrowser: {ex.Message}");
+        Console.WriteLine($"[Панель] Браузер не открылся — вручную: {url}");
+    }
+}
+
 // Режим контрактных тестов панели: только API-ядро, без проверки
 // зависимостей и голоса (запускает CI: dotnet run --project JARVIS.App -- --panel).
 if (args.Contains("--panel"))
@@ -116,10 +133,17 @@ var panel = new PanelServer(
     services.GetRequiredService<ApplicationLauncher>(),
     voiceManager);
 
+// URL панели — для команды «панель»; null, если сервер не поднялся.
+string? panelUrl = null;
+
 try
 {
     panel.Start();
-    Console.WriteLine($"[Панель] http://127.0.0.1:{panel.Port} (токен: config/panel.token)");
+    panelUrl = $"http://127.0.0.1:{panel.Port}";
+    Console.WriteLine($"[Панель] {panelUrl} (токен: config/panel.token)");
+
+    // Авто-открытие панели в браузере при старте (этап 5 GUI-плана).
+    OpenPanelInBrowser(panelUrl, logger);
 }
 catch (Exception ex)
 {
@@ -147,6 +171,7 @@ else
 }
 
 Console.WriteLine("Команды: 'настройки' — панель настроек, 'exit' — выход");
+Console.WriteLine("         'панель' / 'panel' — открыть панель в браузере");
 Console.WriteLine("         'голос' / 'voice' — переключить голосовой режим");
 Console.WriteLine("         'записать голос' — записать референс для клонирования\n");
 
@@ -345,6 +370,19 @@ while (true)
                 {
                     voiceManager.SetPersonalityVoice(activePersonality.Style.ToString());
                 }
+            }
+            continue;
+        }
+
+        if (message.ToLower() == "панель" || message.ToLower() == "panel")
+        {
+            if (panelUrl != null)
+            {
+                OpenPanelInBrowser(panelUrl, logger);
+            }
+            else
+            {
+                Console.WriteLine("[Панель] Сервер не запущен — команда недоступна.");
             }
             continue;
         }

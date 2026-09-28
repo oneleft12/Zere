@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import webbrowser
 
 from jarvis import paths
 from jarvis.api.server import PanelServer
@@ -87,9 +88,15 @@ def main() -> None:
         app_launcher=services.get(ApplicationLauncher),
         voice=voice_manager,
     )
+    # Авто-открытие панели в браузере при старте (этап 5 GUI-плана);
+    # panel_url остаётся None, если сервер не поднялся (команда «панель»).
+    panel_url: str | None = None
+
     try:
         panel.start()
-        print(f"[Панель] http://127.0.0.1:{panel.port} (токен: config/panel.token)")
+        panel_url = f"http://127.0.0.1:{panel.port}"
+        print(f"[Панель] {panel_url} (токен: config/panel.token)")
+        _open_panel_in_browser(panel_url, logger)
     except OSError as ex:
         logger.error(f"PanelServer: {ex}")
         print("[Панель] Не удалось запустить локальный сервер (порт занят?).")
@@ -114,6 +121,7 @@ def main() -> None:
         print("[Голос] Отключен. Только текстовый режим.")
 
     print("Команды: 'настройки' — панель настроек, 'exit' — выход")
+    print("         'панель' / 'panel' — открыть панель в браузере")
     print("         'голос' / 'voice' — переключить голосовой режим\n")
 
     voice_mode = False
@@ -152,6 +160,13 @@ def main() -> None:
                     voice_manager.set_personality_voice(str(active_personality.style))
             continue
 
+        if lowered in ("панель", "panel"):
+            if panel_url is not None:
+                _open_panel_in_browser(panel_url, logger)
+            else:
+                print("[Панель] Сервер не запущен — команда недоступна.")
+            continue
+
         if lowered in ("голос", "voice"):
             if not config.voice_enabled:
                 print("\nГолос отключен в конфиге.\n")
@@ -182,6 +197,16 @@ def main() -> None:
     panel.stop()
     voice_manager.close()
     logger.info("JARVIS завершил работу.")
+
+
+def _open_panel_in_browser(url: str, logger: LogService) -> None:
+    """Открывает панель в браузере (этап 5): сбой браузера не роняет консоль."""
+    try:
+        webbrowser.open(url)
+        print(f"[Панель] Открыта в браузере: {url}")
+    except Exception as ex:  # noqa: BLE001 — браузер может быть недоступен вовсе
+        logger.error(f"PanelBrowser: {ex}")
+        print(f"[Панель] Браузер не открылся — вручную: {url}")
 
 
 def _cleanup_voice_input() -> None:
