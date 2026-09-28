@@ -165,6 +165,7 @@ tools/uvx.exe
 config/panel.token
 
 # Артефакты установщика (генерируются)
+/JarvisInstaller.exe
 /JARVIS.bat
 /installer/install-manifest.json
 /installer/stage/
