@@ -1,9 +1,11 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\JARVIS.Core\JARVIS.Core.csproj" />
     <ProjectReference Include="..\JARVIS.AI\JARVIS.AI.csproj" />
     <ProjectReference Include="..\JARVIS.Voice\JARVIS.Voice.csproj" />
+    <!-- Окно панели (этап 6): WebView2 поверх SPA на 127.0.0.1 -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -11,6 +13,7 @@
     <TargetFramework>net10.0-windows7.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
 </Project>

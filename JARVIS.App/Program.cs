@@ -19,7 +19,8 @@ var logger = new LogService();
 logger.Info($"{config.AssistantName} OS {config.Version} запускается.");
 
 // Открывает панель в браузере (этап 5 GUI-плана): сбой браузера
-// не должен ронять консоль.
+// не должен ронять консоль. Это фолбэк — окно приложения (этап 6)
+// само уходит сюда, если WebView2 Runtime недоступен.
 static void OpenPanelInBrowser(string url, LogService logger)
 {
     try
@@ -142,8 +143,9 @@ try
     panelUrl = $"http://127.0.0.1:{panel.Port}";
     Console.WriteLine($"[Панель] {panelUrl} (токен: config/panel.token)");
 
-    // Авто-открытие панели в браузере при старте (этап 5 GUI-плана).
-    OpenPanelInBrowser(panelUrl, logger);
+    // Авто-открытие панели при старте (этапы 5–6): отдельное окно
+    // приложения (WebView2), фолбэк — браузер.
+    PanelWindowHost.Open(panelUrl, logger, url => OpenPanelInBrowser(url, logger));
 }
 catch (Exception ex)
 {
@@ -171,7 +173,7 @@ else
 }
 
 Console.WriteLine("Команды: 'настройки' — панель настроек, 'exit' — выход");
-Console.WriteLine("         'панель' / 'panel' — открыть панель в браузере");
+Console.WriteLine("         'панель' / 'panel' — открыть окно панели");
 Console.WriteLine("         'голос' / 'voice' — переключить голосовой режим");
 Console.WriteLine("         'записать голос' — записать референс для клонирования\n");
 
@@ -378,7 +380,7 @@ while (true)
         {
             if (panelUrl != null)
             {
-                OpenPanelInBrowser(panelUrl, logger);
+                PanelWindowHost.Open(panelUrl, logger, url => OpenPanelInBrowser(url, logger));
             }
             else
             {

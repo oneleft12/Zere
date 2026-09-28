@@ -127,8 +127,8 @@ Pipeline обработки команд (порядок важен):
 - Просмотр конфигурации
 
 ### Web-панель (реализована, этапы 1–5 GUI-плана)
-- `http://127.0.0.1:8080` — локальный сервер + SPA (11 экранов), стартует и открывается в браузере автоматически; команда `панель` / `panel` в консоли открывает снова
-- Стек: C# `JARVIS.App/Api/PanelServer.cs` и Python `jarvis/api/server.py` + SPA `panel/` (Vite + vanilla TS)
+- `http://127.0.0.1:8080` — локальный сервер + SPA (11 экранов); при старте открывается **отдельным окном приложения** (WebView2 + трей, сворачивание вместо закрытия; без WebView2 Runtime — фолбэк в браузер); команда `панель` / `panel` в консоли выводит окно на передний план
+- Стек: C# `JARVIS.App/Api/PanelServer.cs` + `PanelWindow.cs` (окно) и Python `jarvis/api/server.py` (Python: окно через pywebview, если установлен, иначе браузер) + SPA `panel/` (Vite + vanilla TS)
 - Контракт: `docs/api/openapi.yaml` (19 путей), токен в `config/panel.token`
 - Тесты: `python3 tests/test_panel_api.py` (83 контрактных) и `cd panel && npm run test:e2e` (Playwright, 5 смоуков)
 - Документация: `docs/WEB_PANEL_PLAN.md`, план и статус этапов — `docs/GUI_DEVELOPMENT_PLAN.md`

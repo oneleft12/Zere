@@ -88,15 +88,15 @@ def main() -> None:
         app_launcher=services.get(ApplicationLauncher),
         voice=voice_manager,
     )
-    # Авто-открытие панели в браузере при старте (этап 5 GUI-плана);
-    # panel_url остаётся None, если сервер не поднялся (команда «панель»).
+    # Авто-открытие панели при старте (этапы 5–6): окно приложения,
+    # фолбэк — браузер; panel_url остаётся None, если сервер не поднялся.
     panel_url: str | None = None
 
     try:
         panel.start()
         panel_url = f"http://127.0.0.1:{panel.port}"
         print(f"[Панель] {panel_url} (токен: config/panel.token)")
-        _open_panel_in_browser(panel_url, logger)
+        _open_panel_window(panel_url, logger)
     except OSError as ex:
         logger.error(f"PanelServer: {ex}")
         print("[Панель] Не удалось запустить локальный сервер (порт занят?).")
@@ -121,7 +121,7 @@ def main() -> None:
         print("[Голос] Отключен. Только текстовый режим.")
 
     print("Команды: 'настройки' — панель настроек, 'exit' — выход")
-    print("         'панель' / 'panel' — открыть панель в браузере")
+    print("         'панель' / 'panel' — открыть окно панели")
     print("         'голос' / 'voice' — переключить голосовой режим\n")
 
     voice_mode = False
@@ -162,7 +162,7 @@ def main() -> None:
 
         if lowered in ("панель", "panel"):
             if panel_url is not None:
-                _open_panel_in_browser(panel_url, logger)
+                _open_panel_window(panel_url, logger)
             else:
                 print("[Панель] Сервер не запущен — команда недоступна.")
             continue
@@ -207,6 +207,53 @@ def _open_panel_in_browser(url: str, logger: LogService) -> None:
     except Exception as ex:  # noqa: BLE001 — браузер может быть недоступен вовсе
         logger.error(f"PanelBrowser: {ex}")
         print(f"[Панель] Браузер не открылся — вручную: {url}")
+
+
+_panel_window_lock = threading.Lock()
+_panel_window_ref: dict = {"window": None}
+
+
+def _open_panel_window(url: str, logger: LogService) -> None:
+    """Открывает панель отдельным окном приложения (этап 6), а не вкладкой.
+
+    Windows: pywebview (WebView2), если пакет установлен; иначе — фолбэк
+    в браузер. Любая сбой окна не должна ронять консоль.
+    """
+    with _panel_window_lock:
+        window = _panel_window_ref["window"]
+        if window is not None:
+            try:
+                window.restore()
+                window.show()
+                return
+            except Exception:  # noqa: BLE001 — окно закрыто, создаём новое
+                _panel_window_ref["window"] = None
+
+        try:
+            import webview  # pywebview — необязательная зависимость
+        except ImportError:
+            _open_panel_in_browser(url, logger)
+            return
+
+        try:
+            new_window = webview.create_window("JARVIS", url, width=1280, height=840)
+            _panel_window_ref["window"] = new_window
+            threading.Thread(
+                target=_run_panel_window, args=(webview, url, logger), daemon=True
+            ).start()
+            print(f"[Панель] Открыта в окне приложения: {url}")
+        except Exception as ex:  # noqa: BLE001
+            logger.error(f"PanelWindow: {ex}")
+            _open_panel_in_browser(url, logger)
+
+
+def _run_panel_window(webview, url: str, logger: LogService) -> None:
+    """Цикл окна pywebview в фоновом потоке; сбой — фолбэк в браузер."""
+    try:
+        webview.start()
+    except Exception as ex:  # noqa: BLE001
+        logger.error(f"PanelWindow: {ex}")
+        _open_panel_in_browser(url, logger)
 
 
 def _cleanup_voice_input() -> None:
