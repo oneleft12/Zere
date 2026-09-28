@@ -86,6 +86,10 @@ Type: files; Name: "{app}\JARVIS.bat"
 Type: files; Name: "{app}\installer\install-manifest.json"
 Type: filesandordirs; Name: "{app}\.venv"
 Type: filesandordirs; Name: "{app}\publish"
+; Скачано install.ps1 (вне журнала Inno) + кэш компиляции smoke-теста
+Type: filesandordirs; Name: "{app}\JARVIS.Voice"
+Type: filesandordirs; Name: "{app}\jarvis"
+Type: filesandordirs; Name: "{app}\__pycache__"
 ; Ярлыки могли быть созданы install.ps1 (вне журнала Inno)
 Type: files; Name: "{userdesktop}\{#MyAppName}.lnk"
 Type: files; Name: "{userdesktop}\JARVIS - panel.url"
