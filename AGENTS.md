@@ -126,10 +126,12 @@ Pipeline обработки команд (порядок важен):
 - Управление плагинами
 - Просмотр конфигурации
 
-### Web-панель (планируется)
-- `http://localhost:8080`
-- REST API для настроек
-- План: `docs/WEB_PANEL_PLAN.md`
+### Web-панель (реализована, этапы 1–5 GUI-плана)
+- `http://127.0.0.1:8080` — локальный сервер + SPA (11 экранов), стартует и открывается в браузере автоматически; команда `панель` / `panel` в консоли открывает снова
+- Стек: C# `JARVIS.App/Api/PanelServer.cs` и Python `jarvis/api/server.py` + SPA `panel/` (Vite + vanilla TS)
+- Контракт: `docs/api/openapi.yaml` (19 путей), токен в `config/panel.token`
+- Тесты: `python3 tests/test_panel_api.py` (83 контрактных) и `cd panel && npm run test:e2e` (Playwright, 5 смоуков)
+- Документация: `docs/WEB_PANEL_PLAN.md`, план и статус этапов — `docs/GUI_DEVELOPMENT_PLAN.md`
 
 ---
 
@@ -244,6 +246,18 @@ Jarvis/
 │
 ├── tools/                      # TTS-инструментарий
 │   └── jarvis_tts_server.py    # HTTP-сервер клонирования (uv.exe, xVibePocketTTS — gitignored)
+│
+├── panel/                      # Web-панель (SPA, Vite + vanilla TS)
+│   ├── src/                    # main/shell/router/ui/i18n + 11 экранов (screens/)
+│   ├── e2e/                    # Playwright-смоук (npm run test:e2e)
+│   └── dist/                   # Сборка — коммитится, раздаётся сервером
+│
+├── tests/
+│   ├── test_panel_api.py       # Контрактные тесты панели (83, по OpenAPI)
+│   ├── test_system_prompt.py   # Тесты P1-2
+│   └── e2e_server.py           # Раннер панели с фейками для E2E
+│
+├── docs/                       # Планы, отчёты, openapi.yaml
 │
 ├── logs/                       # Логи
 └── backups/                    # Бэкапы версий
