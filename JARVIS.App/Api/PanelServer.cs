@@ -1,4 +1,5 @@
 using System.Net;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Globalization;
@@ -319,14 +320,14 @@ public sealed class PanelServer : IDisposable
             else if (path == "/api/history")
             {
                 if (string.Equals(request.HttpMethod, "GET", StringComparison.Ordinal))
-                    await HandleHistoryGetAsync(response);
+                    await HandleHistoryGetAsync(request, response);
                 else
                     await HandleHistoryDeleteAsync(request, response);
             }
             else if (path == "/api/memory")
             {
                 if (string.Equals(request.HttpMethod, "GET", StringComparison.Ordinal))
-                    await HandleMemoryGetAsync(response);
+                    await HandleMemoryGetAsync(request, response);
                 else
                     await HandleMemoryPostAsync(request, response);
             }
