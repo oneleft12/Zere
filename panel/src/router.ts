@@ -3,6 +3,8 @@
  * бэкенда отдают index.html для путей без расширения (SPA-фоллбэк).
  */
 
+import { t } from "./i18n";
+
 export type Cleanup = () => void;
 export type ScreenFactory = (container: HTMLElement) => void | Cleanup;
 
@@ -55,7 +57,7 @@ function render(): void {
 
   while (mountEl.firstChild) mountEl.removeChild(mountEl.firstChild);
 
-  document.title = `${route.title} — JARVIS`;
+  document.title = `${t(route.title)} — JARVIS`;
   onRoute?.(route);
 
   const result = route.factory(mountEl);

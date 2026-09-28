@@ -15,6 +15,7 @@ import {
   type ProcessList,
 } from "../api";
 import { logEvent } from "../events";
+import { t } from "../i18n";
 import {
   badge,
   button,
@@ -32,6 +33,8 @@ import type { Cleanup, ScreenFactory } from "../router";
 const SEARCH_DEBOUNCE_MS = 300;
 const MAX_QUERY = 100; // серверный лимит параметра q
 
+// Русские строки POWER_LABELS переводятся в t() в местах использования:
+// на верхнем уровне модуля язык ещё не инициализирован.
 const POWER_LABELS: Record<PowerAction, { label: string; title: string; message: string; confirm: string }> = {
   shutdown: {
     label: "Выключение",
@@ -67,7 +70,7 @@ export const processesScreen: ScreenFactory = (container): Cleanup => {
 
   const searchInput = textInput({
     value: "",
-    placeholder: "Поиск по имени процесса…",
+    placeholder: t("Поиск по имени процесса…"),
     onInput: (value) => {
       window.clearTimeout(searchTimer);
       searchTimer = window.setTimeout(() => {
@@ -79,18 +82,18 @@ export const processesScreen: ScreenFactory = (container): Cleanup => {
     },
   });
 
-  const refreshButton = button("Обновить", () => void load());
+  const refreshButton = button(t("Обновить"), () => void load());
   const powerButtons: Array<{ action: PowerAction; el: HTMLButtonElement }> = (
     ["sleep", "restart", "shutdown"] as PowerAction[]
   ).map((action) => ({
     action,
-    el: button(POWER_LABELS[action].label, () => void power(action), action === "sleep" ? "default" : "danger"),
+    el: button(t(POWER_LABELS[action].label), () => void power(action), action === "sleep" ? "default" : "danger"),
   }));
 
   container.appendChild(
     pageHeader(
-      "Процессы",
-      "Завершение и питание требуют подтверждения: ConfirmDialog, затем токен TTL 60 с",
+      t("Процессы"),
+      t("Завершение и питание требуют подтверждения: ConfirmDialog, затем токен TTL 60 с"),
       [...powerButtons.map((p) => p.el), refreshButton],
     ),
   );
@@ -123,7 +126,7 @@ export const processesScreen: ScreenFactory = (container): Cleanup => {
     updateControls();
 
     clear(list);
-    list.appendChild(loadingRow("Загрузка процессов…"));
+    list.appendChild(loadingRow(t("Загрузка процессов…")));
 
     try {
       const params = new URLSearchParams();
@@ -135,7 +138,8 @@ export const processesScreen: ScreenFactory = (container): Cleanup => {
     } catch (error) {
       if (cancelled) return;
 
-      const message = error instanceof ApiError ? error.message : "Неизвестная ошибка";
+      // Сообщение ошибки приходит с сервера — его не переводим.
+      const message = error instanceof ApiError ? error.message : t("Неизвестная ошибка");
       errorBox.textContent = message;
       errorBox.hidden = false;
       total = 0;
@@ -144,12 +148,12 @@ export const processesScreen: ScreenFactory = (container): Cleanup => {
       list.appendChild(
         emptyState({
           icon: "⚠️",
-          title: "Не удалось загрузить процессы",
+          title: t("Не удалось загрузить процессы"),
           hint: message,
-          action: { label: "Повторить", onClick: () => void load() },
+          action: { label: t("Повторить"), onClick: () => void load() },
         }),
       );
-      toast("Ошибка загрузки процессов", "danger");
+      toast(t("Ошибка загрузки процессов"), "danger");
       logEvent(`Ошибка процессов: ${message}`);
     } finally {
       loading = false;
@@ -165,18 +169,22 @@ export const processesScreen: ScreenFactory = (container): Cleanup => {
       list.appendChild(
         emptyState({
           icon: "🔍",
-          title: query ? "Ничего не найдено" : "Процессы не найдены",
-          hint: query ? `По запросу «${query}» совпадений нет.` : "Система не показала ни одного процесса.",
+          title: query ? t("Ничего не найдено") : t("Процессы не найдены"),
+          hint: query
+            ? t("По запросу «{query}» совпадений нет.", { query })
+            : t("Система не показала ни одного процесса."),
         }),
       );
-      countLabel.textContent = "процессов: 0";
+      countLabel.textContent = t("процессов: {count}", { count: 0 });
       return;
     }
 
     list.appendChild(buildTable(items));
 
-    const shown = query ? `найдено ${total} по «${query}»` : `процессов: ${total}`;
-    countLabel.textContent = `${shown} · память сверху`;
+    const shown = query
+      ? t("найдено {count} по «{query}»", { count: total, query })
+      : t("процессов: {count}", { count: total });
+    countLabel.textContent = `${shown} · ${t("память сверху")}`;
   }
 
   function buildTable(items: ProcessInfo[]): HTMLElement {
@@ -186,11 +194,11 @@ export const processesScreen: ScreenFactory = (container): Cleanup => {
       h(
         "tr",
         {},
-        h("th", { text: "Имя" }),
+        h("th", { text: t("Имя") }),
         h("th", { text: "PID" }),
-        h("th", { text: "Память, МБ" }),
-        h("th", { text: "Отвечает" }),
-        h("th", { text: "Тип" }),
+        h("th", { text: t("Память, МБ") }),
+        h("th", { text: t("Отвечает") }),
+        h("th", { text: t("Тип") }),
         h("th", { text: "" }),
       ),
     );
@@ -205,17 +213,17 @@ export const processesScreen: ScreenFactory = (container): Cleanup => {
           h("td", { text: item.name }),
           h("td", { class: "table--mono", text: String(item.pid) }),
           h("td", { class: "table--mono", text: String(Math.round(item.memoryMb)) }),
-          h("td", {}, badge(item.responding ? "да" : "нет", item.responding ? "ok" : "danger")),
+          h("td", {}, badge(item.responding ? t("да") : t("нет"), item.responding ? "ok" : "danger")),
           h(
             "td",
             {},
-            item.protected ? badge("системный", "warn") : badge("пользовательский", "plain"),
+            item.protected ? badge(t("системный"), "warn") : badge(t("пользовательский"), "plain"),
           ),
           h(
             "td",
             { class: "row-actions" },
             button(
-              "Завершить",
+              t("Завершить"),
               () => void kill(item),
               "danger",
             ),
@@ -232,7 +240,7 @@ export const processesScreen: ScreenFactory = (container): Cleanup => {
     items.forEach((item, index) => {
       if (item.protected && rows[index]) {
         rows[index].disabled = true;
-        rows[index].title = "Системный процесс — завершение запрещено";
+        rows[index].title = t("Системный процесс — завершение запрещено");
       }
     });
 
@@ -245,18 +253,21 @@ export const processesScreen: ScreenFactory = (container): Cleanup => {
     if (busy) return;
 
     if (item.protected) {
-      toast(`«${item.name}» — системный процесс, завершение запрещено`, "warn");
+      toast(t("«{name}» — системный процесс, завершение запрещено", { name: item.name }), "warn");
       return;
     }
 
     const confirmed = await confirmDialog({
-      title: `Завершить «${item.name}»?`,
-      message: `PID ${item.pid} · память ${Math.round(item.memoryMb)} МБ. Процесс будет завершён принудительно.`,
-      confirmLabel: "Завершить процесс",
+      title: t("Завершить «{name}»?", { name: item.name }),
+      message: t("PID {pid} · память {mb} МБ. Процесс будет завершён принудительно.", {
+        pid: item.pid,
+        mb: Math.round(item.memoryMb),
+      }),
+      confirmLabel: t("Завершить процесс"),
     });
 
     if (!confirmed) {
-      toast("Завершение процесса отменено", "plain");
+      toast(t("Завершение процесса отменено"), "plain");
       logEvent(`Завершение процесса отклонено: ${item.name} (PID ${item.pid})`);
       return;
     }
@@ -269,14 +280,14 @@ export const processesScreen: ScreenFactory = (container): Cleanup => {
 
       if (cancelled) return;
 
-      toast(`Процесс «${result.name}» (PID ${result.pid}) завершён`, "ok");
+      toast(t("Процесс «{name}» (PID {pid}) завершён", { name: result.name, pid: result.pid }), "ok");
       logEvent(`Процесс завершён: ${result.name} (PID ${result.pid})`);
       await load();
     } catch (error) {
       if (cancelled) return;
 
-      const message = error instanceof ApiError ? error.message : "Неизвестная ошибка";
-      toast(`Не удалось завершить: ${message}`, "danger");
+      const message = error instanceof ApiError ? error.message : t("Неизвестная ошибка");
+      toast(t("Не удалось завершить: {message}", { message }), "danger");
       logEvent(`Ошибка завершения процесса: ${message}`);
     } finally {
       busy = false;
@@ -291,13 +302,13 @@ export const processesScreen: ScreenFactory = (container): Cleanup => {
 
     const spec = POWER_LABELS[action];
     const confirmed = await confirmDialog({
-      title: spec.title,
-      message: spec.message,
-      confirmLabel: spec.confirm,
+      title: t(spec.title),
+      message: t(spec.message),
+      confirmLabel: t(spec.confirm),
     });
 
     if (!confirmed) {
-      toast("Команда питания отменена", "plain");
+      toast(t("Команда питания отменена"), "plain");
       logEvent(`Команда питания отклонена: ${action}`);
       return;
     }
@@ -311,17 +322,17 @@ export const processesScreen: ScreenFactory = (container): Cleanup => {
       if (cancelled) return;
 
       if (result.status === "executed") {
-        toast(`Команда «${spec.label}» выполнена`, "ok");
+        toast(t("Команда «{label}» выполнена", { label: t(spec.label) }), "ok");
         logEvent(`Питание выполнено: ${action}`);
       } else {
-        toast(`Команда «${spec.label}» не выполнена`, "danger");
+        toast(t("Команда «{label}» не выполнена", { label: t(spec.label) }), "danger");
         logEvent(`Питание не выполнено: ${action}`);
       }
     } catch (error) {
       if (cancelled) return;
 
-      const message = error instanceof ApiError ? error.message : "Неизвестная ошибка";
-      toast(`Ошибка команды питания: ${message}`, "danger");
+      const message = error instanceof ApiError ? error.message : t("Неизвестная ошибка");
+      toast(t("Ошибка команды питания: {message}", { message }), "danger");
       logEvent(`Ошибка питания (${action}): ${message}`);
     } finally {
       busy = false;

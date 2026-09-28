@@ -2,6 +2,7 @@
  * Оболочка экрана (§5.3): сайдбар 220px, шапка, контент, статус-строка.
  */
 
+import { onLangChange, t } from "./i18n";
 import { h } from "./ui";
 
 export interface NavItem {
@@ -65,6 +66,9 @@ export interface ShellInstance {
 export function createShell(onNavigate: (path: string) => void): ShellInstance {
   const navButtons = new Map<string, HTMLButtonElement>();
 
+  // Привязки строк к языку (этап 5, i18n): при смене языка перерисовываем.
+  const langBindings: Array<() => void> = [];
+
   const sidebar = h("aside", { class: "sidebar" });
   sidebar.appendChild(
     h(
@@ -78,20 +82,30 @@ export function createShell(onNavigate: (path: string) => void): ShellInstance {
   const nav = h("nav", { class: "sidebar__nav" });
 
   for (const group of NAV_GROUPS) {
-    nav.appendChild(h("div", { class: "sidebar__group-label", text: group.label }));
+    const groupLabel = h("div", { class: "sidebar__group-label", text: t(group.label) });
+    langBindings.push(() => {
+      groupLabel.textContent = t(group.label);
+    });
+    nav.appendChild(groupLabel);
 
     for (const item of group.items) {
+      const labelEl = h("span", { class: "nav-item__label", text: t(item.label) });
       const buttonEl = h(
         "button",
         {
           class: "nav-item",
           type: "button",
-          title: item.label,
+          title: t(item.label),
           onclick: () => onNavigate(item.path),
         },
         h("span", { class: "nav-item__icon", text: item.icon }),
-        h("span", { class: "nav-item__label", text: item.label }),
+        labelEl,
       );
+
+      langBindings.push(() => {
+        labelEl.textContent = t(item.label);
+        buttonEl.title = t(item.label);
+      });
 
       navButtons.set(item.path, buttonEl);
       nav.appendChild(buttonEl);
@@ -100,12 +114,15 @@ export function createShell(onNavigate: (path: string) => void): ShellInstance {
 
   sidebar.appendChild(nav);
 
-  const titleEl = h("h1", { class: "shell__title", text: "Дашборд" });
+  const titleEl = h("h1", { class: "shell__title", text: t("Дашборд") });
   const themeButton = h("button", {
     class: "btn btn--ghost",
     type: "button",
-    ariaLabel: "Переключить тему",
+    ariaLabel: t("Переключить тему"),
     text: "☾",
+  });
+  langBindings.push(() => {
+    themeButton.ariaLabel = t("Переключить тему");
   });
 
   const header = h(
@@ -117,7 +134,7 @@ export function createShell(onNavigate: (path: string) => void): ShellInstance {
 
   const content = h("main", { class: "shell__content" });
 
-  const statusLeft = h("span", { class: "shell__status-item", text: "● статусы…" });
+  const statusLeft = h("span", { class: "shell__status-item", text: t("● статусы…") });
   const statusRight = h("span", { class: "shell__status-item", text: "" });
 
   const status = h(
@@ -144,6 +161,11 @@ export function createShell(onNavigate: (path: string) => void): ShellInstance {
 
   const toastHost = h("div", { class: "toast-host" });
   document.body.appendChild(toastHost);
+
+  // Смена языка (этап 5): обновляем подписи оболочки на месте.
+  onLangChange(() => {
+    for (const apply of langBindings) apply();
+  });
 
   return {
     content,

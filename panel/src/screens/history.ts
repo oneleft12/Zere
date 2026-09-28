@@ -6,6 +6,7 @@
 
 import { ApiError, apiDelete, apiGet, type HistoryItem, type HistoryPage } from "../api";
 import { logEvent } from "../events";
+import { t } from "../i18n";
 import {
   button,
   clear,
@@ -37,7 +38,7 @@ export const historyScreen: ScreenFactory = (container): Cleanup => {
 
   const searchInput = textInput({
     value: "",
-    placeholder: "Поиск по вопросам и ответам…",
+    placeholder: t("Поиск по вопросам и ответам…"),
     onInput: (value) => {
       window.clearTimeout(searchTimer);
       searchTimer = window.setTimeout(() => {
@@ -49,27 +50,27 @@ export const historyScreen: ScreenFactory = (container): Cleanup => {
     },
   });
 
-  const exportButton = button("Экспорт JSON", () => void exportHistory());
-  const clearButton = button("Очистить", () => void clearHistory(), "danger");
+  const exportButton = button(t("Экспорт JSON"), () => void exportHistory());
+  const clearButton = button(t("Очистить"), () => void clearHistory(), "danger");
 
   const list = h("div", { class: "history-list" });
   const pager = h("div", { class: "history__pager" });
   const errorBox = h("div", { class: "form-error", hidden: true });
 
-  const prevButton = button("← Назад", () => {
+  const prevButton = button(t("← Назад"), () => {
     offset = Math.max(0, offset - PAGE_SIZE);
     void load();
   });
 
-  const nextButton = button("Вперёд →", () => {
+  const nextButton = button(t("Вперёд →"), () => {
     offset += PAGE_SIZE;
     void load();
   });
 
   container.appendChild(
     pageHeader(
-      "История",
-      "Сохранённые пары «вопрос → ответ»; очистка требует подтверждения",
+      t("История"),
+      t("Сохранённые пары «вопрос → ответ»; очистка требует подтверждения"),
       [clearButton, exportButton],
     ),
   );
@@ -104,7 +105,10 @@ export const historyScreen: ScreenFactory = (container): Cleanup => {
       prevButton,
       h("span", {
         class: "history__pos",
-        text: total === 0 ? "0 записей" : `${offset + 1}–${offset + pageItems} из ${total}`,
+        text:
+          total === 0
+            ? t("0 записей")
+            : t("{from}–{to} из {total}", { from: offset + 1, to: offset + pageItems, total }),
       }),
       nextButton,
     );
@@ -120,7 +124,7 @@ export const historyScreen: ScreenFactory = (container): Cleanup => {
     updateControls();
 
     clear(list);
-    list.appendChild(loadingRow("Загрузка истории…"));
+    list.appendChild(loadingRow(t("Загрузка истории…")));
 
     try {
       const page = await apiGet<HistoryPage>(buildPath(offset, search));
@@ -132,7 +136,7 @@ export const historyScreen: ScreenFactory = (container): Cleanup => {
     } catch (error) {
       if (cancelled) return;
 
-      const message = error instanceof ApiError ? error.message : "Неизвестная ошибка";
+      const message = error instanceof ApiError ? error.message : t("Неизвестная ошибка");
       errorBox.textContent = message;
       errorBox.hidden = false;
       pageItems = 0;
@@ -141,13 +145,13 @@ export const historyScreen: ScreenFactory = (container): Cleanup => {
       list.appendChild(
         emptyState({
           icon: "⚠️",
-          title: "Не удалось загрузить историю",
+          title: t("Не удалось загрузить историю"),
           hint: message,
-          action: { label: "Повторить", onClick: () => void load() },
+          action: { label: t("Повторить"), onClick: () => void load() },
         }),
       );
       renderPager();
-      toast("Ошибка загрузки истории", "danger");
+      toast(t("Ошибка загрузки истории"), "danger");
       logEvent(`Ошибка истории: ${message}`);
     } finally {
       loading = false;
@@ -163,10 +167,10 @@ export const historyScreen: ScreenFactory = (container): Cleanup => {
       list.appendChild(
         emptyState({
           icon: "🗂",
-          title: search ? "Ничего не найдено" : "История пуста",
+          title: search ? t("Ничего не найдено") : t("История пуста"),
           hint: search
-            ? `По запросу «${search}» совпадений нет.`
-            : "Диалоги начнут появляться здесь после первых сообщений в чате.",
+            ? t("По запросу «{query}» совпадений нет.", { query: search })
+            : t("Диалоги начнут появляться здесь после первых сообщений в чате."),
         }),
       );
     } else {
@@ -178,8 +182,8 @@ export const historyScreen: ScreenFactory = (container): Cleanup => {
     const from = total === 0 ? 0 : offset + 1;
     const to = offset + pageItems;
     countLabel.textContent = search
-      ? `найдено ${total} · показано ${from}–${to}`
-      : `записей: ${total} · показано ${from}–${to}`;
+      ? t("найдено {total} · показано {from}–{to}", { total, from, to })
+      : t("записей: {total} · показано {from}–{to}", { total, from, to });
 
     renderPager();
   }
@@ -188,7 +192,7 @@ export const historyScreen: ScreenFactory = (container): Cleanup => {
     return h(
       "article",
       { class: "conv fade-in" },
-      h("div", { class: "conv__role conv__role--user", text: "Вы" }),
+      h("div", { class: "conv__role conv__role--user", text: t("Вы") }),
       h("p", { class: "conv__text", text: item.userMessage }),
       h("div", { class: "conv__role conv__role--ai", text: "JARVIS" }),
       h("p", { class: "conv__text", text: item.jarvisResponse }),
@@ -200,13 +204,15 @@ export const historyScreen: ScreenFactory = (container): Cleanup => {
 
   async function clearHistory(): Promise<void> {
     const confirmed = await confirmDialog({
-      title: "Очистить историю?",
-      message: `Будет удалено записей: ${total}. Отменить это действие будет невозможно.`,
-      confirmLabel: "Удалить историю",
+      title: t("Очистить историю?"),
+      message: t("Будет удалено записей: {count}. Отменить это действие будет невозможно.", {
+        count: total,
+      }),
+      confirmLabel: t("Удалить историю"),
     });
 
     if (!confirmed) {
-      toast("Очистка истории отменена", "plain");
+      toast(t("Очистка истории отменена"), "plain");
       logEvent("Очистка истории отклонена пользователем");
       return;
     }
@@ -216,15 +222,15 @@ export const historyScreen: ScreenFactory = (container): Cleanup => {
 
       if (cancelled) return;
 
-      toast(`История очищена — удалено записей: ${result.deleted}`, "ok");
+      toast(t("История очищена — удалено записей: {count}", { count: result.deleted }), "ok");
       logEvent(`История очищена: удалено ${result.deleted}`);
       offset = 0;
       await load();
     } catch (error) {
       if (cancelled) return;
 
-      const message = error instanceof ApiError ? error.message : "Неизвестная ошибка";
-      toast(`Не удалось очистить историю: ${message}`, "danger");
+      const message = error instanceof ApiError ? error.message : t("Неизвестная ошибка");
+      toast(t("Не удалось очистить историю: {message}", { message }), "danger");
       logEvent(`Ошибка очистки истории: ${message}`);
     }
   }
@@ -244,13 +250,13 @@ export const historyScreen: ScreenFactory = (container): Cleanup => {
         items,
       });
 
-      toast(`Экспортировано записей: ${items.length}`, "ok");
+      toast(t("Экспортировано записей: {count}", { count: items.length }), "ok");
       logEvent(`Экспорт истории: ${items.length} записей`);
     } catch (error) {
       if (cancelled) return;
 
-      const message = error instanceof ApiError ? error.message : "Неизвестная ошибка";
-      toast(`Экспорт не удался: ${message}`, "danger");
+      const message = error instanceof ApiError ? error.message : t("Неизвестная ошибка");
+      toast(t("Экспорт не удался: {message}", { message }), "danger");
       logEvent(`Ошибка экспорта истории: ${message}`);
     } finally {
       updateControls();

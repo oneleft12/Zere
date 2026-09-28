@@ -6,6 +6,7 @@
 
 import { ApiError, apiGet, type LogEntry, type LogLevel, type LogList } from "../api";
 import { logEvent } from "../events";
+import { t } from "../i18n";
 import {
   badge,
   button,
@@ -42,7 +43,8 @@ export const logsScreen: ScreenFactory = (container): Cleanup => {
   const levelSelect = select({
     value: "",
     options: [
-      { value: "", label: "Все уровни" },
+      { value: "", label: t("Все уровни") },
+      // Уровни info/warn/error — технические значения, их не переводим.
       { value: "info", label: "info" },
       { value: "warn", label: "warn" },
       { value: "error", label: "error" },
@@ -54,22 +56,22 @@ export const logsScreen: ScreenFactory = (container): Cleanup => {
     },
   });
 
-  const refreshButton = button("Обновить", () => void load());
+  const refreshButton = button(t("Обновить"), () => void load());
 
-  const prevButton = button("← Назад", () => {
+  const prevButton = button(t("← Назад"), () => {
     offset = Math.max(0, offset - PAGE_SIZE);
     void load();
   });
 
-  const nextButton = button("Вперёд →", () => {
+  const nextButton = button(t("Вперёд →"), () => {
     offset += PAGE_SIZE;
     void load();
   });
 
   container.appendChild(
     pageHeader(
-      "Логи",
-      "Файлы logs/*.log в обратном порядке: новые сверху; сбой показывается здесь, не в UI",
+      t("Логи"),
+      t("Файлы logs/*.log в обратном порядке: новые сверху; сбой показывается здесь, не в UI"),
       [refreshButton],
     ),
   );
@@ -101,7 +103,9 @@ export const logsScreen: ScreenFactory = (container): Cleanup => {
       prevButton,
       h("span", {
         class: "history__pos",
-        text: total === 0 ? "0 записей" : `${offset + 1}–${offset + pageItems} из ${total}`,
+        text: total === 0
+          ? t("{count} записей", { count: 0 })
+          : t("{from}–{to} из {total}", { from: offset + 1, to: offset + pageItems, total }),
       }),
       nextButton,
     );
@@ -117,7 +121,7 @@ export const logsScreen: ScreenFactory = (container): Cleanup => {
     updateControls();
 
     clear(list);
-    list.appendChild(loadingRow("Чтение логов…"));
+    list.appendChild(loadingRow(t("Чтение логов…")));
 
     try {
       const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
@@ -132,7 +136,8 @@ export const logsScreen: ScreenFactory = (container): Cleanup => {
     } catch (error) {
       if (cancelled) return;
 
-      const message = error instanceof ApiError ? error.message : "Неизвестная ошибка";
+      // Сообщение ошибки приходит с сервера — его не переводим.
+      const message = error instanceof ApiError ? error.message : t("Неизвестная ошибка");
       errorBox.textContent = message;
       errorBox.hidden = false;
       pageItems = 0;
@@ -141,13 +146,13 @@ export const logsScreen: ScreenFactory = (container): Cleanup => {
       list.appendChild(
         emptyState({
           icon: "⚠️",
-          title: "Не удалось прочитать логи",
+          title: t("Не удалось прочитать логи"),
           hint: message,
-          action: { label: "Повторить", onClick: () => void load() },
+          action: { label: t("Повторить"), onClick: () => void load() },
         }),
       );
       renderPager();
-      toast("Ошибка чтения логов", "danger");
+      toast(t("Ошибка чтения логов"), "danger");
       logEvent(`Ошибка логов: ${message}`);
     } finally {
       loading = false;
@@ -163,10 +168,10 @@ export const logsScreen: ScreenFactory = (container): Cleanup => {
       list.appendChild(
         emptyState({
           icon: "📄",
-          title: "Записей нет",
+          title: t("Записей нет"),
           hint: level
-            ? `Уровня «${level}» в логах нет.`
-            : "Логи появятся после первых событий панели и ассистента.",
+            ? t("Уровня «{level}» в логах нет.", { level })
+            : t("Логи появятся после первых событий панели и ассистента."),
         }),
       );
     } else {
@@ -176,13 +181,14 @@ export const logsScreen: ScreenFactory = (container): Cleanup => {
     const from = total === 0 ? 0 : offset + 1;
     const to = offset + pageItems;
     countLabel.textContent = level
-      ? `${level}: ${total} · показано ${from}–${to}`
-      : `записей: ${total} · показано ${from}–${to}`;
+      ? t("{level}: {total} · показано {from}–{to}", { level, total, from, to })
+      : t("записей: {total} · показано {from}–{to}", { total, from, to });
 
     renderPager();
   }
 
   function entryRow(entry: LogEntry): HTMLElement {
+    // Время, уровень, источник и текст записи приходят с сервера — не переводим.
     return h(
       "div",
       { class: "log-entry fade-in" },

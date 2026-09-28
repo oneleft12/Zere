@@ -6,6 +6,7 @@
 
 import { ApiError, apiGet, apiPost, type Config, type Health } from "../api";
 import { logEvent } from "../events";
+import { lang, setLang, t, type Lang } from "../i18n";
 import { currentTheme, setTheme } from "../theme";
 import {
   button,
@@ -48,15 +49,18 @@ function isDirty(state: State): boolean {
   return JSON.stringify(state.base) !== JSON.stringify(state.draft);
 }
 
+// Черновик переживает перерисовку экрана (смена языка, темы) — см. load().
+let cachedState: State | null = null;
+
 export const settingsScreen: ScreenFactory = (container): Cleanup => {
   let cancelled = false;
 
-  container.appendChild(loadingRow("Загрузка конфигурации…"));
+  container.appendChild(loadingRow(t("Загрузка конфигурации…")));
 
   const load = async (): Promise<void> => {
     if (cancelled) return;
     clear(container);
-    container.appendChild(loadingRow("Загрузка конфигурации…"));
+    container.appendChild(loadingRow(t("Загрузка конфигурации…")));
 
     try {
       const [config, health] = await Promise.all([
@@ -65,16 +69,24 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
       ]);
 
       if (cancelled) return;
-      render({ base: config, draft: clone(config) }, health);
+
+      if (cachedState && isDirty(cachedState)) {
+        // Есть несохранённые правки: обновляем базу, черновик сохраняем.
+        cachedState.base = config;
+      } else {
+        cachedState = { base: config, draft: clone(config) };
+      }
+
+      render(cachedState, health);
     } catch (error) {
       if (cancelled) return;
       clear(container);
       container.appendChild(
         emptyState({
           icon: "⚠️",
-          title: "Не удалось загрузить конфигурацию",
-          hint: error instanceof ApiError ? error.message : "Неизвестная ошибка",
-          action: { label: "Повторить", onClick: () => void load() },
+          title: t("Не удалось загрузить конфигурацию"),
+          hint: error instanceof ApiError ? error.message : t("Неизвестная ошибка"),
+          action: { label: t("Повторить"), onClick: () => void load() },
         }),
       );
     }
@@ -83,8 +95,8 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
   function render(state: State, health: Health | null): void {
     clear(container);
 
-    const saveBtn = button("Сохранить", () => void save(), "primary");
-    const revertBtn = button("Отменить изменения", () => {
+    const saveBtn = button(t("Сохранить"), () => void save(), "primary");
+    const revertBtn = button(t("Отменить изменения"), () => {
       state.draft = clone(state.base);
       render(state, health);
       logEvent("Изменения настроек отброшены");
@@ -107,14 +119,14 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
         state.base = saved;
         state.draft = clone(saved);
 
-        toast("Конфигурация сохранена", "ok");
+        toast(t("Конфигурация сохранена"), "ok");
         logEvent("Настройки сохранены в config/config.json");
         render(state, health);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Неизвестная ошибка";
-        errorBox.textContent = `Сервер отклонил конфигурацию: ${message}`;
+        const message = error instanceof Error ? error.message : t("Неизвестная ошибка");
+        errorBox.textContent = t("Сервер отклонил конфигурацию: {message}", { message });
         errorBox.hidden = false;
-        toast("Ошибка сохранения настроек", "danger");
+        toast(t("Ошибка сохранения настроек"), "danger");
         logEvent("Ошибка сохранения настроек");
         saveBtn.disabled = false;
       }
@@ -124,8 +136,8 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
 
     container.append(
       pageHeader(
-        "Настройки",
-        "Конфигурация config/config.json — строгая схема, валидация на сервере",
+        t("Настройки"),
+        t("Конфигурация config/config.json — строгая схема, валидация на сервере"),
         [revertBtn, saveBtn],
       ),
       errorBox,
@@ -136,12 +148,12 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
 
     // ── Ассистент ────────────────────────────────────────────────
     const assistantCard = card(
-      "Ассистент",
+      t("Ассистент"),
       h(
         "div",
         { class: "form-grid" },
         field(
-          "Имя ассистента",
+          t("Имя ассистента"),
           textInput({
             value: d.assistantName,
             onInput: (v) => {
@@ -151,7 +163,7 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
           }),
         ),
         field(
-          "Язык",
+          t("Язык"),
           textInput({
             value: d.language,
             placeholder: "ru",
@@ -160,10 +172,10 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
               updateDirty();
             },
           }),
-          "Двухбуквенный код: ru, en",
+          t("Двухбуквенный код: ru, en"),
         ),
         field(
-          "Модель Ollama",
+          t("Модель Ollama"),
           textInput({
             value: d.model,
             mono: true,
@@ -175,7 +187,7 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
           }),
         ),
         field(
-          "Таймаут Ollama, мин",
+          t("Таймаут Ollama, мин"),
           textInput({
             value: String(d.ollamaTimeoutMinutes),
             type: "number",
@@ -184,7 +196,7 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
               updateDirty();
             },
           }),
-          "От 1 до 120 минут",
+          t("От 1 до 120 минут"),
         ),
       ),
     );
@@ -192,12 +204,12 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
 
     // ── Голос ────────────────────────────────────────────────────
     const voiceCard = card(
-      "Голос",
+      t("Голос"),
       h(
         "div",
         { class: "form-grid form-grid--single" },
         toggle({
-          label: "Голосовой вывод включён",
+          label: t("Голосовой вывод включён"),
           checked: d.voiceEnabled,
           onChange: (v) => {
             d.voiceEnabled = v;
@@ -205,7 +217,7 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
           },
         }),
         field(
-          "Громкость",
+          t("Громкость"),
           slider({
             value: d.voiceVolume,
             min: 0,
@@ -218,12 +230,12 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
           }),
         ),
         field(
-          "TTS-движок",
+          t("TTS-движок"),
           select({
             value: d.ttsEngine,
             options: [
-              { value: "pocket", label: "pocket — клонирование голоса" },
-              { value: "piper", label: "piper — быстрый, без клонирования" },
+              { value: "pocket", label: t("pocket — клонирование голоса") },
+              { value: "piper", label: t("piper — быстрый, без клонирования") },
             ],
             onChange: (v) => {
               d.ttsEngine = v as Config["ttsEngine"];
@@ -232,11 +244,11 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
           }),
         ),
         field(
-          "Референс голоса (WAV)",
+          t("Референс голоса (WAV)"),
           textInput({
             value: d.voiceReferencePath,
             mono: true,
-            placeholder: "путь к WAV-референсу, пусто = встроенный голос",
+            placeholder: t("путь к WAV-референсу, пусто = встроенный голос"),
             onInput: (v) => {
               d.voiceReferencePath = v;
               updateDirty();
@@ -249,12 +261,12 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
 
     // ── Память ───────────────────────────────────────────────────
     const memoryCard = card(
-      "Память",
+      t("Память"),
       h(
         "div",
         { class: "form-grid form-grid--single" },
         toggle({
-          label: "Автоизвлечение фактов из диалога",
+          label: t("Автоизвлечение фактов из диалога"),
           checked: d.autoMemory,
           onChange: (v) => {
             d.autoMemory = v;
@@ -265,24 +277,37 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
     );
     memoryCard.classList.add("col-6");
 
-    // ── Оформление (этап 5: светлая тема переключается и здесь) ──
+    // ── Оформление (этап 5: светлая тема, язык интерфейса) ───────
     const appearanceCard = card(
-      "Оформление",
+      t("Оформление"),
       h(
         "div",
         { class: "form-grid form-grid--single" },
         toggle({
-          label: "Светлая тема",
+          label: t("Светлая тема"),
           checked: currentTheme() === "light",
           onChange: (v) => {
             setTheme(v ? "light" : "dark");
             logEvent(`Тема переключена: ${v ? "светлая" : "тёмная"}`);
           },
         }),
+        field(
+          t("Язык интерфейса"),
+          select({
+            value: lang(),
+            options: [
+              { value: "ru", label: "Русский" },
+              { value: "en", label: "English" },
+            ],
+            // Смена языка перерисовывает экран (main.ts слушает onLangChange).
+            onChange: (v) => setLang(v as Lang),
+          }),
+          t("Смена применяется сразу"),
+        ),
         h("p", {
           class: "panel-note",
-          text: "Тёмная тема — по умолчанию. CSS-анимации автоматически "
-            + "сокращаются при системной настройке «уменьшить движение».",
+          text: t("Тёмная тема — по умолчанию. CSS-анимации автоматически "
+            + "сокращаются при системной настройке «уменьшить движение»."),
         }),
       ),
     );
@@ -290,13 +315,13 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
 
     // ── О программе ──────────────────────────────────────────────
     const aboutCard = card(
-      "О программе",
+      t("О программе"),
       keyValue([
-        { key: "Версия", value: health?.version ?? "—" },
-        { key: "Ветка", value: health?.branch ?? "—" },
-        { key: "Схема конфига", value: `v${d.version}` },
-        { key: "Файл", value: "config/config.json" },
-        { key: "API-контракт", value: "docs/api/openapi.yaml" },
+        { key: t("Версия"), value: health?.version ?? "—" },
+        { key: t("Ветка"), value: health?.branch ?? "—" },
+        { key: t("Схема конфига"), value: `v${d.version}` },
+        { key: t("Файл"), value: "config/config.json" },
+        { key: t("API-контракт"), value: "docs/api/openapi.yaml" },
       ]),
     );
     aboutCard.classList.add("col-6");

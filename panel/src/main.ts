@@ -9,6 +9,7 @@ import "./styles/components.css";
 
 import { apiGet, type Health } from "./api";
 import { logEvent } from "./events";
+import { initLang, onLangChange, t } from "./i18n";
 import { initToasts } from "./ui";
 import { navigate, registerRoute, startRouter } from "./router";
 import { createShell } from "./shell";
@@ -24,6 +25,9 @@ import { processesScreen } from "./screens/processes";
 import { appsScreen } from "./screens/apps";
 import { pluginsScreen } from "./screens/plugins";
 import { logsScreen } from "./screens/logs";
+
+// Язык (этап 5, i18n) читается до создания оболочки.
+initLang();
 
 const theme = initTheme();
 const shell = createShell((path) => navigate(path));
@@ -57,7 +61,7 @@ registerRoute({ path: "/plugins", title: "Плагины", factory: pluginsScree
 registerRoute({ path: "/logs", title: "Логи", factory: logsScreen });
 
 startRouter(shell.content, (route) => {
-  shell.setTitle(route.title);
+  shell.setTitle(t(route.title));
   shell.setActive(route.path);
 });
 
@@ -65,17 +69,24 @@ startRouter(shell.content, (route) => {
 async function refreshStatus(): Promise<void> {
   try {
     const health = await apiGet<Health>("/api/health");
-    const ollama = health.ollama === "ok" ? "Ollama OK" : "Ollama недоступен";
-    const whisper = health.whisper === "ok" ? "Whisper OK" : "Whisper отсутствует";
+    const ollama = health.ollama === "ok" ? "Ollama OK" : t("Ollama недоступен");
+    const whisper = health.whisper === "ok" ? "Whisper OK" : t("Whisper отсутствует");
+    const memory = t("память: {count}", { count: health.memory.count });
 
-    shell.statusLeft.textContent = `● ${ollama} · ${whisper} · ${health.tts.engine} · память: ${health.memory.count}`;
+    shell.statusLeft.textContent = `● ${ollama} · ${whisper} · ${health.tts.engine} · ${memory}`;
     shell.statusRight.textContent = `${health.branch} · ${health.version}`;
   } catch {
-    shell.statusLeft.textContent = "● панель не отвечает";
+    shell.statusLeft.textContent = t("● панель не отвечает");
   }
 }
 
 void refreshStatus();
 window.setInterval(() => void refreshStatus(), 20_000);
+
+// Смена языка (этап 5): перерисовываем текущий экран и статус-строку.
+onLangChange(() => {
+  navigate(window.location.pathname);
+  void refreshStatus();
+});
 
 logEvent("Панель запущена");

@@ -5,6 +5,7 @@
 
 import { ApiError, apiGet, apiPost, type AppList, type AppReindexResponse } from "../api";
 import { logEvent } from "../events";
+import { t } from "../i18n";
 import {
   badge,
   button,
@@ -35,7 +36,7 @@ export const appsScreen: ScreenFactory = (container): Cleanup => {
 
   const searchInput = textInput({
     value: "",
-    placeholder: "Поиск по имени или алиасу…",
+    placeholder: t("Поиск по имени или алиасу…"),
     onInput: (value) => {
       window.clearTimeout(searchTimer);
       searchTimer = window.setTimeout(() => {
@@ -47,12 +48,12 @@ export const appsScreen: ScreenFactory = (container): Cleanup => {
     },
   });
 
-  const reindexButton = button("Переиндексировать", () => void reindex(), "primary");
+  const reindexButton = button(t("Переиндексировать"), () => void reindex(), "primary");
 
   container.appendChild(
     pageHeader(
-      "Приложения",
-      "Индекс сканеров (реестр, меню «Пуск», AppPaths, LocalAppData) для голосового запуска",
+      t("Приложения"),
+      t("Индекс сканеров (реестр, меню «Пуск», AppPaths, LocalAppData) для голосового запуска"),
       [reindexButton],
     ),
   );
@@ -84,7 +85,7 @@ export const appsScreen: ScreenFactory = (container): Cleanup => {
     updateControls();
 
     clear(list);
-    list.appendChild(loadingRow("Загрузка приложений…"));
+    list.appendChild(loadingRow(t("Загрузка приложений…")));
 
     try {
       const params = new URLSearchParams();
@@ -96,7 +97,8 @@ export const appsScreen: ScreenFactory = (container): Cleanup => {
     } catch (error) {
       if (cancelled) return;
 
-      const message = error instanceof ApiError ? error.message : "Неизвестная ошибка";
+      // Сообщение ошибки приходит с сервера — его не переводим.
+      const message = error instanceof ApiError ? error.message : t("Неизвестная ошибка");
       errorBox.textContent = message;
       errorBox.hidden = false;
       total = 0;
@@ -105,12 +107,12 @@ export const appsScreen: ScreenFactory = (container): Cleanup => {
       list.appendChild(
         emptyState({
           icon: "⚠️",
-          title: "Не удалось загрузить приложения",
+          title: t("Не удалось загрузить приложения"),
           hint: message,
-          action: { label: "Повторить", onClick: () => void load() },
+          action: { label: t("Повторить"), onClick: () => void load() },
         }),
       );
-      toast("Ошибка загрузки приложений", "danger");
+      toast(t("Ошибка загрузки приложений"), "danger");
       logEvent(`Ошибка приложений: ${message}`);
     } finally {
       loading = false;
@@ -126,22 +128,22 @@ export const appsScreen: ScreenFactory = (container): Cleanup => {
       list.appendChild(
         emptyState({
           icon: "🧩",
-          title: query ? "Ничего не найдено" : "Индекс пуст",
+          title: query ? t("Ничего не найдено") : t("Индекс пуст"),
           hint: query
-            ? `По запросу «${query}» совпадений нет.`
-            : "Нажмите «Переиндексировать», чтобы сканеры собрали установленные приложения.",
-          action: query ? undefined : { label: "Переиндексировать", onClick: () => void reindex() },
+            ? t("По запросу «{query}» совпадений нет.", { query })
+            : t("Нажмите «Переиндексировать», чтобы сканеры собрали установленные приложения."),
+          action: query ? undefined : { label: t("Переиндексировать"), onClick: () => void reindex() },
         }),
       );
-      countLabel.textContent = "приложений: 0";
+      countLabel.textContent = t("приложений: {count}", { count: 0 });
       return;
     }
 
     list.appendChild(buildTable(items));
 
     countLabel.textContent = query
-      ? `найдено ${items.length} по «${query}» из ${total}`
-      : `приложений: ${total}`;
+      ? t("найдено {count} по «{query}» из {total}", { count: items.length, query, total })
+      : t("приложений: {count}", { count: total });
   }
 
   function buildTable(items: AppList["items"]): HTMLElement {
@@ -151,12 +153,12 @@ export const appsScreen: ScreenFactory = (container): Cleanup => {
       h(
         "tr",
         {},
-        h("th", { text: "Название" }),
-        h("th", { text: "Категория" }),
-        h("th", { text: "Сканер" }),
-        h("th", { text: "Приоритет" }),
-        h("th", { text: "Алиасы" }),
-        h("th", { text: "Путь" }),
+        h("th", { text: t("Название") }),
+        h("th", { text: t("Категория") }),
+        h("th", { text: t("Сканер") }),
+        h("th", { text: t("Приоритет") }),
+        h("th", { text: t("Алиасы") }),
+        h("th", { text: t("Путь") }),
       ),
     );
 
@@ -193,14 +195,14 @@ export const appsScreen: ScreenFactory = (container): Cleanup => {
 
       if (cancelled) return;
 
-      toast(`Найдено приложений: ${result.count} за ${result.durationMs} мс`, "ok");
+      toast(t("Найдено приложений: {count} за {ms} мс", { count: result.count, ms: result.durationMs }), "ok");
       logEvent(`Индекс приложений обновлён: ${result.count} за ${result.durationMs} мс`);
       await load();
     } catch (error) {
       if (cancelled) return;
 
-      const message = error instanceof ApiError ? error.message : "Неизвестная ошибка";
-      toast(`Переиндексация не удалась: ${message}`, "danger");
+      const message = error instanceof ApiError ? error.message : t("Неизвестная ошибка");
+      toast(t("Переиндексация не удалась: {message}", { message }), "danger");
       logEvent(`Ошибка переиндексации: ${message}`);
     } finally {
       busy = false;

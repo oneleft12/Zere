@@ -3,6 +3,8 @@
  * Только textContent — никакой HTML-интерполяции (защита от XSS, P1-6).
  */
 
+import { t } from "./i18n";
+
 export type Child = Node | string | number | null | undefined | Child[];
 
 export interface Attrs {
@@ -273,7 +275,7 @@ export function emptyState(opts: {
 
 // ── 12. Spinner / загрузка ───────────────────────────────────────
 
-export function loadingRow(label = "Загрузка…"): HTMLElement {
+export function loadingRow(label = t("Загрузка…")): HTMLElement {
   return h(
     "div",
     { class: "loading-row" },
@@ -438,8 +440,8 @@ export function confirmDialog(opts: {
       title: opts.title,
       body: opts.message,
       actions: [
-        { label: "Отмена", onClick: () => finish(false) },
-        { label: opts.confirmLabel ?? "Подтвердить", variant: "danger", onClick: () => finish(true) },
+        { label: t("Отмена"), onClick: () => finish(false) },
+        { label: opts.confirmLabel ?? t("Подтвердить"), variant: "danger", onClick: () => finish(true) },
       ],
       onClose: () => finish(false),
     });

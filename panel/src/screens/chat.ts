@@ -8,6 +8,7 @@
 
 import { ApiError, apiSse } from "../api";
 import { logEvent } from "../events";
+import { t } from "../i18n";
 import { badge, button, clear, emptyState, h, loadingRow, pageHeader, textInput, toast } from "../ui";
 import type { Cleanup, ScreenFactory } from "../router";
 
@@ -25,15 +26,15 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
   let controller: AbortController | null = null;
   let pendingEl: HTMLElement | null = null;
 
-  const log = h("div", { class: "chat__log", role: "log", ariaLabel: "Диалог с ассистентом" });
+  const log = h("div", { class: "chat__log", role: "log", ariaLabel: t("Диалог с ассистентом") });
 
-  const status = h("span", { class: "chat__hint", text: "Enter — отправить" });
+  const status = h("span", { class: "chat__hint", text: t("Enter — отправить") });
 
-  const sendButton = button("Отправить", () => void send(), "primary");
+  const sendButton = button(t("Отправить"), () => void send(), "primary");
 
   const input = textInput({
     value: "",
-    placeholder: "Спросите JARVIS…",
+    placeholder: t("Спросите JARVIS…"),
     onInput: (value) => {
       draft = value;
     },
@@ -60,9 +61,9 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
 
   container.appendChild(
     pageHeader(
-      "Чат",
-      "Ответ приходит потоком (SSE) и сразу сохраняется в истории диалогов",
-      [badge("SSE-стрим", "accent")],
+      t("Чат"),
+      t("Ответ приходит потоком (SSE) и сразу сохраняется в истории диалогов"),
+      [badge(t("SSE-стрим"), "accent")],
     ),
   );
   container.appendChild(log);
@@ -81,8 +82,8 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
       log.appendChild(
         emptyState({
           icon: "💬",
-          title: "Начните диалог",
-          hint: "Спросите JARVIS о процессах, файлах или погоде — ответ придёт потоком и попадёт в историю.",
+          title: t("Начните диалог"),
+          hint: t("Спросите JARVIS о процессах, файлах или погоде — ответ придёт потоком и попадёт в историю."),
         }),
       );
       return;
@@ -118,7 +119,7 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
     busy = value;
     input.disabled = value;
     sendButton.disabled = value;
-    status.textContent = value ? "JARVIS отвечает…" : "Enter — отправить";
+    status.textContent = value ? t("JARVIS отвечает…") : t("Enter — отправить");
   }
 
   // ── Отправка ───────────────────────────────────────────────────
@@ -135,7 +136,7 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
     // Пузырь ответа живёт до конца стрима — дописываем токены в него,
     // а не перерисовываем лог на каждое событие.
     pendingEl = log.lastElementChild as HTMLElement;
-    pendingEl.appendChild(loadingRow("Думаю…"));
+    pendingEl.appendChild(loadingRow(t("Думаю…")));
     setBusy(true);
 
     draft = "";
@@ -167,10 +168,10 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
       if (cancelled) return;
 
       const message =
-        error instanceof ApiError ? error.message : "Неизвестная ошибка";
+        error instanceof ApiError ? error.message : t("Неизвестная ошибка");
       answer.text = message;
       answer.error = true;
-      toast("Не удалось получить ответ", "danger");
+      toast(t("Не удалось получить ответ"), "danger");
       logEvent(`Ошибка чата: ${message}`);
     } finally {
       controller = null;

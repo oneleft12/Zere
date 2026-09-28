@@ -13,6 +13,7 @@ import {
   type VoiceSettingsApplied,
 } from "../api";
 import { logEvent } from "../events";
+import { t } from "../i18n";
 import {
   badge,
   button,
@@ -63,12 +64,12 @@ function isDirty(base: VoiceSettings, draft: Draft): boolean {
 export const voiceScreen: ScreenFactory = (container): Cleanup => {
   let cancelled = false;
 
-  container.appendChild(loadingRow("Загрузка голосовых настроек…"));
+  container.appendChild(loadingRow(t("Загрузка голосовых настроек…")));
 
   const load = async (): Promise<void> => {
     if (cancelled) return;
     clear(container);
-    container.appendChild(loadingRow("Загрузка голосовых настроек…"));
+    container.appendChild(loadingRow(t("Загрузка голосовых настроек…")));
 
     try {
       const settings = await apiGet<VoiceSettings>("/api/voice");
@@ -81,9 +82,9 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
       container.appendChild(
         emptyState({
           icon: "⚠️",
-          title: "Не удалось загрузить голосовые настройки",
-          hint: error instanceof ApiError ? error.message : "Неизвестная ошибка",
-          action: { label: "Повторить", onClick: () => void load() },
+          title: t("Не удалось загрузить голосовые настройки"),
+          hint: error instanceof ApiError ? error.message : t("Неизвестная ошибка"),
+          action: { label: t("Повторить"), onClick: () => void load() },
         }),
       );
     }
@@ -92,8 +93,8 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
   function render(base: VoiceSettings, draft: Draft): void {
     clear(container);
 
-    const saveBtn = button("Сохранить", () => void save(), "primary");
-    const revertBtn = button("Отменить изменения", () => {
+    const saveBtn = button(t("Сохранить"), () => void save(), "primary");
+    const revertBtn = button(t("Отменить изменения"), () => {
       render(base, toDraft(base));
       logEvent("Изменения голосовых настроек отброшены");
     });
@@ -127,8 +128,8 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
 
         toast(
           applied.appliedOnRestart
-            ? "Сохранено — вступит в силу после перезапуска"
-            : "Громкость применена сразу",
+            ? t("Сохранено — вступит в силу после перезапуска")
+            : t("Громкость применена сразу"),
           applied.appliedOnRestart ? "warn" : "ok",
         );
         logEvent(
@@ -140,10 +141,10 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
       } catch (error) {
         if (cancelled) return;
 
-        const message = error instanceof Error ? error.message : "Неизвестная ошибка";
-        errorBox.textContent = `Сервер отклонил настройки: ${message}`;
+        const message = error instanceof Error ? error.message : t("Неизвестная ошибка");
+        errorBox.textContent = t("Сервер отклонил настройки: {message}", { message });
         errorBox.hidden = false;
-        toast("Ошибка сохранения голосовых настроек", "danger");
+        toast(t("Ошибка сохранения голосовых настроек"), "danger");
         logEvent("Ошибка сохранения голоса");
         saveBtn.disabled = false;
       }
@@ -151,12 +152,12 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
 
     // ── Карточка настроек ────────────────────────────────────────
     const settingsCard = card(
-      "Голосовой вывод",
+      t("Голосовой вывод"),
       h(
         "div",
         { class: "form-grid form-grid--single" },
         toggle({
-          label: "Голосовой вывод включён",
+          label: t("Голосовой вывод включён"),
           checked: draft.voiceEnabled,
           onChange: (v) => {
             draft.voiceEnabled = v;
@@ -164,7 +165,7 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
           },
         }),
         field(
-          "Громкость",
+          t("Громкость"),
           slider({
             value: draft.voiceVolume,
             min: 0,
@@ -175,29 +176,29 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
               updateDirty();
             },
           }),
-          "Применяется сразу, без перезапуска",
+          t("Применяется сразу, без перезапуска"),
         ),
         field(
-          "TTS-движок",
+          t("TTS-движок"),
           select({
             value: draft.ttsEngine,
             options: [
-              { value: "pocket", label: "pocket — клонирование голоса" },
-              { value: "piper", label: "piper — быстрый, без клонирования" },
+              { value: "pocket", label: t("pocket — клонирование голоса") },
+              { value: "piper", label: t("piper — быстрый, без клонирования") },
             ],
             onChange: (v) => {
               draft.ttsEngine = v as Draft["ttsEngine"];
               updateDirty();
             },
           }),
-          "Смена движка вступает в силу после перезапуска",
+          t("Смена движка вступает в силу после перезапуска"),
         ),
         field(
-          "Референс голоса (WAV)",
+          t("Референс голоса (WAV)"),
           textInput({
             value: draft.voiceReferencePath,
             mono: true,
-            placeholder: "путь к WAV-референсу, пусто = встроенный голос",
+            placeholder: t("путь к WAV-референсу, пусто = встроенный голос"),
             onInput: (v) => {
               draft.voiceReferencePath = v;
               updateDirty();
@@ -211,61 +212,84 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
     // ── Возможности реализации ──────────────────────────────────
     const caps = base.capabilities;
     const capsCard = card(
-      "Возможности реализации",
+      t("Возможности реализации"),
       h(
         "div",
         { class: "pill-row" },
-        badge(`запись референса: ${caps.recordReference ? "есть" : "нет"}`, caps.recordReference ? "ok" : "warn"),
-        badge(`PocketTTS: ${caps.pocketCloning ? "есть" : "нет"}`, caps.pocketCloning ? "ok" : "warn"),
-        badge(`скорость речи: ${caps.speechSpeedConfig ? "задаётся" : "фиксирована"}`, caps.speechSpeedConfig ? "ok" : "warn"),
-        badge(`громкость сразу: ${caps.liveVolumeApply ? "да" : "нет"}`, caps.liveVolumeApply ? "ok" : "warn"),
-        badge(`микрофон (STT): ${caps.sttTest ? "доступен" : "нет"}`, caps.sttTest ? "ok" : "warn"),
+        badge(
+          t("запись референса: {value}", { value: caps.recordReference ? t("есть") : t("нет") }),
+          caps.recordReference ? "ok" : "warn",
+        ),
+        badge(
+          t("PocketTTS: {value}", { value: caps.pocketCloning ? t("есть") : t("нет") }),
+          caps.pocketCloning ? "ok" : "warn",
+        ),
+        badge(
+          t("скорость речи: {value}", {
+            value: caps.speechSpeedConfig ? t("задаётся") : t("фиксирована"),
+          }),
+          caps.speechSpeedConfig ? "ok" : "warn",
+        ),
+        badge(
+          t("громкость сразу: {value}", { value: caps.liveVolumeApply ? t("да") : t("нет") }),
+          caps.liveVolumeApply ? "ok" : "warn",
+        ),
+        badge(
+          t("микрофон (STT): {value}", { value: caps.sttTest ? t("доступен") : t("нет") }),
+          caps.sttTest ? "ok" : "warn",
+        ),
       ),
       h("p", {
         class: "panel-note",
-        text: "Значения честные для текущей реализации: C# умеет больше, "
-          + "Python-порт отдаёт false там, где функции ещё нет — панель это показывает, "
-          + "а не скрывает.",
+        text: t(
+          "Значения честные для текущей реализации: C# умеет больше, "
+            + "Python-порт отдаёт false там, где функции ещё нет — панель это показывает, "
+            + "а не скрывает.",
+        ),
       }),
       keyValue([
-        { key: "Референс", value: base.voiceReferencePath || "—" },
-        { key: "Движок", value: base.ttsEngine },
+        { key: t("Референс"), value: base.voiceReferencePath || "—" },
+        { key: t("Движок"), value: base.ttsEngine },
       ]),
     );
     capsCard.classList.add("col-6");
 
     // ── Тесты ────────────────────────────────────────────────────
-    let testText = "Проверка голоса. Привет!";
+    let testText = t("Проверка голоса. Привет!");
 
     const testInput = textInput({
       value: testText,
-      placeholder: "Фраза для озвучки (до 500 символов)",
+      placeholder: t("Фраза для озвучки (до 500 символов)"),
       onInput: (v) => {
         testText = v;
       },
     });
 
-    const speakBtn = button("Озвучить", () => void speak(), "primary");
+    const speakBtn = button(t("Озвучить"), () => void speak(), "primary");
 
-    const recordBtn = button("Записать референс (15 с)", () => void recordReference(), "default");
+    const recordBtn = button(t("Записать референс (15 с)"), () => void recordReference(), "default");
     recordBtn.disabled = !caps.recordReference;
-    if (!caps.recordReference) recordBtn.title = "Эта реализация не записывает референс (capabilities.recordReference=false)";
+    if (!caps.recordReference) {
+      recordBtn.title = t(
+        "Эта реализация не записывает референс (capabilities.recordReference=false)",
+      );
+    }
 
-    const listenBtn = button("Тест микрофона", () => void listen());
+    const listenBtn = button(t("Тест микрофона"), () => void listen());
     listenBtn.disabled = !caps.sttTest;
-    if (!caps.sttTest) listenBtn.title = "STT сейчас недоступен (capabilities.sttTest=false)";
+    if (!caps.sttTest) listenBtn.title = t("STT сейчас недоступен (capabilities.sttTest=false)");
 
     async function speak(): Promise<void> {
       testErrorBox.hidden = true;
 
       const text = testText.trim();
       if (!text) {
-        testErrorBox.textContent = "Введите фразу для озвучки.";
+        testErrorBox.textContent = t("Введите фразу для озвучки.");
         testErrorBox.hidden = false;
         return;
       }
       if (text.length > MAX_TEST_TEXT) {
-        testErrorBox.textContent = `Фраза длиннее ${MAX_TEST_TEXT} символов.`;
+        testErrorBox.textContent = t("Фраза длиннее {max} символов.", { max: MAX_TEST_TEXT });
         testErrorBox.hidden = false;
         return;
       }
@@ -277,15 +301,15 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
 
         if (cancelled) return;
 
-        toast("Фраза озвучена", "ok");
+        toast(t("Фраза озвучена"), "ok");
         logEvent(`Тест озвучки: «${text.slice(0, 40)}»`);
       } catch (error) {
         if (cancelled) return;
 
-        const message = error instanceof ApiError ? error.message : "Неизвестная ошибка";
+        const message = error instanceof ApiError ? error.message : t("Неизвестная ошибка");
         testErrorBox.textContent = message;
         testErrorBox.hidden = false;
-        toast("Тест озвучки не удался", "danger");
+        toast(t("Тест озвучки не удался"), "danger");
         logEvent(`Ошибка теста озвучки: ${message}`);
       } finally {
         if (!cancelled) speakBtn.disabled = false;
@@ -296,13 +320,15 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
       testErrorBox.hidden = true;
 
       const confirmed = await confirmDialog({
-        title: "Записать референс голоса?",
-        message: "Микрофон запишет 15 секунд вашей речи для клонирования голоса. Говорите чётко и без шума.",
-        confirmLabel: "Начать запись",
+        title: t("Записать референс голоса?"),
+        message: t(
+          "Микрофон запишет 15 секунд вашей речи для клонирования голоса. Говорите чётко и без шума.",
+        ),
+        confirmLabel: t("Начать запись"),
       });
 
       if (!confirmed) {
-        toast("Запись референса отменена", "plain");
+        toast(t("Запись референса отменена"), "plain");
         logEvent("Запись референса отклонена пользователем");
         return;
       }
@@ -315,16 +341,16 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
         if (cancelled) return;
 
         base = { ...base, voiceReferencePath: result.voiceReferencePath };
-        toast("Референс записан и сохранён в конфигурации", "ok");
+        toast(t("Референс записан и сохранён в конфигурации"), "ok");
         logEvent(`Референс голоса записан: ${result.voiceReferencePath}`);
         render(base, toDraft(base));
       } catch (error) {
         if (cancelled) return;
 
-        const message = error instanceof ApiError ? error.message : "Неизвестная ошибка";
+        const message = error instanceof ApiError ? error.message : t("Неизвестная ошибка");
         testErrorBox.textContent = message;
         testErrorBox.hidden = false;
-        toast("Запись референса не удалась", "danger");
+        toast(t("Запись референса не удалась"), "danger");
         logEvent(`Ошибка записи референса: ${message}`);
         recordBtn.disabled = !caps.recordReference;
       }
@@ -342,18 +368,18 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
         if (cancelled) return;
 
         testResult.textContent = result.text
-          ? `Распознано: «${result.text}»`
-          : "Микрофон ничего не распознал.";
+          ? t("Распознано: «{text}»", { text: result.text })
+          : t("Микрофон ничего не распознал.");
         testResult.hidden = false;
-        toast("Распознавание выполнено", "ok");
+        toast(t("Распознавание выполнено"), "ok");
         logEvent(`Тест микрофона: «${result.text.slice(0, 60)}»`);
       } catch (error) {
         if (cancelled) return;
 
-        const message = error instanceof ApiError ? error.message : "Неизвестная ошибка";
+        const message = error instanceof ApiError ? error.message : t("Неизвестная ошибка");
         testErrorBox.textContent = message;
         testErrorBox.hidden = false;
-        toast("Тест микрофона не удался", "danger");
+        toast(t("Тест микрофона не удался"), "danger");
         logEvent(`Ошибка теста микрофона: ${message}`);
       } finally {
         if (!cancelled) listenBtn.disabled = !caps.sttTest;
@@ -361,11 +387,15 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
     }
 
     const testCard = card(
-      "Тестирование",
+      t("Тестирование"),
       h(
         "div",
         { class: "form-grid form-grid--single" },
-        field("Фраза для озвучки", testInput, "Синтез через активный движок; 503 — TTS не инициализирован"),
+        field(
+          t("Фраза для озвучки"),
+          testInput,
+          t("Синтез через активный движок; 503 — TTS не инициализирован"),
+        ),
         h("div", { class: "row-actions" }, speakBtn, recordBtn, listenBtn),
         testErrorBox,
         testResult,
@@ -376,8 +406,8 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
     // ── Сборка ───────────────────────────────────────────────────
     container.append(
       pageHeader(
-        "Голос",
-        "Настройки voiceVolume/ttsEngine/… через POST /api/voice; тесты ходят в живой VoiceManager",
+        t("Голос"),
+        t("Настройки voiceVolume/ttsEngine/… через POST /api/voice; тесты ходят в живой VoiceManager"),
         [revertBtn, saveBtn],
       ),
       errorBox,

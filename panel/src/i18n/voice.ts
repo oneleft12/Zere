@@ -1,0 +1,91 @@
+/**
+ * Словарь EN для экрана «voice» (этап 5, i18n ru→en).
+ * Ключ — точная русская строка, переданная в t(); значение — перевод.
+ * Плейсхолдеры {var} сохраняются как есть.
+ */
+export const VOICE_EN: Record<string, string> = {
+  // ── Шапка и загрузка ──────────────────────────────────────────
+  "Голос": "Voice",
+  "Настройки voiceVolume/ttsEngine/… через POST /api/voice; тесты ходят в живой VoiceManager":
+    "Settings voiceVolume/ttsEngine/… via POST /api/voice; tests hit the live VoiceManager",
+  "Загрузка голосовых настроек…": "Loading voice settings…",
+  "Не удалось загрузить голосовые настройки": "Failed to load voice settings",
+  "Неизвестная ошибка": "Unknown error",
+  "Повторить": "Retry",
+
+  // ── Кнопки и сохранение ───────────────────────────────────────
+  "Сохранить": "Save",
+  "Отменить изменения": "Revert changes",
+  "Сохранено — вступит в силу после перезапуска": "Saved — takes effect after restart",
+  "Громкость применена сразу": "Volume applied immediately",
+  "Сервер отклонил настройки: {message}": "The server rejected the settings: {message}",
+  "Ошибка сохранения голосовых настроек": "Failed to save voice settings",
+
+  // ── Карточка настроек ─────────────────────────────────────────
+  "Голосовой вывод": "Voice output",
+  "Голосовой вывод включён": "Voice output enabled",
+  "Громкость": "Volume",
+  "Применяется сразу, без перезапуска": "Applied immediately, without a restart",
+  "TTS-движок": "TTS engine",
+  "pocket — клонирование голоса": "pocket — voice cloning",
+  "piper — быстрый, без клонирования": "piper — fast, no cloning",
+  "Смена движка вступает в силу после перезапуска": "Engine change takes effect after restart",
+  "Референс голоса (WAV)": "Voice reference (WAV)",
+  "путь к WAV-референсу, пусто = встроенный голос":
+    "path to the WAV reference, empty = built-in voice",
+
+  // ── Возможности реализации ────────────────────────────────────
+  "Возможности реализации": "Implementation capabilities",
+  "запись референса: {value}": "reference recording: {value}",
+  "PocketTTS: {value}": "PocketTTS: {value}",
+  "скорость речи: {value}": "speech speed: {value}",
+  "громкость сразу: {value}": "instant volume: {value}",
+  "микрофон (STT): {value}": "microphone (STT): {value}",
+  "есть": "yes",
+  "нет": "no",
+  "да": "yes",
+  "задаётся": "configurable",
+  "фиксирована": "fixed",
+  "доступен": "available",
+  "Значения честные для текущей реализации: C# умеет больше, Python-порт отдаёт false там, где функции ещё нет — панель это показывает, а не скрывает.":
+    "The values are honest for the current implementation: C# can do more, "
+      + "the Python port returns false where a feature does not exist yet — "
+      + "the panel shows that instead of hiding it.",
+  "Референс": "Reference",
+  "Движок": "Engine",
+
+  // ── Тестирование ──────────────────────────────────────────────
+  "Тестирование": "Testing",
+  "Фраза для озвучки": "Phrase to speak",
+  "Фраза для озвучки (до 500 символов)": "Phrase to speak (up to 500 characters)",
+  "Синтез через активный движок; 503 — TTS не инициализирован":
+    "Synthesis via the active engine; 503 — TTS is not initialized",
+  "Проверка голоса. Привет!": "Voice test. Hello!",
+  "Озвучить": "Speak",
+  "Записать референс (15 с)": "Record reference (15 s)",
+  "Эта реализация не записывает референс (capabilities.recordReference=false)":
+    "This implementation cannot record a reference (capabilities.recordReference=false)",
+  "Тест микрофона": "Microphone test",
+  "STT сейчас недоступен (capabilities.sttTest=false)":
+    "STT is currently unavailable (capabilities.sttTest=false)",
+  "Введите фразу для озвучки.": "Enter a phrase to speak.",
+  "Фраза длиннее {max} символов.": "The phrase is longer than {max} characters.",
+  "Фраза озвучена": "Phrase spoken",
+  "Тест озвучки не удался": "Speech test failed",
+
+  // ── Запись референса ──────────────────────────────────────────
+  "Записать референс голоса?": "Record a voice reference?",
+  "Микрофон запишет 15 секунд вашей речи для клонирования голоса. Говорите чётко и без шума.":
+    "The microphone will record 15 seconds of your speech for voice cloning. Speak clearly and avoid noise.",
+  "Начать запись": "Start recording",
+  "Запись референса отменена": "Reference recording cancelled",
+  "Референс записан и сохранён в конфигурации":
+    "Reference recorded and saved to the configuration",
+  "Запись референса не удалась": "Reference recording failed",
+
+  // ── Распознавание ─────────────────────────────────────────────
+  "Распознано: «{text}»": "Recognized: “{text}”",
+  "Микрофон ничего не распознал.": "The microphone did not recognize anything.",
+  "Распознавание выполнено": "Recognition complete",
+  "Тест микрофона не удался": "Microphone test failed",
+};

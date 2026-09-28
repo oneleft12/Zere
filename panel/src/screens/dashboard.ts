@@ -5,6 +5,7 @@
 
 import { apiGet, type Config, type Health, type Personality } from "../api";
 import { getEvents, logEvent, subscribeEvents } from "../events";
+import { t } from "../i18n";
 import {
   button,
   card,
@@ -51,8 +52,8 @@ function formatTime(date: Date): string {
 
 export const dashboardScreen: ScreenFactory = (container): Cleanup => {
   container.appendChild(
-    pageHeader("Дашборд", "Состояние сервисов ассистента", [
-      button("Обновить", () => {
+    pageHeader(t("Дашборд"), t("Состояние сервисов ассистента"), [
+      button(t("Обновить"), () => {
         logEvent("Обновление статусов по кнопке");
         void load();
       }, "primary"),
@@ -63,7 +64,7 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
   container.appendChild(body);
 
   const eventsCard = card(
-    "Последние события",
+    t("Последние события"),
     h("div", { class: "events-box" }),
   );
 
@@ -77,7 +78,7 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
 
     if (items.length === 0) {
       box.appendChild(
-        emptyState({ icon: "🗒", title: "Событий пока нет", hint: "Здесь появятся действия в этой сессии панели." }),
+        emptyState({ icon: "🗒", title: t("Событий пока нет"), hint: t("Здесь появятся действия в этой сессии панели.") }),
       );
       return;
     }
@@ -105,43 +106,43 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
       { class: "pill-row" },
       statusPill({
         label: "Ollama",
-        value: health.ollama === "ok" ? "OK" : "недоступен",
+        value: health.ollama === "ok" ? "OK" : t("недоступен"),
         state: health.ollama === "ok" ? "ok" : "danger",
       }),
-      statusPill({ label: "Модель", value: config.model, state: "ok" }),
+      statusPill({ label: t("Модель"), value: config.model, state: "ok" }),
       statusPill({
         label: "Whisper",
-        value: health.whisper === "ok" ? "OK" : "отсутствует",
+        value: health.whisper === "ok" ? "OK" : t("отсутствует"),
         state: health.whisper === "ok" ? "ok" : "warn",
       }),
-      statusPill({ label: "TTS-движок", value: health.tts.engine, state: "ok" }),
-      statusPill({ label: "Память", value: `${health.memory.count}`, state: "ok" }),
+      statusPill({ label: t("TTS-движок"), value: health.tts.engine, state: "ok" }),
+      statusPill({ label: t("Память"), value: `${health.memory.count}`, state: "ok" }),
     );
 
     const metrics = h(
       "div",
       { class: "metrics-row" },
-      metric(personality?.activeStyle ?? "—", "Стиль личности"),
-      metric(`${Math.round(config.voiceVolume * 100)}%`, "Громкость голоса"),
-      metric(`${config.ollamaTimeoutMinutes} мин`, "Таймаут Ollama"),
-      metric(health.version, "Версия", `ветка ${health.branch}`),
+      metric(personality?.activeStyle ?? "—", t("Стиль личности")),
+      metric(`${Math.round(config.voiceVolume * 100)}%`, t("Громкость голоса")),
+      metric(t("{value} мин", { value: config.ollamaTimeoutMinutes }), t("Таймаут Ollama")),
+      metric(health.version, t("Версия"), t("ветка {branch}", { branch: health.branch })),
     );
 
-    const statusesCard = card("Статусы", pills);
+    const statusesCard = card(t("Статусы"), pills);
     statusesCard.classList.add("col-12");
 
-    const metricsCard = card("Метрики", metrics);
+    const metricsCard = card(t("Метрики"), metrics);
     metricsCard.classList.add("col-6");
 
     eventsCard.classList.add("col-6");
 
     const actionsCard = card(
-      "Быстрые действия",
+      t("Быстрые действия"),
       h(
         "div",
         { class: "pill-row" },
-        button("Настройки", () => navigate("/settings")),
-        button("Личности", () => navigate("/personalities")),
+        button(t("Настройки"), () => navigate("/settings")),
+        button(t("Личности"), () => navigate("/personalities")),
       ),
     );
     actionsCard.classList.add("col-12");
@@ -157,16 +158,16 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
   function renderError(error: unknown): void {
     clear(body);
 
-    const message = error instanceof Error ? error.message : "Неизвестная ошибка";
+    const message = error instanceof Error ? error.message : t("Неизвестная ошибка");
     body.appendChild(
       h(
         "div",
         { class: "col-12" },
         emptyState({
           icon: "⚠️",
-          title: "Не удалось загрузить статусы",
+          title: t("Не удалось загрузить статусы"),
           hint: message,
-          action: { label: "Повторить", onClick: () => void load() },
+          action: { label: t("Повторить"), onClick: () => void load() },
         }),
       ),
     );
@@ -174,7 +175,7 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
 
   async function load(): Promise<void> {
     clear(body);
-    body.appendChild(h("div", { class: "col-12" }, loadingRow("Опрос сервисов…")));
+    body.appendChild(h("div", { class: "col-12" }, loadingRow(t("Опрос сервисов…"))));
 
     try {
       renderData(await fetchData());

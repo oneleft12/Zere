@@ -7,6 +7,7 @@
 
 import { ApiError, apiGet, apiPost, type Personality } from "../api";
 import { logEvent } from "../events";
+import { t } from "../i18n";
 import {
   badge,
   clear,
@@ -38,9 +39,9 @@ export const personalitiesScreen: ScreenFactory = (container): Cleanup => {
       container.appendChild(
         emptyState({
           icon: "⚠️",
-          title: "Не удалось загрузить личности",
-          hint: error ?? "Неизвестная ошибка",
-          action: { label: "Повторить", onClick: () => void load() },
+          title: t("Не удалось загрузить личности"),
+          hint: error ?? t("Неизвестная ошибка"),
+          action: { label: t("Повторить"), onClick: () => void load() },
         }),
       );
       return;
@@ -50,9 +51,9 @@ export const personalitiesScreen: ScreenFactory = (container): Cleanup => {
 
     container.appendChild(
       pageHeader(
-        "Личности",
-        `Активная личность: ${p.activeId} · стиль ${p.activeStyle}`,
-        [badge(`стилей: ${p.styles.length}`, "accent")],
+        t("Личности"),
+        t("Активная личность: {id} · стиль {style}", { id: p.activeId, style: p.activeStyle }),
+        [badge(t("стилей: {count}", { count: p.styles.length }), "accent")],
       ),
     );
 
@@ -64,7 +65,7 @@ export const personalitiesScreen: ScreenFactory = (container): Cleanup => {
       h(
         "div",
         { class: "panel-note" },
-        "Стиль сохраняется в config/plugins.json и переживает рестарт ассистента.",
+        t("Стиль сохраняется в config/plugins.json и переживает рестарт ассистента."),
       ),
     );
 
@@ -86,9 +87,9 @@ export const personalitiesScreen: ScreenFactory = (container): Cleanup => {
           "div",
           { class: "style-card__head" },
           h("span", { class: "style-card__name", text: style }),
-          isActive ? badge("активный", "accent") : null,
+          isActive ? badge(t("активный"), "accent") : null,
         ),
-        h("div", { class: "style-card__desc", text: meta?.description ?? "Описание появится позже" }),
+        h("div", { class: "style-card__desc", text: meta ? t(meta.description) : t("Описание появится позже") }),
         h("span", {
           class: "style-card__temp",
           text: meta ? `t = ${meta.temperature}` : "t = —",
@@ -113,22 +114,22 @@ export const personalitiesScreen: ScreenFactory = (container): Cleanup => {
 
       pending = false;
       render(updated);
-      toast(`Стиль «${updated.activeStyle}» сохранён — переживёт рестарт`, "ok");
+      toast(t("Стиль «{name}» сохранён — переживёт рестарт", { name: updated.activeStyle }), "ok");
       logEvent(`Стиль личности изменён: ${updated.activeStyle}`);
     } catch (error) {
       if (cancelled) return;
 
       pending = false;
-      const message = error instanceof ApiError ? error.message : "Неизвестная ошибка";
+      const message = error instanceof ApiError ? error.message : t("Неизвестная ошибка");
       render(previous, message);
-      toast("Не удалось сменить стиль", "danger");
+      toast(t("Не удалось сменить стиль"), "danger");
       logEvent(`Ошибка смены стиля: ${message}`);
     }
   };
 
   const load = async (): Promise<void> => {
     clear(container);
-    container.appendChild(loadingRow("Загрузка личностей…"));
+    container.appendChild(loadingRow(t("Загрузка личностей…")));
 
     try {
       const personality = await apiGet<Personality>("/api/personality");
@@ -137,7 +138,7 @@ export const personalitiesScreen: ScreenFactory = (container): Cleanup => {
       render(personality);
     } catch (error) {
       if (cancelled) return;
-      const message = error instanceof Error ? error.message : "Неизвестная ошибка";
+      const message = error instanceof Error ? error.message : t("Неизвестная ошибка");
       render(null, message);
     }
   };

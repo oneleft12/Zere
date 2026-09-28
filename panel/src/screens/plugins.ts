@@ -6,6 +6,7 @@
 
 import { ApiError, apiGet, type PluginList } from "../api";
 import { logEvent } from "../events";
+import { t } from "../i18n";
 import {
   badge,
   button,
@@ -33,12 +34,12 @@ export const pluginsScreen: ScreenFactory = (container): Cleanup => {
   let loading = false;
 
   const body = h("div", {});
-  const refreshButton = button("Обновить", () => void load());
+  const refreshButton = button(t("Обновить"), () => void load());
 
   container.appendChild(
     pageHeader(
-      "Плагины",
-      "Только просмотр: включение обработчиков возможно после починки P1-3",
+      t("Плагины"),
+      t("Только просмотр: включение обработчиков возможно после починки P1-3"),
       [refreshButton],
     ),
   );
@@ -52,7 +53,7 @@ export const pluginsScreen: ScreenFactory = (container): Cleanup => {
     refreshButton.disabled = true;
 
     clear(body);
-    body.appendChild(loadingRow("Загрузка плагинов…"));
+    body.appendChild(loadingRow(t("Загрузка плагинов…")));
 
     try {
       const data = await apiGet<PluginList>("/api/plugins");
@@ -62,17 +63,18 @@ export const pluginsScreen: ScreenFactory = (container): Cleanup => {
     } catch (error) {
       if (cancelled) return;
 
-      const message = error instanceof ApiError ? error.message : "Неизвестная ошибка";
+      // Сообщение ошибки приходит с сервера — его не переводим.
+      const message = error instanceof ApiError ? error.message : t("Неизвестная ошибка");
       clear(body);
       body.appendChild(
         emptyState({
           icon: "⚠️",
-          title: "Не удалось загрузить плагины",
+          title: t("Не удалось загрузить плагины"),
           hint: message,
-          action: { label: "Повторить", onClick: () => void load() },
+          action: { label: t("Повторить"), onClick: () => void load() },
         }),
       );
-      toast("Ошибка загрузки плагинов", "danger");
+      toast(t("Ошибка загрузки плагинов"), "danger");
       logEvent(`Ошибка плагинов: ${message}`);
     } finally {
       loading = false;
@@ -83,26 +85,27 @@ export const pluginsScreen: ScreenFactory = (container): Cleanup => {
   function render(data: PluginList): void {
     clear(body);
 
+    const personality = data.activePersonality
+      ? `${data.activePersonality.id} · ${data.activePersonality.style}`
+      : "—";
+
     const summary = card(
-      "Состояние",
+      t("Состояние"),
       h(
         "div",
         { class: "pill-row" },
         badge(
-          `обработчики подключены: ${data.handlersConnected ? "да" : "нет"}`,
+          t(data.handlersConnected ? "обработчики подключены: да" : "обработчики подключены: нет"),
           data.handlersConnected ? "ok" : "warn",
         ),
-        badge(`командных обработчиков: ${data.commandHandlersCount}`, "plain"),
-        badge(
-          `личность: ${data.activePersonality ? `${data.activePersonality.id} · ${data.activePersonality.style}` : "—"}`,
-          "accent",
-        ),
+        badge(t("командных обработчиков: {count}", { count: data.commandHandlersCount }), "plain"),
+        badge(t("личность: {value}", { value: personality }), "accent"),
       ),
-      h("p", { class: "panel-note", text:
+      h("p", { class: "panel-note", text: t(
         "handlersConnected=false — честный флаг этапа 4: пайплайн состоит из 9 "
         + "фиксированных обработчиков, PluginManager подключает только личности. "
         + "Переключатели появятся после P1-3.",
-      }),
+      ) }),
     );
 
     const grid = h("div", { class: "grid-12 fade-in" });
@@ -116,13 +119,14 @@ export const pluginsScreen: ScreenFactory = (container): Cleanup => {
           { class: "col-12" },
           emptyState({
             icon: "🧩",
-            title: "Плагины не найдены",
-            hint: "PluginManager не загрузил ни встроенного, ни внешнего плагина.",
+            title: t("Плагины не найдены"),
+            hint: t("PluginManager не загрузил ни встроенного, ни внешнего плагина."),
           }),
         ),
       );
     } else {
       for (const plugin of data.items) {
+        // Имя, описание и метаданные плагина приходят с сервера — не переводим.
         const item = card(
           undefined,
           h(
@@ -134,8 +138,8 @@ export const pluginsScreen: ScreenFactory = (container): Cleanup => {
           h("p", { class: "panel-note", text: plugin.description }),
           keyValue([
             { key: "ID", value: plugin.id },
-            { key: "Версия", value: plugin.version },
-            { key: "Автор", value: plugin.author },
+            { key: t("Версия"), value: plugin.version },
+            { key: t("Автор"), value: plugin.author },
           ]),
         );
         item.classList.add("col-6");
