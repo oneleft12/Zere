@@ -734,6 +734,84 @@ paths:
         "503":
           $ref: "#/components/responses/NotReady"
 
+  /api/voice/mode:
+    get:
+      operationId: getVoiceMode
+      summary: >
+        Состояние непрерывного голосового режима (фоновый цикл
+        wake word → команда → ответ → озвучка): enabled/state/available
+        и последняя реплика диалога
+      tags: [voice]
+      responses:
+        "200":
+          description: Текущее состояние голосового режима
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceModeState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Метод не поддерживается
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          $ref: "#/components/responses/NotReady"
+    post:
+      operationId: setVoiceMode
+      summary: >
+        Включение/выключение непрерывного голосового режима. Включение
+        поднимает фоновый поток: слушает микрофон (со словом-триггером,
+        если wake word включён в конфиге), распознаёт команду, прогоняет
+        её через engine и озвучивает ответ; выключение останавливает
+        цикл и освобождает микрофон. Повторное включение идемпотентно
+      tags: [voice]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VoiceModeUpdate"
+      responses:
+        "200":
+          description: Состояние после применения запроса
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceModeState"
+        "400":
+          description: "Некорректное тело: enabled отсутствует, не boolean или лишний ключ"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Метод не поддерживается
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "503":
+          description: >
+            Голосовой модуль не готов или распознавание речи недоступно
+            (available=false) — режим включить нельзя
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/voice/reference:
     post:
       operationId: recordVoiceReference
@@ -1450,6 +1528,62 @@ components:
           enum: [pocket, piper]
         voiceReferencePath:
           type: string
+
+    VoiceModeState:
+      type: object
+      description: >
+        Состояние непрерывного голосового режима. state — фактическая
+        фаза фонового цикла; lastUtterance/lastAnswer — последняя
+        голосовая реплика и ответ на неё ("" — ещё не было)
+      required:
+        - enabled
+        - state
+        - available
+        - wakeWordEnabled
+        - wakeWord
+        - lastUtterance
+        - lastAnswer
+        - lastError
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+          description: Фоновый цикл запущен (включён через POST)
+        state:
+          type: string
+          enum: [idle, sleeping, listening, processing, speaking, error]
+          description: >
+            idle — выключен; sleeping — ждёт wake word; listening — слушает
+            команду; processing — генерируется ответ; speaking — озвучивается;
+            error — цикл остановился с ошибкой (lastError)
+        available:
+          type: boolean
+          description: STT готов — режим можно включить (иначе POST → 503)
+        wakeWordEnabled:
+          type: boolean
+          description: Wake word включён в конфиге (иначе слушает без триггера)
+        wakeWord:
+          type: string
+          description: Ключевое слово-триггер (например «джарвис»)
+        lastUtterance:
+          type: string
+          description: Последняя распознанная голосовая команда
+        lastAnswer:
+          type: string
+          description: Последний ответ ассистента на голосовую команду
+        lastError:
+          type: string
+          nullable: true
+          description: Текст последней ошибки цикла, null — ошибок не было
+
+    VoiceModeUpdate:
+      type: object
+      description: Включение/выключение непрерывного голосового режима
+      required: [enabled]
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
 
     VoiceReferenceResult:
       type: object

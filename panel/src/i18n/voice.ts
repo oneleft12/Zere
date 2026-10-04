@@ -88,4 +88,34 @@ export const VOICE_EN: Record<string, string> = {
   "Микрофон ничего не распознал.": "The microphone did not recognize anything.",
   "Распознавание выполнено": "Recognition complete",
   "Тест микрофона не удался": "Microphone test failed",
+
+  // ── Режим голоса (непрерывный слушатель) ──────────────────────
+  "Режим голоса": "Voice mode",
+  "Слушать постоянно": "Listen continuously",
+  "Состояние режима": "Mode state",
+  "нет данных": "no data",
+  "выключен": "off",
+  "ждёт «{word}»": "waiting for “{word}”",
+  "слушает без триггера": "listening without a trigger",
+  "слушает команду": "listening for a command",
+  "формулирует ответ": "generating an answer",
+  "озвучивает ответ": "speaking the answer",
+  "ошибка": "error",
+  "Состояние режима недоступно: сервер не отдаёт /api/voice/mode.":
+    "Mode state unavailable: the server does not expose /api/voice/mode.",
+  "Распознавание речи недоступно — режим голоса включить нельзя":
+    "Speech recognition is unavailable — voice mode cannot be enabled",
+  "STT недоступен: режим голоса включить нельзя, доступны только тесты.":
+    "STT is unavailable: voice mode cannot be enabled, only tests are available.",
+  "Скажите «{word}», затем команду; «выход» — выключить режим.":
+    "Say “{word}” and then a command; say “выход” to turn the mode off.",
+  "Слово-триггер выключено — говорите команду сразу; «выход» — выключить режим.":
+    "The wake word is off — speak commands right away; say “выход” to turn the mode off.",
+  "Последняя команда": "Last command",
+  "Последний ответ": "Last answer",
+  "Ошибка режима": "Mode error",
+  "Голосовой режим включён": "Voice mode enabled",
+  "Голосовой режим выключен": "Voice mode disabled",
+  "Не удалось переключить режим: {message}": "Failed to toggle the mode: {message}",
+  "Ошибка переключения голосового режима": "Failed to toggle voice mode",
 };

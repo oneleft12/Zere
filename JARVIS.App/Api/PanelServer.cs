@@ -9,6 +9,7 @@ using System.Text.Json.Serialization;
 using JARVIS.AI;
 using JARVIS.Core;
 using JARVIS.Core.Configuration;
+using JARVIS.Core.Context;
 using JARVIS.Core.Logging;
 using JARVIS.Core.Plugins;
 using JARVIS.Memory.Database;
@@ -64,6 +65,7 @@ public sealed class PanelServer : IDisposable
         ["/api/voice/reference"] = ["POST"],
         ["/api/voice/test"] = ["POST"],
         ["/api/voice/listen"] = ["POST"],
+        ["/api/voice/mode"] = ["GET", "POST"],
     };
 
     private const string MemoryPrefix = "/api/memory/";
@@ -105,6 +107,11 @@ public sealed class PanelServer : IDisposable
     private readonly SafeActionManager? _safeActions;
     private readonly ApplicationLauncher? _apps;
     private readonly VoiceManager? _voice;
+
+    // Непрерывный голосовой режим (GET/POST /api/voice/mode): фоновый цикл
+    // «wake word → команда → engine → озвучка»; null, если голос не подключён.
+    private readonly VoiceModeLoop? _voiceMode;
+
     private readonly object _challengeLock = new();
 
     // Одноразовый токен подтверждения (kill/power): (token, action, issuedAt).
@@ -127,6 +134,7 @@ public sealed class PanelServer : IDisposable
         SafeActionManager? safeActions = null,
         ApplicationLauncher? apps = null,
         VoiceManager? voice = null,
+        RuntimeContext? runtime = null,
         string? token = null,
         int port = DefaultPort)
     {
@@ -139,6 +147,14 @@ public sealed class PanelServer : IDisposable
         _safeActions = safeActions;
         _apps = apps;
         _voice = voice;
+
+        // Непрерывный голосовой режим: цикл живёт фоновой задачей, process —
+        // тот же engine, что и в /api/chat/stream, поэтому голосовые реплики
+        // попадают в общую историю разговоров.
+        _voiceMode = voice is null
+            ? null
+            : new VoiceModeLoop(voice, engine, runtime, _log);
+
         _token = token ?? PanelToken.LoadOrCreate();
         _port = port;
     }
@@ -159,6 +175,17 @@ public sealed class PanelServer : IDisposable
 
     public void Dispose()
     {
+        // Голосовой режим — фоновая задача с захваченным микрофоном:
+        // останавливаем до закрытия сервера (иначе детектор переживёт приложение).
+        try
+        {
+            _voiceMode?.Stop(timeoutMs: 500);
+        }
+        catch (Exception ex)
+        {
+            _log.Error($"PanelServer: voice mode stop: {ex.Message}");
+        }
+
         _cts.Cancel();
 
         if (_started)
@@ -369,6 +396,13 @@ public sealed class PanelServer : IDisposable
             else if (path == "/api/voice/listen")
             {
                 await HandleVoiceListenAsync(response);
+            }
+            else if (path == "/api/voice/mode")
+            {
+                if (string.Equals(request.HttpMethod, "GET", StringComparison.Ordinal))
+                    await HandleVoiceModeGetAsync(response);
+                else
+                    await HandleVoiceModePostAsync(request, response);
             }
             else
             {
@@ -1529,6 +1563,88 @@ public sealed class PanelServer : IDisposable
         var text = await _voice.ListenAsync();
 
         await SendJsonAsync(response, 200, new { text });
+    }
+
+    /// <summary>Состояние непрерывного голосового режима (контракт VoiceModeState).</summary>
+    private async Task HandleVoiceModeGetAsync(HttpListenerResponse response)
+    {
+        if (_voiceMode is null)
+        {
+            await SendErrorAsync(response, 503, "NOT_READY", "Голосовой модуль не готов.");
+            return;
+        }
+
+        await SendJsonAsync(response, 200, _voiceMode.Status());
+    }
+
+    /// <summary>Включение/выключение фонового цикла wake word → команда → озвучка.</summary>
+    private async Task HandleVoiceModePostAsync(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        // Порядок как в Python: голосовой модуль (503) → тело/валидация (400) →
+        // доступность при включении (503) → действие (200).
+        if (_voiceMode is null)
+        {
+            await SendErrorAsync(response, 503, "NOT_READY", "Голосовой модуль не готов.");
+            return;
+        }
+
+        var document = await ReadRequestBodyObjectAsync(request, response);
+
+        if (document is null)
+            return;
+
+        using (document)
+        {
+            var error = ValidateVoiceModePayload(document.RootElement);
+
+            if (error is not null)
+            {
+                await SendErrorAsync(response, 400, "VALIDATION_ERROR", error);
+                return;
+            }
+
+            var enabled = document.RootElement.GetProperty("enabled").GetBoolean();
+
+            if (enabled)
+            {
+                // available=false: STT не установлен — цикл слушать нечим.
+                // Повторное включение при живом цикле идемпотентно (200 + статус).
+                if (!_voiceMode.Start())
+                {
+                    await SendErrorAsync(
+                        response, 503, "NOT_READY",
+                        "Распознавание речи недоступно — режим голоса включить нельзя.");
+                    return;
+                }
+            }
+            else
+            {
+                _voiceMode.Stop();
+            }
+
+            await SendJsonAsync(response, 200, _voiceMode.Status());
+        }
+    }
+
+    /// <summary>Тело POST /api/voice/mode: строго {enabled: boolean}.</summary>
+    private static string? ValidateVoiceModePayload(JsonElement payload)
+    {
+        if (payload.ValueKind != JsonValueKind.Object)
+            return "Ожидался JSON-объект голосового режима.";
+
+        foreach (var property in payload.EnumerateObject())
+        {
+            if (!string.Equals(property.Name, "enabled", StringComparison.Ordinal))
+                return $"Неизвестный ключ: «{property.Name}».";
+        }
+
+        if (!payload.TryGetProperty("enabled", out var enabled))
+            return "Отсутствует обязательный ключ «enabled».";
+
+        if (enabled.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            return "Ключ «enabled» должен быть логическим значением.";
+
+        return null;
     }
 
     private static string? ValidateVoicePayload(Dictionary<string, JsonElement> supplied)

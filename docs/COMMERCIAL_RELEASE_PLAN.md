@@ -30,9 +30,9 @@
 | Функционал | ✅ | LLM (Ollama + qwen3.5:2b), голос (Whisper + Piper/PocketTTS), память (SQLite), плагины, 5 личностей, управление ПК |
 | Реализации | ⚠️ две | C# (.NET 10) и Python-порт — дрейф конфигурации между ними уже зафиксирован аудитом |
 | CI | ✅ | `.github/workflows/ci.yml`: сборка панели, Playwright E2E (5 смоуков), compileall + `check_port.py` + контрактные тесты, C# build + контрактные тесты против C#-панели |
-| Тесты | ⚠️ 95 | 83 панель + 9 установщик + 3 system-prompt; **unit-тестов обработчиков/роутеров/FileManager по-прежнему 0** |
+| Тесты | ⚠️ 103 | 91 панель + 9 установщик + 3 system-prompt; **unit-тестов обработчиков/роутеров/FileManager по-прежнему 0** |
 | Установщик | ✅ | Inno Setup per-user в `%LOCALAPPDATA%`, `install.ps1` (SHA-256 на все скачивания, `-CheckOnly`), `uninstall.ps1`, двойной клик `.bat` |
-| Веб-панель | ✅ | 11 экранов, OpenAPI 19 путей, токен в `config/panel.token`, проверка Host/Origin, привязка к localhost |
+| Веб-панель | ✅ | 11 экранов, OpenAPI 20 путей, токен в `config/panel.token`, проверка Host/Origin, привязка к localhost |
 | Документация | ✅ | INSTALL, ARCHITECTURE, ROADMAP, GUI-план, аудит — выше среднего |
 | Автообновление | ❌ | Механизма нет |
 | Механизм лицензирования/активации | ❌ | Нет |

@@ -129,8 +129,8 @@ Pipeline обработки команд (порядок важен):
 ### Web-панель (реализована, этапы 1–5 GUI-плана)
 - `http://127.0.0.1:8080` — локальный сервер + SPA (11 экранов); при старте открывается **отдельным окном приложения** (WebView2 + трей, сворачивание вместо закрытия; без WebView2 Runtime — фолбэк в браузер); команда `панель` / `panel` в консоли выводит окно на передний план
 - Стек: C# `JARVIS.App/Api/PanelServer.cs` + `PanelWindow.cs` (окно) и Python `jarvis/api/server.py` (Python: окно через pywebview, если установлен, иначе браузер) + SPA `panel/` (Vite + vanilla TS)
-- Контракт: `docs/api/openapi.yaml` (19 путей), токен в `config/panel.token`
-- Тесты: `python3 tests/test_panel_api.py` (83 контрактных) и `cd panel && npm run test:e2e` (Playwright, 5 смоуков)
+- Контракт: `docs/api/openapi.yaml` (20 путей), токен в `config/panel.token`
+- Тесты: `python3 tests/test_panel_api.py` (91 контрактный) и `cd panel && npm run test:e2e` (Playwright, 6 смоуков)
 - Документация: `docs/WEB_PANEL_PLAN.md`, план и статус этапов — `docs/GUI_DEVELOPMENT_PLAN.md`
 
 ### Установщик (`installer/`)
@@ -273,7 +273,7 @@ Jarvis/
 │   └── build-setup.ps1         # Сборка Setup.exe (git archive + ISCC)
 │
 ├── tests/
-│   ├── test_panel_api.py       # Контрактные тесты панели (83, по OpenAPI)
+│   ├── test_panel_api.py       # Контрактные тесты панели (91, по OpenAPI)
 │   ├── test_installer.py       # Тесты установщика (BOM, CRLF, SHA-256, связность)
 │   ├── test_system_prompt.py   # Тесты P1-2
 │   └── e2e_server.py           # Раннер панели с фейками для E2E

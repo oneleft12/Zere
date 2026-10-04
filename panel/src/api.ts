@@ -357,3 +357,25 @@ export interface VoiceSettingsApplied {
   voiceReferencePath: string;
   appliedOnRestart: boolean;
 }
+
+/** Фазы непрерывного голосового режима (GET/POST /api/voice/mode). */
+export type VoiceModeStateValue =
+  | "idle"
+  | "sleeping"
+  | "listening"
+  | "processing"
+  | "speaking"
+  | "error";
+
+export interface VoiceModeState {
+  /** Фоновый цикл «wake word → команда → ответ → озвучка» запущен. */
+  enabled: boolean;
+  state: VoiceModeStateValue;
+  /** STT готов — режим можно включить (иначе POST → 503). */
+  available: boolean;
+  wakeWordEnabled: boolean;
+  wakeWord: string;
+  lastUtterance: string;
+  lastAnswer: string;
+  lastError: string | null;
+}

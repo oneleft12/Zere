@@ -30,6 +30,9 @@ from jarvis.ai.ollama_url_resolver import OllamaUrlResolver
 from jarvis.core.configuration.jarvis_config import JarvisConfig
 from jarvis.core.logging.log_service import log_error
 from jarvis.core.plugins.plugin_config import PluginConfig
+# Только раннер: он тянет лишь log_error/threading — сервер панели
+# по-прежнему собирается без тяжёлых голосовых зависимостей (Whisper/Piper).
+from jarvis.voice.voice_mode import VoiceModeRunner
 # Только enum: сам SafeActionManager тянет psutil (ProcessService),
 # а сервер панели обязан собираться без голосовых/системных зависимостей.
 from jarvis.tools.windows.pending_action import PendingAction
@@ -56,6 +59,7 @@ _ROUTES = {
     "/api/logs": frozenset({"GET"}),
     "/api/plugins": frozenset({"GET"}),
     "/api/voice": frozenset({"GET", "POST"}),
+    "/api/voice/mode": frozenset({"GET", "POST"}),
     "/api/voice/reference": frozenset({"POST"}),
     "/api/voice/test": frozenset({"POST"}),
     "/api/voice/listen": frozenset({"POST"}),
@@ -105,6 +109,7 @@ class PanelServer:
         safe_actions: Optional[Any] = None,
         app_launcher: Optional[Any] = None,
         voice: Optional[Any] = None,
+        runtime: Optional[Any] = None,
         token: Optional[str] = None,
         port: int = DEFAULT_PORT,
     ) -> None:
@@ -117,6 +122,15 @@ class PanelServer:
         self._safe_actions = safe_actions
         self._app_launcher = app_launcher
         self._voice = voice
+        # Непрерывный голосовой режим (POST /api/voice/mode): цикл живёт
+        # фоновым потоком, обработка — тот же engine, что и в /api/chat/stream
+        # (позднее связывание: текстовые реплики панели и голосовые идут
+        # в одну историю разговоров).
+        self._voice_mode = (
+            VoiceModeRunner(voice, lambda text: engine.process(text), runtime)
+            if voice is not None
+            else None
+        )
         self._token = token if token is not None else load_or_create_token()
         self._requested_port = port
         self._httpd: Optional[ThreadingHTTPServer] = None
@@ -162,6 +176,11 @@ class PanelServer:
     @property
     def voice(self) -> Optional[Any]:
         return self._voice
+
+    @property
+    def voice_mode(self) -> Optional[VoiceModeRunner]:
+        """Раннер непрерывного голосового режима (None — голоса нет)."""
+        return self._voice_mode
 
     # ── Подтверждения опасных действий (серверный TTL, P0-3) ──────
 
@@ -226,6 +245,14 @@ class PanelServer:
         self._thread.start()
 
     def stop(self) -> None:
+        # Голосовой режим — фоновый поток с захваченным микрофоном:
+        # останавливаем до закрытия сервера (иначе детектор переживёт приложение).
+        if self._voice_mode is not None:
+            try:
+                self._voice_mode.stop(timeout=0.5)
+            except Exception as ex:  # noqa: BLE001 — остановка не должна падать
+                log_error("PanelServer", f"voice mode stop: {ex}")
+
         if self._httpd is not None:
             self._httpd.shutdown()
             self._httpd.server_close()
@@ -404,6 +431,11 @@ class _PanelHandler(BaseHTTPRequestHandler):
                 self._handle_voice_test()
             elif path == "/api/voice/listen":
                 self._handle_voice_listen()
+            elif path == "/api/voice/mode":
+                if method == "GET":
+                    self._handle_voice_mode_get()
+                else:
+                    self._handle_voice_mode_post()
             else:  # /api/chat/stream
                 self._handle_chat_stream()
         except Exception as ex:  # noqa: BLE001 — нормализуем любую ошибку
@@ -1010,6 +1042,55 @@ class _PanelHandler(BaseHTTPRequestHandler):
 
         text = voice.listen()
         self._send_json(200, None, {"text": str(text)})
+
+    def _require_voice_mode(self) -> Optional[Any]:
+        """Раннер голосового режима или 503 (голос к панели не подключён)."""
+        if self._require_voice() is None:
+            return None
+
+        runner = self.panel.voice_mode
+        if runner is None:
+            self._send_json(503, "NOT_READY", "Голосовой модуль не готов.")
+            return None
+
+        return runner
+
+    def _handle_voice_mode_get(self) -> None:
+        """Состояние непрерывного голосового режима (VoiceModeState)."""
+        runner = self._require_voice_mode()
+        if runner is None:
+            return
+
+        self._send_json(200, None, runner.status())
+
+    def _handle_voice_mode_post(self) -> None:
+        """Включение/выключение фонового цикла wake word → команда → TTS."""
+        runner = self._require_voice_mode()
+        if runner is None:
+            return
+
+        payload = self._read_json_object()
+        if payload is None:
+            return
+
+        error = _validate_voice_mode_payload(payload)
+        if error is not None:
+            self._send_json(400, "VALIDATION_ERROR", error)
+            return
+
+        if payload["enabled"]:
+            if not runner.start():
+                # available=false: STT не установлен — цикл слушать нечим
+                self._send_json(
+                    503,
+                    "NOT_READY",
+                    "Распознавание речи недоступно — режим голоса включить нельзя.",
+                )
+                return
+        else:
+            runner.stop()
+
+        self._send_json(200, None, runner.status())
 
     # ── Процессы и питание (этап 4, §6 плана) ────────────────────
 
@@ -1637,6 +1718,24 @@ def _validate_config_payload(payload: Any) -> Optional[str]:
             return f"Ключ «{key}» должен быть целым числом."
         if not low <= value <= high:
             return f"Ключ «{key}» должен быть в диапазоне {low}…{high}."
+
+    return None
+
+
+def _validate_voice_mode_payload(payload: Any) -> Optional[str]:
+    """Тело POST /api/voice/mode: строго {enabled: boolean}."""
+    if not isinstance(payload, dict):
+        return "Ожидался JSON-объект голосового режима."
+
+    for key in payload:
+        if key != "enabled":
+            return f"Неизвестный ключ: «{key}»."
+
+    if "enabled" not in payload:
+        return "Отсутствует обязательный ключ «enabled»."
+
+    if not isinstance(payload["enabled"], bool):
+        return "Ключ «enabled» должен быть логическим значением."
 
     return None
 

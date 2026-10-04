@@ -89,6 +89,9 @@ def main() -> None:
         safe_actions=services.get(SafeActionManager),
         app_launcher=services.get(ApplicationLauncher),
         voice=voice_manager,
+        # Голосовой режим из панели: AIHandler отвечает коротко, пока
+        # цикл /api/voice/mode жив (тот же синглтон, что и в консоли).
+        runtime=services.get(RuntimeContext),
     )
     # Авто-открытие панели при старте (этапы 5–6): окно приложения,
     # фолбэк — браузер; panel_url остаётся None, если сервер не поднялся.

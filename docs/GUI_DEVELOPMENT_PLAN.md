@@ -176,6 +176,8 @@ POST /api/voice                → подмножество {voiceEnabled,voiceV
 POST /api/voice/reference      → запись WAV-референса (C#; Python-порт отвечает 503 честно)
 POST /api/voice/test           → {text ≤500} → синтез; 503, если TTS не инициализирован
 POST /api/voice/listen         → распознавание фразы; 503, если STT недоступен
+GET  /api/voice/mode           → {enabled, state: idle|sleeping|listening|processing|speaking|error, available, wakeWordEnabled, wakeWord, lastUtterance, lastAnswer, lastError}
+POST /api/voice/mode           → {enabled: bool} → запускает/останавливает фоновый цикл «wake word → команда → ответ → озвучка»; 503 NOT_READY без STT
 ```
 
 **Правила контракта:** только `127.0.0.1`; заголовок `X-JARVIS-Token` (токен генерируется при старте, кладётся в `config/panel.token`, UI читает его при загрузке); проверка `Origin/Host`; никакого исполнения строк на сервере (исходя из P1-6 отчёта — весь ввод валидируется на сервере, не доверяя UI).

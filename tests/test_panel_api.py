@@ -401,6 +401,10 @@ class FakeVoiceConfig:
 
     def __init__(self) -> None:
         self.volume = 1.0
+        # Дефолты реального VoiceConfig: wake word включён, слово «джарвис».
+        self.wake_word_enabled = True
+        self.wake_word = "джарвис"
+        self.command_silence_ms = 1500
 
 
 class FakeVoiceManager:
@@ -409,6 +413,11 @@ class FakeVoiceManager:
     record_voice_reference есть → recordReference=True (как в C#);
     TTS/STT «установлены» — локально проверяем happy-path,
     в CI (EXTERNAL, --panel) голос не инициализирован → 503.
+
+    Голосовой режим (POST /api/voice/mode): listen_results — сценарий
+    распознавания (pop, затем микрофон «молчит»), listen_commands —
+    сценарий команд после wake word, wake_hits — сколько раз
+    wait_for_wake_word вернёт «триггер сработал» до ожидания отмены.
     """
 
     def __init__(self) -> None:
@@ -416,6 +425,11 @@ class FakeVoiceManager:
         self.is_tts_available = True
         self.is_voice_available = True
         self.spoken: list[str] = []
+        self.listen_results: list[str] = ["привет из микрофона"]
+        self.listen_commands: list[str] = []
+        self.wake_hits = 0
+        self.wake_armed = False
+        self.wake_disabled = 0
 
     def record_voice_reference(self) -> str:
         # C# пишет <cwd>/voice/reference.wav; файл не создаём — контракт
@@ -425,8 +439,43 @@ class FakeVoiceManager:
     def speak(self, text: str) -> None:
         self.spoken.append(text)
 
+    def stop_speaking(self) -> None:
+        pass  # озвучка в фейке мгновенная — останавливать нечего
+
     def listen(self) -> str:
-        return "привет из микрофона"
+        if self.listen_results:
+            return self.listen_results.pop(0)
+        time.sleep(0.05)  # имитация блокирующей записи — не горячий цикл
+        return ""
+
+    # ── Wake word (путь голосового режима с триггером) ──────────
+
+    def enable_wake_word(self) -> "FakeVoiceManager":
+        self.wake_armed = True
+        return self
+
+    def disable_wake_word(self) -> None:
+        if self.wake_armed:
+            self.wake_disabled += 1
+        self.wake_armed = False
+
+    def wait_for_wake_word(self, cancel_event: Any = None) -> bool:
+        if self.wake_hits > 0:
+            self.wake_hits -= 1
+            return True
+
+        # Спим до отмены: возврат False раннер трактует как «ждём дальше».
+        if cancel_event is not None:
+            cancel_event.wait(10)
+            return False
+        time.sleep(0.05)
+        return False
+
+    def listen_command(self) -> str:
+        if self.listen_commands:
+            return self.listen_commands.pop(0)
+        time.sleep(0.05)
+        return ""
 
 
 @contextmanager
@@ -2050,6 +2099,209 @@ def test_voice_listen_transcribes() -> None:
         data = json.loads(raw.decode("utf-8"))
         assert_schema(schema("VoiceListenResult"), data)
         assert data["text"] == "привет из микрофона"
+
+
+# ── Непрерывный голосовой режим (POST /api/voice/mode) ───────────
+
+
+def voice_mode_status(panel: Any) -> dict[str, Any]:
+    """GET /api/voice/mode: код + схема проверяются на каждом опросе."""
+    status, raw, _ = call(panel, "GET", "/api/voice/mode")
+    assert status == 200, raw
+    data = json.loads(raw.decode("utf-8"))
+    assert_schema(schema("VoiceModeState"), data)
+    return data
+
+
+def wait_voice_mode(panel: Any, predicate: Any, timeout: float = 5.0) -> dict[str, Any]:
+    """Опрашивает состояние, пока predicate не станет True (или таймаут)."""
+    deadline = time.monotonic() + timeout
+    last = voice_mode_status(panel)
+
+    while time.monotonic() < deadline:
+        if predicate(last):
+            return last
+        time.sleep(0.05)
+        last = voice_mode_status(panel)
+
+    raise AssertionError(f"голосовой режим не достиг ожидаемого состояния: {last}")
+
+
+def test_voice_mode_get_matches_spec() -> None:
+    with running_panel() as (panel, _):
+        data = voice_mode_status(panel)
+
+        assert data["enabled"] is False
+        assert data["state"] == "idle"
+        # Доступность/ wake word зависят от окружения — проверяем только типы,
+        # значения wake word фиксированы дефолтами VoiceConfig в обеих реализациях:
+        assert isinstance(data["available"], bool)
+        assert isinstance(data["wakeWordEnabled"], bool)
+        assert data["wakeWord"] == "джарвис"
+        assert data["lastUtterance"] == ""
+        assert data["lastAnswer"] == ""
+        assert data["lastError"] is None
+
+
+def test_voice_mode_requires_token() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/voice/mode", token=None)
+        assert status == 401
+        assert error_payload(raw)["code"] == "UNAUTHORIZED"
+
+        status, raw, _ = call(panel, "POST", "/api/voice/mode", token=None, body={"enabled": True})
+        assert status == 401
+        assert error_payload(raw)["code"] == "UNAUTHORIZED"
+
+
+def test_voice_mode_wrong_method_is_405() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "PUT", "/api/voice/mode", body={"enabled": True})
+        assert status == 405
+        assert error_payload(raw)["code"] == "METHOD_NOT_ALLOWED"
+
+
+def test_voice_mode_rejects_bad_payload() -> None:
+    with running_panel() as (panel, _):
+        for body, needle in [
+            ({"on": True}, "Неизвестный ключ"),
+            ({}, "Отсутствует обязательный ключ"),
+            ({"enabled": 1}, "логическим значением"),
+            ({"enabled": "yes"}, "логическим значением"),
+        ]:
+            status, raw, _ = call(panel, "POST", "/api/voice/mode", body=body)
+            assert status == 400, (body, raw)
+            assert error_payload(raw)["code"] == "VALIDATION_ERROR", body
+            assert needle in error_payload(raw)["message"], body
+
+        # Выключение без включения — идемпотентно и валидно (обе реализации)
+        status, raw, _ = call(panel, "POST", "/api/voice/mode", body={"enabled": False})
+        assert status == 200, raw
+        data = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("VoiceModeState"), data)
+        assert data["enabled"] is False
+
+
+def test_voice_mode_enable_requires_stt() -> None:
+    if EXTERNAL:
+        print("\n[пропущено] POST /api/voice/mode (enable) в EXTERNAL: чужой процесс")
+        return
+
+    with running_panel() as (panel, _):
+        panel.voice.is_voice_available = False
+        try:
+            status, raw, _ = call(panel, "POST", "/api/voice/mode", body={"enabled": True})
+            assert status == 503, raw
+            assert error_payload(raw)["code"] == "NOT_READY"
+
+            data = voice_mode_status(panel)
+            assert data["available"] is False
+            assert data["enabled"] is False
+        finally:
+            panel.voice.is_voice_available = True
+
+
+def test_voice_mode_cycle_without_wake_word() -> None:
+    """Цикл без триггера: listen → engine.process → озвучка → выключение."""
+    if EXTERNAL:
+        print("\n[пропущено] POST /api/voice/mode (enable) в EXTERNAL: микрофон")
+        return
+
+    with running_panel() as (panel, _):
+        voice = panel.voice
+        voice.config.wake_word_enabled = False  # слушаем без слова-триггера
+        voice.listen_results = ["создай папку тест"]
+
+        status, raw, _ = call(panel, "POST", "/api/voice/mode", body={"enabled": True})
+        assert status == 200, raw
+        started = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("VoiceModeState"), started)
+        assert started["enabled"] is True
+        # state в момент ответа гонится с фоновым потоком — значим только запуск
+        assert started["state"] in ("sleeping", "listening", "processing", "speaking")
+
+        # Повторное включение идемпотентно: цикл один
+        status, raw, _ = call(panel, "POST", "/api/voice/mode", body={"enabled": True})
+        assert status == 200, raw
+
+        done = wait_voice_mode(
+            panel, lambda s: s["lastAnswer"] == "ответ: создай папку тест"
+        )
+        assert done["lastUtterance"] == "создай папку тест"
+        assert done["lastError"] is None
+        assert "создай папку тест" in panel.engine.processed
+        assert "ответ: создай папку тест" in voice.spoken
+
+        # Выключение: цикл останавливается, последняя реплика не теряется
+        status, raw, _ = call(panel, "POST", "/api/voice/mode", body={"enabled": False})
+        assert status == 200, raw
+
+        stopped = wait_voice_mode(panel, lambda s: s["enabled"] is False)
+        assert stopped["state"] == "idle"
+        assert stopped["lastUtterance"] == "создай папку тест"
+        assert stopped["lastAnswer"] == "ответ: создай папку тест"
+
+
+def test_voice_mode_cycle_with_wake_word() -> None:
+    """Цикл с триггером: wake word → команда → ответ; стоп освобождает детектор."""
+    if EXTERNAL:
+        print("\n[пропущено] POST /api/voice/mode (enable) в EXTERNAL: микрофон")
+        return
+
+    with running_panel() as (panel, _):
+        voice = panel.voice  # wake_word_enabled=True — дефолт VoiceConfig
+        voice.wake_hits = 1  # детектор «слышит» триггер ровно один раз
+        voice.listen_commands = ["сколько процессов"]
+
+        status, raw, _ = call(panel, "POST", "/api/voice/mode", body={"enabled": True})
+        assert status == 200, raw
+
+        done = wait_voice_mode(
+            panel, lambda s: s["lastAnswer"] == "ответ: сколько процессов"
+        )
+        assert done["lastUtterance"] == "сколько процессов"
+        assert done["lastError"] is None
+        assert voice.wake_armed is True  # детектор пережил команду и ждёт снова
+
+        status, raw, _ = call(panel, "POST", "/api/voice/mode", body={"enabled": False})
+        assert status == 200, raw
+
+        stopped = wait_voice_mode(panel, lambda s: s["enabled"] is False)
+        assert stopped["state"] == "idle"
+        assert voice.wake_armed is False  # disable_wake_word вызван — микрофон свободен
+        assert voice.wake_disabled >= 1
+
+
+def test_voice_mode_process_error_keeps_listening() -> None:
+    """Ошибка engine не убивает цикл: lastError заполнен, режим продолжает."""
+    if EXTERNAL:
+        print("\n[пропущено] POST /api/voice/mode (enable) в EXTERNAL: микрофон")
+        return
+
+    with running_panel() as (panel, _):
+        voice = panel.voice
+        voice.config.wake_word_enabled = False
+
+        original_process = panel.engine.process
+
+        def exploding(text: str) -> str:
+            raise RuntimeError("ollama упал")
+
+        panel.engine.process = exploding  # type: ignore[assignment]
+        try:
+            voice.listen_results = ["привет"]
+            status, raw, _ = call(panel, "POST", "/api/voice/mode", body={"enabled": True})
+            assert status == 200, raw
+
+            failed = wait_voice_mode(panel, lambda s: s["lastError"] is not None)
+            assert "ollama упал" in failed["lastError"]
+            assert failed["enabled"] is True  # цикл жив, слушает дальше
+            assert failed["state"] in ("sleeping", "listening", "processing")
+        finally:
+            panel.engine.process = original_process  # type: ignore[assignment]
+            status, raw, _ = call(panel, "POST", "/api/voice/mode", body={"enabled": False})
+            assert status == 200, raw
+            wait_voice_mode(panel, lambda s: s["enabled"] is False)
 
 
 def main() -> None:

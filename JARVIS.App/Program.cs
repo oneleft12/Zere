@@ -61,7 +61,8 @@ if (args.Contains("--panel"))
         panelServices.GetRequiredService<ProcessService>(),
         panelServices.GetRequiredService<SafeActionManager>(),
         panelServices.GetRequiredService<ApplicationLauncher>(),
-        panelVoice);
+        panelVoice,
+        panelServices.GetRequiredService<RuntimeContext>());
     testPanel.Start();
 
     Console.WriteLine($"[Панель] http://127.0.0.1:{testPanel.Port} (токен: config/panel.token)");
@@ -134,7 +135,8 @@ var panel = new PanelServer(
     services.GetRequiredService<ProcessService>(),
     services.GetRequiredService<SafeActionManager>(),
     services.GetRequiredService<ApplicationLauncher>(),
-    voiceManager);
+    voiceManager,
+    services.GetRequiredService<RuntimeContext>());
 
 // URL панели — для команды «панель»; null, если сервер не поднялся.
 string? panelUrl = null;

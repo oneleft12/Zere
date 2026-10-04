@@ -9,6 +9,7 @@ import {
   ApiError,
   apiGet,
   apiPost,
+  type VoiceModeState,
   type VoiceSettings,
   type VoiceSettingsApplied,
 } from "../api";
@@ -28,13 +29,18 @@ import {
   pageHeader,
   select,
   slider,
+  statusPill,
   textInput,
   toast,
   toggle,
+  type PillState,
 } from "../ui";
 import type { Cleanup, ScreenFactory } from "../router";
 
 const MAX_TEST_TEXT = 500;
+
+/** Опрос состояния голосового режима (фоновый цикл жив — 1 с, иначе тоже). */
+const MODE_POLL_MS = 1000;
 
 interface Draft {
   voiceEnabled: boolean;
@@ -63,6 +69,8 @@ function isDirty(base: VoiceSettings, draft: Draft): boolean {
 
 export const voiceScreen: ScreenFactory = (container): Cleanup => {
   let cancelled = false;
+  // Опрос /api/voice/mode: переживает перерисовку экрана, гасится на уходе.
+  let stopPoll: (() => void) | null = null;
 
   container.appendChild(loadingRow(t("Загрузка голосовых настроек…")));
 
@@ -72,10 +80,15 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
     container.appendChild(loadingRow(t("Загрузка голосовых настроек…")));
 
     try {
-      const settings = await apiGet<VoiceSettings>("/api/voice");
+      const [settings, mode] = await Promise.all([
+        apiGet<VoiceSettings>("/api/voice"),
+        // Старый бэкенд без /api/voice/mode не должен ронять экран:
+        // карточка режима покажет «нет данных» и не включится.
+        apiGet<VoiceModeState>("/api/voice/mode").catch(() => null),
+      ]);
 
       if (cancelled) return;
-      render(settings, toDraft(settings));
+      render(settings, toDraft(settings), mode);
     } catch (error) {
       if (cancelled) return;
       clear(container);
@@ -90,12 +103,16 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
     }
   };
 
-  function render(base: VoiceSettings, draft: Draft): void {
+  function render(base: VoiceSettings, draft: Draft, initialMode: VoiceModeState | null): void {
+    // Новая отрисовка — новый опрос: таймер предыдущей гасим первым.
+    stopPoll?.();
+    stopPoll = null;
+
     clear(container);
 
     const saveBtn = button(t("Сохранить"), () => void save(), "primary");
     const revertBtn = button(t("Отменить изменения"), () => {
-      render(base, toDraft(base));
+      render(base, toDraft(base), modeState);
       logEvent("Изменения голосовых настроек отброшены");
     });
 
@@ -137,7 +154,7 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
             ? "Голосовые настройки сохранены (перезапуск требуется)"
             : "Громкость голоса применена без перезапуска",
         );
-        render(next, toDraft(next));
+        render(next, toDraft(next), modeState);
       } catch (error) {
         if (cancelled) return;
 
@@ -254,6 +271,163 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
     );
     capsCard.classList.add("col-6");
 
+    // ── Режим голоса (непрерывный слушатель, POST /api/voice/mode) ─
+    let modeState = initialMode;
+    let modeBusy = false;
+
+    const modeErrorBox = h("div", { class: "form-error", hidden: true });
+    const pillHost = h("div", {});
+    const modeHint = h("p", { class: "panel-note" });
+    const modeKvHost = h("div", {});
+    let modeKvSignature = "";
+
+    const modeToggle = toggle({
+      label: t("Слушать постоянно"),
+      checked: modeState?.enabled ?? false,
+      onChange: (v) => void setMode(v),
+    });
+    const modeToggleInput = modeToggle.querySelector<HTMLInputElement>("input");
+
+    function stateLabel(mode: VoiceModeState): string {
+      switch (mode.state) {
+        case "idle":
+          return t("выключен");
+        case "sleeping":
+          return mode.wakeWordEnabled
+            ? t("ждёт «{word}»", { word: mode.wakeWord })
+            : t("слушает без триггера");
+        case "listening":
+          return t("слушает команду");
+        case "processing":
+          return t("формулирует ответ");
+        case "speaking":
+          return t("озвучивает ответ");
+        default:
+          return t("ошибка");
+      }
+    }
+
+    function pillTone(mode: VoiceModeState): PillState {
+      if (mode.state === "error") return "danger";
+      if (!mode.available) return "warn";
+      if (mode.enabled) return "ok";
+      return "idle";
+    }
+
+    function paintMode(): void {
+      const mode = modeState;
+
+      if (mode === null) {
+        // Бэкенд без /api/voice/mode: честно показываем отсутствие данных.
+        pillHost.replaceChildren(
+          statusPill({ label: t("Состояние режима"), value: t("нет данных"), state: "idle" }),
+        );
+        modeHint.textContent = t(
+          "Состояние режима недоступно: сервер не отдаёт /api/voice/mode.",
+        );
+        modeKvHost.replaceChildren();
+        if (modeToggleInput) modeToggleInput.disabled = true;
+        return;
+      }
+
+      pillHost.replaceChildren(
+        statusPill({
+          label: t("Состояние режима"),
+          value: stateLabel(mode),
+          state: pillTone(mode),
+          live: mode.enabled,
+        }),
+      );
+
+      if (modeToggleInput) {
+        modeToggleInput.disabled = modeBusy || !mode.available;
+        if (!modeBusy) modeToggleInput.checked = mode.enabled;
+        modeToggle.title = mode.available
+          ? ""
+          : t("Распознавание речи недоступно — режим голоса включить нельзя");
+      }
+
+      modeHint.textContent = !mode.available
+        ? t("STT недоступен: режим голоса включить нельзя, доступны только тесты.")
+        : mode.wakeWordEnabled
+          ? t("Скажите «{word}», затем команду; «выход» — выключить режим.", {
+              word: mode.wakeWord,
+            })
+          : t("Слово-триггер выключено — говорите команду сразу; «выход» — выключить режим.");
+
+      const signature = JSON.stringify([
+        mode.lastUtterance,
+        mode.lastAnswer,
+        mode.lastError,
+      ]);
+      if (signature !== modeKvSignature) {
+        modeKvSignature = signature;
+        modeKvHost.replaceChildren(
+          keyValue([
+            { key: t("Последняя команда"), value: mode.lastUtterance || "—" },
+            { key: t("Последний ответ"), value: mode.lastAnswer || "—" },
+            { key: t("Ошибка режима"), value: mode.lastError ?? "—" },
+          ]),
+        );
+      }
+    }
+
+    async function setMode(enable: boolean): Promise<void> {
+      if (modeState === null || modeBusy) {
+        paintMode(); // вернуть чекбокс в серверное состояние
+        return;
+      }
+
+      modeBusy = true;
+      modeErrorBox.hidden = true;
+      paintMode();
+
+      try {
+        modeState = await apiPost<VoiceModeState>("/api/voice/mode", { enabled: enable });
+        toast(
+          enable ? t("Голосовой режим включён") : t("Голосовой режим выключен"),
+          "ok",
+        );
+        logEvent(
+          enable ? "Голосовой режим включён из панели" : "Голосовой режим выключен из панели",
+        );
+      } catch (error) {
+        const message = error instanceof ApiError ? error.message : t("Неизвестная ошибка");
+        modeErrorBox.textContent = t("Не удалось переключить режим: {message}", { message });
+        modeErrorBox.hidden = false;
+        toast(t("Ошибка переключения голосового режима"), "danger");
+        logEvent(`Ошибка переключения голосового режима: ${message}`);
+
+        modeState = await apiGet<VoiceModeState>("/api/voice/mode").catch(() => modeState);
+      } finally {
+        modeBusy = false;
+        paintMode();
+      }
+    }
+
+    async function pollMode(): Promise<void> {
+      if (cancelled || modeBusy) return;
+
+      const next = await apiGet<VoiceModeState>("/api/voice/mode").catch(() => null);
+      if (cancelled || modeBusy || next === null) return;
+
+      modeState = next;
+      paintMode();
+    }
+
+    const modeCard = card(
+      t("Режим голоса"),
+      h("div", { class: "form-grid form-grid--single" }, pillHost, modeToggle, modeHint),
+      modeKvHost,
+      modeErrorBox,
+    );
+    modeCard.classList.add("col-6");
+
+    // Опрос статуса: пока экран открыт, таймер гасится cleanup/перерисовкой.
+    paintMode();
+    const modeTimer = setInterval(() => void pollMode(), MODE_POLL_MS);
+    stopPoll = () => clearInterval(modeTimer);
+
     // ── Тесты ────────────────────────────────────────────────────
     let testText = t("Проверка голоса. Привет!");
 
@@ -343,7 +517,7 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
         base = { ...base, voiceReferencePath: result.voiceReferencePath };
         toast(t("Референс записан и сохранён в конфигурации"), "ok");
         logEvent(`Референс голоса записан: ${result.voiceReferencePath}`);
-        render(base, toDraft(base));
+        render(base, toDraft(base), modeState);
       } catch (error) {
         if (cancelled) return;
 
@@ -401,7 +575,7 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
         testResult,
       ),
     );
-    testCard.classList.add("col-12");
+    testCard.classList.add("col-6");
 
     // ── Сборка ───────────────────────────────────────────────────
     container.append(
@@ -415,6 +589,7 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
 
     const grid = h("div", { class: "grid-12 fade-in" });
     grid.appendChild(settingsCard);
+    grid.appendChild(modeCard);
     grid.appendChild(capsCard);
     grid.appendChild(testCard);
     container.appendChild(grid);
@@ -426,5 +601,7 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
 
   return () => {
     cancelled = true;
+    stopPoll?.();
+    stopPoll = null;
   };
 };

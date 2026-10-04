@@ -76,3 +76,26 @@ test("i18n: переключение интерфейса на английск�
   await page.reload();
   await expect(page.locator(TITLE)).toHaveText("Settings");
 });
+
+test("голос: режим включается и выключается тумблером (POST /api/voice/mode)", async ({ page }) => {
+  await page.goto("/voice");
+  await expect(page.locator(TITLE)).toHaveText("Голос");
+
+  const card = page.locator(".card", { hasText: "Режим голоса" });
+  await expect(card.getByText("Состояние режима")).toBeVisible();
+
+  const toggle = card.locator("label.toggle input");
+  const pill = card.locator(".status-pill__value");
+
+  // Фейк-сервер: wake word включён → сразу «ждёт слова-триггера».
+  // Кликаем по label (input перекрыт toggle__track — check() не дойдёт).
+  await expect(pill).toHaveText("выключен");
+  await card.locator("label.toggle").click();
+  await expect(toggle).toBeChecked({ timeout: 10_000 });
+  await expect(pill).toHaveText("ждёт «джарвис»", { timeout: 10_000 });
+
+  await card.locator("label.toggle").click();
+  await expect(toggle).not.toBeChecked({ timeout: 10_000 });
+  await expect(pill).toHaveText("выключен", { timeout: 10_000 });
+  await expect(page.locator(".toast").last()).toContainText("Голосовой режим выключен");
+});
