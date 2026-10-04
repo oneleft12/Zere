@@ -11,6 +11,8 @@ public class AudioRecorder : IDisposable
     /// <summary>
     /// Запись аудио с микрофона.
     /// Использует 16 kHz mono (стандарт Whisper) с оптимальными настройками.
+    /// Возвращает путь к WAV или "" при ошибке (анализ F1: сбой микрофона
+    /// не должен ронять приложение).
     /// </summary>
     public async Task<string> RecordAsync(int seconds = 5, int sampleRate = 16000)
     {
@@ -21,32 +23,31 @@ public class AudioRecorder : IDisposable
 
         Directory.CreateDirectory(folder);
 
-        var file = Path.Combine(folder, "record.wav");
-
-        if (File.Exists(file))
-            File.Delete(file);
+        // Уникальное имя: панель и консоль могут записывать одновременно
+        // (анализ F4) — фиксированный record.wav перезаписывался бы у соседа.
+        var file = Path.Combine(folder, $"record_{Guid.NewGuid():N}.wav");
 
         // Оптимальные настройки для Whisper STT
         var waveFormat = new WaveFormat(sampleRate, 16, 1);
 
-        _waveIn = new WaveInEvent
-        {
-            WaveFormat = waveFormat,
-            BufferMilliseconds = 50,     // Маленький буфер для низкой задержки
-            NumberOfBuffers = 3,         // 3 буфера для плавности
-            DeviceNumber = 0             // Дефолтный микрофон
-        };
-
-        _writer = new WaveFileWriter(file, waveFormat);
-
-        var tcs = new TaskCompletionSource<bool>();
-
         try
         {
+            _waveIn = new WaveInEvent
+            {
+                WaveFormat = waveFormat,
+                BufferMilliseconds = 50,     // Маленький буфер для низкой задержки
+                NumberOfBuffers = 3,         // 3 буфера для плавности
+                DeviceNumber = 0             // Дефолтный микрофон
+            };
+
+            _writer = new WaveFileWriter(file, waveFormat);
+
+            var tcs = new TaskCompletionSource<bool>();
+
             _waveIn.DataAvailable += (_, e) =>
             {
-                _writer.Write(e.Buffer, 0, e.BytesRecorded);
-                _writer.Flush();
+                _writer?.Write(e.Buffer, 0, e.BytesRecorded);
+                _writer?.Flush();
             };
 
             _waveIn.RecordingStopped += (_, e) =>
@@ -67,20 +68,30 @@ public class AudioRecorder : IDisposable
             // Даём время на завершение записи
             await Task.Delay(200);
         }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Recorder] Ошибка записи: {ex.Message}");
+            TryDeleteQuietly(file);
+            return "";
+        }
         finally
         {
-            _writer.Dispose();
-            _waveIn.Dispose();
+            try { _writer?.Dispose(); } catch { }
+            try { _waveIn?.Dispose(); } catch { }
+            _writer = null;
+            _waveIn = null;
         }
 
         // Проверяем качество записи
         var fileInfo = new FileInfo(file);
-        if (fileInfo.Length < 1000) // Слишком маленький файл = проблема
+        if (!fileInfo.Exists || fileInfo.Length < 1000) // Слишком маленький файл = проблема
         {
             Console.WriteLine("⚠️ Запись слишком тихая. Проверьте микрофон.");
         }
-
-        Console.WriteLine("✅ Запись завершена.");
+        else
+        {
+            Console.WriteLine("✅ Запись завершена.");
+        }
 
         return file;
     }
@@ -88,6 +99,7 @@ public class AudioRecorder : IDisposable
     /// <summary>
     /// Запись с автоматическим определением конца речи (VAD-подобное).
     /// Записывает до тишины или максимального времени.
+    /// Возвращает путь к WAV или "" при ошибке (анализ F1).
     /// </summary>
     public async Task<string> RecordWithVadAsync(int maxSeconds = 10, int silenceMs = 1500)
     {
@@ -98,22 +110,10 @@ public class AudioRecorder : IDisposable
 
         Directory.CreateDirectory(folder);
 
-        var file = Path.Combine(folder, "record.wav");
-
-        if (File.Exists(file))
-            File.Delete(file);
+        // Уникальное имя — анализ F4 (панель + консоль параллельно).
+        var file = Path.Combine(folder, $"record_{Guid.NewGuid():N}.wav");
 
         var waveFormat = new WaveFormat(16000, 16, 1);
-
-        _waveIn = new WaveInEvent
-        {
-            WaveFormat = waveFormat,
-            BufferMilliseconds = 50,
-            NumberOfBuffers = 3,
-            DeviceNumber = 0
-        };
-
-        _writer = new WaveFileWriter(file, waveFormat);
 
         var samples = new List<float>();
         var lastSpeechTime = DateTime.MinValue;
@@ -121,6 +121,16 @@ public class AudioRecorder : IDisposable
 
         try
         {
+            _waveIn = new WaveInEvent
+            {
+                WaveFormat = waveFormat,
+                BufferMilliseconds = 50,
+                NumberOfBuffers = 3,
+                DeviceNumber = 0
+            };
+
+            _writer = new WaveFileWriter(file, waveFormat);
+
             _waveIn.DataAvailable += (_, e) =>
             {
                 // Конвертируем байты в float samples
@@ -142,8 +152,8 @@ public class AudioRecorder : IDisposable
                 }
 
                 // Записываем в файл
-                _writer.Write(e.Buffer, 0, e.BytesRecorded);
-                _writer.Flush();
+                _writer?.Write(e.Buffer, 0, e.BytesRecorded);
+                _writer?.Flush();
             };
 
             Console.WriteLine("🎤 Говорите... (авто-остановка при тишине)");
@@ -168,10 +178,18 @@ public class AudioRecorder : IDisposable
             _waveIn.StopRecording();
             await Task.Delay(200);
         }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Recorder] Ошибка записи: {ex.Message}");
+            TryDeleteQuietly(file);
+            return "";
+        }
         finally
         {
-            _writer.Dispose();
-            _waveIn.Dispose();
+            try { _writer?.Dispose(); } catch { }
+            try { _waveIn?.Dispose(); } catch { }
+            _writer = null;
+            _waveIn = null;
         }
 
         if (!hasSpeech)
@@ -184,6 +202,11 @@ public class AudioRecorder : IDisposable
         }
 
         return file;
+    }
+
+    private static void TryDeleteQuietly(string path)
+    {
+        try { File.Delete(path); } catch { /* файла могло не быть */ }
     }
 
     public void Dispose()

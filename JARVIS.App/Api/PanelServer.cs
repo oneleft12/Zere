@@ -647,6 +647,9 @@ public sealed class PanelServer : IDisposable
             allowed.UnionWith(BoolFields);
             allowed.Add("voiceVolume");
             allowed.Add("ollamaTimeoutMinutes");
+            allowed.Add("llmKeepAlive");
+            allowed.Add("llmMaxTokens");
+            allowed.Add("llmTimeoutSeconds");
 
             foreach (var name in supplied.Keys)
             {
@@ -724,6 +727,36 @@ public sealed class PanelServer : IDisposable
         if (timeoutValue is < 1 or > 120)
             return "Ключ «ollamaTimeoutMinutes» должен быть в диапазоне 1…120.";
 
+        var error = ValidateInt(supplied, "llmKeepAlive", -1, 86400);
+        if (error is not null)
+            return error;
+
+        error = ValidateInt(supplied, "llmMaxTokens", 16, 4096);
+        if (error is not null)
+            return error;
+
+        error = ValidateInt(supplied, "llmTimeoutSeconds", 5, 600);
+        if (error is not null)
+            return error;
+
+        return null;
+    }
+
+    /// <summary>Целое число в диапазоне [min, max] (ключи LLM, анализ S5).</summary>
+    private static string? ValidateInt(
+        Dictionary<string, JsonElement> supplied, string key, int min, int max)
+    {
+        var element = supplied[key];
+
+        if (element.ValueKind != JsonValueKind.Number || !element.TryGetDouble(out var value))
+            return $"Ключ «{key}» должен быть целым числом.";
+
+        if (value != Math.Floor(value))
+            return $"Ключ «{key}» должен быть целым числом.";
+
+        if (value < min || value > max)
+            return $"Ключ «{key}» должен быть в диапазоне {min}…{max}.";
+
         return null;
     }
 
@@ -739,6 +772,9 @@ public sealed class PanelServer : IDisposable
         _config.OllamaTimeoutMinutes = supplied["ollamaTimeoutMinutes"].GetInt32();
         _config.TtsEngine = supplied["ttsEngine"].GetString() ?? _config.TtsEngine;
         _config.VoiceReferencePath = supplied["voiceReferencePath"].GetString() ?? _config.VoiceReferencePath;
+        _config.LlmKeepAlive = supplied["llmKeepAlive"].GetInt32();
+        _config.LlmMaxTokens = supplied["llmMaxTokens"].GetInt32();
+        _config.LlmTimeoutSeconds = supplied["llmTimeoutSeconds"].GetInt32();
     }
 
     // ── Личности (смена стиля с персистом — чинит P1-3) ──────────

@@ -1,14 +1,16 @@
+using System.Diagnostics;
 using System.Text;
 using JARVIS.Voice.Audio;
 using Whisper.net;
 
 namespace JARVIS.Voice.Whisper;
 
-public class WhisperService
+public class WhisperService : IDisposable
 {
     private readonly string _mediumModelPath;
     private readonly string _baseModelPath;
     private readonly Lazy<WhisperFactory> _factory;
+    private bool _disposed;
 
     public string CurrentModel { get; private set; } = "medium";
 
@@ -36,11 +38,65 @@ public class WhisperService
         return File.Exists(_mediumModelPath) || File.Exists(_baseModelPath);
     }
 
-    public async Task<string> TranscribeAsync(string wavFile)
+    /// <summary>
+    /// Предзагрузка модели в память при старте (анализ S3): первая транскрибация
+    /// не должна ждать загрузку ggml-файла. Вызывается в фоне, сбои не критичны.
+    /// </summary>
+    public bool Preload()
+    {
+        if (!IsInstalled())
+            return false;
+
+        try
+        {
+            _ = _factory.Value;
+            Console.WriteLine($"[Voice] Whisper предзагружен (модель: {CurrentModel}).");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Whisper] Не удалось предзагрузить модель: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Распознаёт WAV-файл. timeoutSeconds — защита от зависания (анализ F6):
+    /// в C# раньше таймаута не было вовсе; по истечении возвращается пустой
+    /// результат, а фоновая задача доработает и освободит ресурсы сама.
+    /// </summary>
+    public async Task<string> TranscribeAsync(string wavFile, int timeoutSeconds = 30)
     {
         if (!IsInstalled())
             return "Модель Whisper не найдена.";
 
+        var sw = Stopwatch.StartNew();
+
+        var work = Task.Run(() => TranscribeCoreAsync(wavFile));
+        var finished = await Task.WhenAny(work, Task.Delay(TimeSpan.FromSeconds(timeoutSeconds)));
+
+        if (finished != work)
+        {
+            // Наблюдаем за «осиротевшей» фоновой задачей, чтобы исключение
+            // не осталось ненаблюденным после таймаута.
+            _ = work.ContinueWith(
+                t => _ = t.Exception,
+                TaskContinuationOptions.OnlyOnFaulted);
+
+            Console.WriteLine(
+                $"[Whisper] Таймаут распознавания ({timeoutSeconds} с) — возвращаю пустой результат.");
+            return "";
+        }
+
+        var result = await work;
+
+        Console.WriteLine($"[Perf] STT={sw.ElapsedMilliseconds} мс (модель: {CurrentModel})");
+
+        return result;
+    }
+
+    private async Task<string> TranscribeCoreAsync(string wavFile)
+    {
         // Предобработка аудио для лучшего распознавания
         var processedFile = AudioPreprocessor.ProcessForWhisper(wavFile);
 
@@ -80,5 +136,20 @@ public class WhisperService
                 try { File.Delete(processedFile); } catch { }
             }
         }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        _disposed = true;
+
+        // Нативная память ggml освобождается через фабрику (анализ F3).
+        if (_factory.IsValueCreated)
+        {
+            try { _factory.Value.Dispose(); } catch { /* фабрика уже освобождена */ }
+        }
+
+        GC.SuppressFinalize(this);
     }
 }

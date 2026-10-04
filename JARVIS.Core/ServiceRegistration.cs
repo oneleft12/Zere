@@ -1,6 +1,7 @@
 using JARVIS.AI;
 using JARVIS.Core.AI;
 using JARVIS.Core.Configuration;
+using JARVIS.Core.Context;
 using JARVIS.Core.Dependencies;
 using JARVIS.Core.Handlers;
 using JARVIS.Core.Logging;
@@ -41,8 +42,15 @@ public static class ServiceRegistration
         services.AddSingleton(sp =>
         {
             var cfg = sp.GetRequiredService<JarvisConfig>();
-            return new OllamaClient(cfg.Model, cfg.OllamaTimeoutMinutes);
+            return new OllamaClient(
+                cfg.Model,
+                cfg.OllamaTimeoutMinutes,
+                cfg.LlmKeepAlive,
+                cfg.LlmTimeoutSeconds);
         });
+
+        // Флаги рантайма (голосовой режим и т.п.) — анализ S5.
+        services.AddSingleton<RuntimeContext>();
 
         services.AddSingleton<ContextBuilder>();
         services.AddSingleton<MemoryExtractor>();

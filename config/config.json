@@ -7,6 +7,9 @@
   "voiceVolume": 0.5,
   "autoMemory": true,
   "ollamaTimeoutMinutes": 10,
-  "ttsEngine": "pocket",
-  "voiceReferencePath": ""
+  "ttsEngine": "piper",
+  "voiceReferencePath": "",
+  "llmKeepAlive": -1,
+  "llmMaxTokens": 96,
+  "llmTimeoutSeconds": 60
 }

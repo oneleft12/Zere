@@ -202,6 +202,12 @@ export interface Config {
   ollamaTimeoutMinutes: number;
   ttsEngine: "pocket" | "piper";
   voiceReferencePath: string;
+  /** keep_alive Ollama в секундах (-1 — бессрочно в памяти). */
+  llmKeepAlive: number;
+  /** Лимит ответа LLM в токенах в голосовом режиме. */
+  llmMaxTokens: number;
+  /** Таймаут запроса к Ollama в секундах. */
+  llmTimeoutSeconds: number;
 }
 
 export interface Personality {

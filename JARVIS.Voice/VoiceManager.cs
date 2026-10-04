@@ -14,6 +14,7 @@ public class VoiceManager : IDisposable
     private readonly PiperService _piper = new();
     private readonly PocketTtsService _pocket = new();
     private readonly VoiceConfig _config = new();
+    private readonly SemaphoreSlim _recordGate = new(1, 1);
     private WakeWordDetector? _wakeWordDetector;
     private CancellationTokenSource? _speakCts;
     private StreamPlayer? _activePlayer;
@@ -95,6 +96,22 @@ public class VoiceManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// Предзагрузка модели Whisper в память при старте (анализ S3):
+    /// первая транскрибация не ждёт загрузку ggml-файла. Вызывается в фоне.
+    /// </summary>
+    public void PreloadWhisper()
+    {
+        try
+        {
+            _whisper.Preload();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Voice] Предзагрузка Whisper: {ex.Message}");
+        }
+    }
+
     public async Task<string> ListenAsync()
     {
         if (!_whisper.IsInstalled())
@@ -103,11 +120,46 @@ public class VoiceManager : IDisposable
             return "";
         }
 
-        var wav = await _recorder.RecordAsync();
+        string wav;
+
+        // Семафор записи: панель и консоль не должны писать микрофон
+        // одновременно (анализ F4).
+        await _recordGate.WaitAsync();
+
+        try
+        {
+            // Ошибки микрофона не должны ронять приложение (анализ F1).
+            wav = await _recorder.RecordAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Voice] Ошибка записи: {ex.Message}. Переключаюсь на текстовый ввод.");
+            return "";
+        }
+        finally
+        {
+            _recordGate.Release();
+        }
+
+        if (string.IsNullOrEmpty(wav) || !File.Exists(wav))
+            return "";
 
         Console.WriteLine("Распознаю речь...");
 
-        return await _whisper.TranscribeAsync(wav);
+        try
+        {
+            var text = await _whisper.TranscribeAsync(wav, timeoutSeconds: 30);
+            return text;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Voice] Ошибка распознавания: {ex.Message}");
+            return "";
+        }
+        finally
+        {
+            TryDelete(wav);
+        }
     }
 
     public async Task SpeakAsync(string text)
@@ -159,6 +211,8 @@ public class VoiceManager : IDisposable
     private async Task<int> SpeakPiperAsync(string text, CancellationToken ct)
     {
         var spoken = 0;
+        var firstAudioLogged = false;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
 
         await foreach (var wavFile in _piper.SynthesizeStreamAsync(text, ct))
         {
@@ -174,6 +228,12 @@ public class VoiceManager : IDisposable
             if (_config.AudioProcessing)
             {
                 fileToPlay = AudioProcessor.Process(wavFile);
+            }
+
+            if (!firstAudioLogged)
+            {
+                firstAudioLogged = true;
+                Console.WriteLine($"[Perf] TTS first audio={sw.ElapsedMilliseconds} мс (piper)");
             }
 
             await _player.PlayAsync(fileToPlay, _config.Volume);
@@ -198,17 +258,50 @@ public class VoiceManager : IDisposable
     /// </summary>
     private async Task<int> SpeakPocketAsync(string text, CancellationToken ct)
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var player = new StreamPlayer(_pocket.SampleRate, _config.Volume);
         _activePlayer = player;
 
         try
         {
             var received = 0;
+            var firstAudioLogged = false;
 
-            await foreach (var chunk in _pocket.SynthesizePcmAsync(text, ct))
+            try
             {
-                player.AddSamples(chunk, 0, chunk.Length);
-                received += chunk.Length;
+                await foreach (var chunk in _pocket.SynthesizePcmAsync(text, ct))
+                {
+                    player.AddSamples(chunk, 0, chunk.Length);
+                    received += chunk.Length;
+
+                    if (!firstAudioLogged)
+                    {
+                        firstAudioLogged = true;
+                        Console.WriteLine($"[Perf] TTS first audio={sw.ElapsedMilliseconds} мс (pocket)");
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // Анализ F2: сбой потока TTS не должен оставлять движок
+                // «мертвым» до конца сессии — помечаем недоступным, запускаем
+                // фоновое восстановление сервера и откатываемся на Piper
+                // уже для этой же реплики.
+                Console.WriteLine($"[Pocket] Сбой потока TTS: {ex.Message}");
+                _pocket.MarkUnavailableAndRecover();
+
+                if (_piper.IsLoaded)
+                {
+                    Console.WriteLine("[Voice] Откат на Piper для этой реплики.");
+                    player.Stop();
+                    return await SpeakPiperAsync(text, ct);
+                }
+
+                return received > 0 ? 1 : 0;
             }
 
             if (received == 0)
@@ -241,7 +334,20 @@ public class VoiceManager : IDisposable
     {
         try
         {
-            var wav = await _recorder.RecordAsync(seconds, sampleRate: 24000);
+            string wav;
+
+            // Семафор записи: референс не должен пересекаться с ListenAsync
+            // панели/консоли (анализ F4).
+            await _recordGate.WaitAsync();
+
+            try
+            {
+                wav = await _recorder.RecordAsync(seconds, sampleRate: 24000);
+            }
+            finally
+            {
+                _recordGate.Release();
+            }
 
             var dir = Path.Combine(Directory.GetCurrentDirectory(), "voice");
             Directory.CreateDirectory(dir);
@@ -270,12 +376,35 @@ public class VoiceManager : IDisposable
 
     /// <summary>
     /// Включает режим wake word и возвращает детектор.
+    /// Детектор ОДИН на сессию (анализ S3): раньше новый создавался на каждом
+    /// цикле — это означало повторную калибровку VAD и повторную загрузку
+    /// модели Whisper на каждую команду.
     /// </summary>
     public WakeWordDetector EnableWakeWord()
     {
-        _wakeWordDetector?.Dispose();
-        _wakeWordDetector = new WakeWordDetector(_config);
+        if (_wakeWordDetector == null)
+            _wakeWordDetector = new WakeWordDetector(_config, _whisper);
+
         return _wakeWordDetector;
+    }
+
+    /// <summary>
+    /// Выключает wake word: останавливает непрерывную запись и освобождает
+    /// детектор при выходе из голосового режима (общий Whisper не трогается).
+    /// </summary>
+    public void DisableWakeWord()
+    {
+        if (_wakeWordDetector == null)
+            return;
+
+        try
+        {
+            _wakeWordDetector.Recorder.StopContinuousRecording();
+        }
+        catch { /* рекордер уже остановлен */ }
+
+        _wakeWordDetector.Dispose();
+        _wakeWordDetector = null;
     }
 
     /// <summary>
@@ -310,7 +439,25 @@ public class VoiceManager : IDisposable
         if (recorder == null || !recorder.IsRecording)
         {
             // Fallback: используем обычный рекордер
-            var wav = await _recorder.RecordWithVadAsync(maxSeconds: 10, silenceMs: 1500);
+            string wav;
+
+            await _recordGate.WaitAsync();
+
+            try
+            {
+                // Ошибки микрофона не должны ронять приложение (анализ F1).
+                wav = await _recorder.RecordWithVadAsync(
+                    maxSeconds: 10, silenceMs: _config.CommandSilenceMs);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Voice] Ошибка записи: {ex.Message}.");
+                return "";
+            }
+            finally
+            {
+                _recordGate.Release();
+            }
 
             if (string.IsNullOrEmpty(wav) || !File.Exists(wav))
                 return "";
@@ -323,7 +470,19 @@ public class VoiceManager : IDisposable
             }
 
             Console.WriteLine("🧠 Распознаю команду...");
-            var result = await _whisper.TranscribeAsync(wav);
+
+            string result;
+
+            try
+            {
+                result = await _whisper.TranscribeAsync(wav, timeoutSeconds: 30);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Voice] Ошибка распознавания: {ex.Message}");
+                result = "";
+            }
+
             try { File.Delete(wav); } catch { }
             return result;
         }
@@ -342,11 +501,13 @@ public class VoiceManager : IDisposable
             return "";
         }
 
-        // Речь обнаружена — ждём окончания
+        // Речь обнаружена — ждём окончания (пауза тишины — из конфига,
+        // было жёсткие 1500 мс, анализ S4)
         var lastSpeechTime = DateTime.Now;
         var speechStart = DateTime.Now;
+        var silenceMs = _config.CommandSilenceMs;
 
-        while ((DateTime.Now - lastSpeechTime).TotalMilliseconds < 1500 &&
+        while ((DateTime.Now - lastSpeechTime).TotalMilliseconds < silenceMs &&
                (DateTime.Now - speechStart).TotalSeconds < 10)
         {
             await Task.Delay(200);
@@ -367,11 +528,12 @@ public class VoiceManager : IDisposable
             return "";
         }
 
-        // Сохраняем во временный файл
+        // Сохраняем во временный файл (уникальное имя — панель и консоль
+        // могут записывать одновременно, анализ F4)
         var cmdFile = Path.Combine(
             Directory.GetCurrentDirectory(),
             "voice", "input",
-            $"cmd_{DateTime.Now:yyyyMMdd_HHmmss}.wav");
+            $"cmd_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid():N}.wav");
 
         Directory.CreateDirectory(Path.GetDirectoryName(cmdFile)!);
 
@@ -384,7 +546,17 @@ public class VoiceManager : IDisposable
 
         Console.WriteLine("🧠 Распознаю команду...");
 
-        var cmdResult = await _whisper.TranscribeAsync(cmdFile);
+        string cmdResult;
+
+        try
+        {
+            cmdResult = await _whisper.TranscribeAsync(cmdFile, timeoutSeconds: 30);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Voice] Ошибка распознавания: {ex.Message}");
+            cmdResult = "";
+        }
 
         try { File.Delete(cmdFile); } catch { }
 
@@ -403,6 +575,8 @@ public class VoiceManager : IDisposable
         _recorder.Dispose();
         _player.Dispose();
         _wakeWordDetector?.Dispose();
+        _whisper.Dispose();
+        _recordGate.Dispose();
         GC.SuppressFinalize(this);
     }
 }

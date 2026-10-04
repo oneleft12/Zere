@@ -105,7 +105,10 @@ $DefaultConfigJson = @'
   "autoMemory": true,
   "ollamaTimeoutMinutes": 10,
   "ttsEngine": "piper",
-  "voiceReferencePath": ""
+  "voiceReferencePath": "",
+  "llmKeepAlive": -1,
+  "llmMaxTokens": 96,
+  "llmTimeoutSeconds": 60
 }
 '@
 

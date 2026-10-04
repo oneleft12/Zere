@@ -13,6 +13,7 @@ from typing import Any, Callable, Dict, Optional, Type, TypeVar
 from jarvis.ai.ollama_client import OllamaClient
 from jarvis.core.ai.context_builder import ContextBuilder
 from jarvis.core.configuration.jarvis_config import JarvisConfig
+from jarvis.core.context.runtime_context import RuntimeContext
 from jarvis.core.dependencies.dependency_checker import DependencyChecker
 from jarvis.core.engine import JarvisEngine
 from jarvis.core.handlers.ai_handler import AIHandler
@@ -169,9 +170,17 @@ def create_services(config: JarvisConfig) -> ServiceContainer:
     # services.AddSingleton<OllamaClient>(sp => new OllamaClient(cfg.Model, cfg.OllamaTimeoutMinutes));
     def _create_ollama_client(sp: ServiceContainer) -> OllamaClient:
         cfg = sp.get(JarvisConfig)
-        return OllamaClient(cfg.Model, cfg.OllamaTimeoutMinutes)
+        return OllamaClient(
+            cfg.Model,
+            cfg.OllamaTimeoutMinutes,
+            keep_alive=cfg.LlmKeepAlive,
+            timeout_seconds=cfg.LlmTimeoutSeconds,
+        )
 
     services.add_singleton_factory(_create_ollama_client, OllamaClient)
+
+    # services.AddSingleton<RuntimeContext>(); — флаги рантайма (этап 1, S5)
+    services.add_singleton_factory(lambda sp: RuntimeContext(), RuntimeContext)
 
     # services.AddSingleton<ContextBuilder>();
     services.add_singleton_factory(
@@ -270,7 +279,11 @@ def create_services(config: JarvisConfig) -> ServiceContainer:
     # services.AddSingleton<AIHandler>();
     services.add_singleton_factory(
         lambda sp: AIHandler(
-            sp.get(OllamaClient), sp.get(ContextBuilder), sp.get(PluginManager)
+            sp.get(OllamaClient),
+            sp.get(ContextBuilder),
+            sp.get(PluginManager),
+            runtime=sp.get(RuntimeContext),
+            config=sp.get(JarvisConfig),
         ),
         AIHandler,
     )

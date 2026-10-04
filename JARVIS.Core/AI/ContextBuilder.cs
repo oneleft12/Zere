@@ -14,6 +14,11 @@ public class ContextBuilder
         _history = history;
     }
 
+    // Анализ S5: память без лимита уплывала в промпт целиком — промпт
+    // рос, инференс замедлялся, контекст (num_ctx) переполнялся.
+    private const int MaxMemoryItems = 30;
+    private const int MaxMemoryChars = 1500;
+
     public string BuildMemory()
     {
         var memories = _memory.GetAll();
@@ -22,9 +27,33 @@ public class ContextBuilder
             return "";
 
         var sb = new StringBuilder();
+        var used = 0;
+        var items = 0;
+        var truncated = false;
 
         foreach (var item in memories)
-            sb.AppendLine($"{item.Key}: {item.Value}");
+        {
+            if (items >= MaxMemoryItems)
+            {
+                truncated = true;
+                break;
+            }
+
+            var line = $"{item.Key}: {item.Value}";
+
+            if (used + line.Length > MaxMemoryChars)
+            {
+                truncated = true;
+                break;
+            }
+
+            sb.AppendLine(line);
+            used += line.Length;
+            items++;
+        }
+
+        if (truncated)
+            sb.AppendLine("… (часть воспоминаний опущена — лимит контекста)");
 
         return sb.ToString();
     }

@@ -27,8 +27,10 @@ from jarvis.voice.audio.audio_preprocessor import AudioPreprocessor
 _MODEL_SIZES = ("tiny", "base", "small", "medium", "large-v1", "large-v2", "large-v3", "large")
 
 # Таймаут распознавания одной команды, сек (ROADMAP 1.1 «таймауты на все
-# внешние вызовы»). Короткая команда — секунды; medium на слабом CPU — до минут.
-_TRANSCRIBE_TIMEOUT_S = 120
+# внешние вызовы»). Этап 1 (анализ F6): 120 с для голосовой команды —
+# слишком много, пользователь молча ждёт; 30 с достаточно для medium
+# даже на слабом CPU. Для wake-сегментов таймаут задаётся короче (15 с).
+_TRANSCRIBE_TIMEOUT_S = 30
 
 
 def _load_local_model_path() -> Path | None:
@@ -189,8 +191,17 @@ class WhisperService:
             cleaned.append(text)
         return cleaned
 
-    def transcribe(self, wav_file: str) -> str:
+    def transcribe(
+        self,
+        wav_file: str,
+        timeout_s: int | None = None,
+        fast: bool = False,
+    ) -> str:
         """Распознаёт WAV-файл в строку (порт TranscribeAsync, язык — ru).
+
+        timeout_s — управляемый предел (иначе _TRANSCRIBE_TIMEOUT_S);
+        fast — режим wake-слова: greedy (beam_size=1) без conditioning —
+        короткий сегмент распознаётся заметно быстрее (этап 1, анализ S2/S4).
 
         При любой ошибке (нет модели, краш загрузки, таймаут) возвращает "",
         чтобы голосовой слой ушёл в fallback на текстовый ввод.
@@ -198,6 +209,11 @@ class WhisperService:
         if not self.is_installed():
             print("[Whisper] Модель Whisper не найдена.")
             return ""
+
+        if timeout_s is None:
+            timeout_s = _TRANSCRIBE_TIMEOUT_S
+
+        started = time.monotonic()
 
         # Предобработка аудио для лучшего распознавания
         processed_file = AudioPreprocessor.process_for_whisper(wav_file)
@@ -211,7 +227,14 @@ class WhisperService:
                 model = self._get_model()
 
                 # WithLanguage("ru") в C#
-                segments, _info = model.transcribe(processed_file, language="ru")
+                options: dict[str, object] = {"language": "ru"}
+                if fast:
+                    # Wake-сегменты короткие: greedy быстрее beam search,
+                    # conditioning только мешает на одиночных фразах.
+                    options["beam_size"] = 1
+                    options["condition_on_previous_text"] = False
+
+                segments, _info = model.transcribe(processed_file, **options)
 
                 for segment in segments:
                     text = segment.text.strip()
@@ -222,7 +245,7 @@ class WhisperService:
 
         thread = threading.Thread(target=worker, daemon=True)
         thread.start()
-        thread.join(timeout=_TRANSCRIBE_TIMEOUT_S)
+        thread.join(timeout=timeout_s)
 
         try:
             if thread.is_alive():
@@ -230,9 +253,9 @@ class WhisperService:
                 # но пользователь получает управляемый ответ.
                 log_error(
                     "WhisperService",
-                    f"Таймаут распознавания ({_TRANSCRIBE_TIMEOUT_S} с): {wav_file}",
+                    f"Таймаут распознавания ({timeout_s} с): {wav_file}",
                 )
-                print(f"[Whisper] Распознавание не уложилось в {_TRANSCRIBE_TIMEOUT_S} с.")
+                print(f"[Whisper] Распознавание не уложилось в {timeout_s} с.")
                 return ""
 
             if error_parts:
@@ -242,6 +265,11 @@ class WhisperService:
                 return ""
 
             cleaned = self._clean_artifacts(result_parts)
+
+            # Этап 0 (метрики): длительность STT по каждой команде.
+            total_ms = int((time.monotonic() - started) * 1000)
+            print(f"[Perf] STT={total_ms} мс (модель: {self.current_model})")
+
             return " ".join(cleaned)
         finally:
             # Удаляем обработанный файл

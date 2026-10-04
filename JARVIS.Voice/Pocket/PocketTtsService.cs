@@ -31,6 +31,16 @@ public sealed class PocketTtsService : IDisposable
     private bool _ownsProcess;
     private string _baseUrl = "";
 
+    // Параметры последнего запуска — для фонового восстановления (анализ F2).
+    private string _uvExe = "";
+    private string _script = "";
+    private string _project = "";
+    private string _voiceReference = "";
+    private int _port;
+
+    private System.Threading.Timer? _healthTimer;
+    private int _recovering;
+
     public PocketTtsService()
     {
         // Как и в PiperService: bin/Debug/net10.0/ → 4 уровня вверх → корень решения.
@@ -57,6 +67,13 @@ public sealed class PocketTtsService : IDisposable
             return false;
         }
 
+        // Запоминаем параметры для фонового восстановления (анализ F2).
+        _uvExe = uvExe;
+        _script = script;
+        _project = project;
+        _voiceReference = voiceReferencePath;
+        _port = port;
+
         _baseUrl = $"http://127.0.0.1:{port}";
 
         try
@@ -67,6 +84,7 @@ public sealed class PocketTtsService : IDisposable
                 Console.WriteLine("[Pocket] Сервер TTS уже запущен — подключаюсь.");
                 _ownsProcess = false;
                 IsAvailable = true;
+                StartHealthMonitor();
                 Console.WriteLine($"[Pocket] Готов. Голос: {VoiceName}, sample_rate={SampleRate}");
                 return true;
             }
@@ -81,6 +99,7 @@ public sealed class PocketTtsService : IDisposable
             WarmUp();
 
             IsAvailable = true;
+            StartHealthMonitor();
             Console.WriteLine($"[Pocket] Готов. Голос: {VoiceName}, sample_rate={SampleRate}");
             return true;
         }
@@ -91,6 +110,88 @@ public sealed class PocketTtsService : IDisposable
             IsAvailable = false;
             return false;
         }
+    }
+
+    /// <summary>
+    /// Помечает движок недоступным и запускает фоновое восстановление.
+    /// Анализ F2: раньше сбой после Initialize оставлял Pocket «мёртвым»
+    /// до конца сессии — каждый следующий ответ уходил в текст; теперь
+    /// сервер перезапускается в фоне, а до этого озвучка идёт через Piper.
+    /// </summary>
+    public void MarkUnavailableAndRecover()
+    {
+        IsAvailable = false;
+        StartRecovery();
+    }
+
+    private void StartRecovery()
+    {
+        if (Interlocked.Exchange(ref _recovering, 1) == 1)
+            return; // восстановление уже идёт
+
+        if (string.IsNullOrEmpty(_uvExe))
+        {
+            // Параметры запуска неизвестны (сервер подключался чужой) —
+            // восстановиться не можем, остаёмся на Piper.
+            Interlocked.Exchange(ref _recovering, 0);
+            return;
+        }
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                StopProcess();
+
+                Console.WriteLine("[Pocket] Перезапуск сервера TTS...");
+                StartServer(_uvExe, _script, _project, _voiceReference, _port);
+                _ownsProcess = true;
+
+                WaitUntilReady(TimeSpan.FromSeconds(90));
+                WarmUp();
+
+                IsAvailable = true;
+                Console.WriteLine("[Pocket] Сервер TTS восстановлен.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Pocket] Восстановление не удалось: {ex.Message}. Остаёмся на Piper.");
+                StopProcess();
+                IsAvailable = false;
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _recovering, 0);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Фоновая проверка здоровья сервера раз в 30 с: мёртвый процесс
+    /// обнаруживается ДО следующей реплики, а не по факту сбоя озвучки.
+    /// </summary>
+    private void StartHealthMonitor()
+    {
+        _healthTimer?.Dispose();
+
+        _healthTimer = new System.Threading.Timer(_ =>
+        {
+            try
+            {
+                if (!IsAvailable || Volatile.Read(ref _recovering) != 0)
+                    return;
+
+                if (!ProbeReady())
+                {
+                    Console.WriteLine("[Pocket] ⚠ Сервер TTS не отвечает — запускаю восстановление...");
+                    MarkUnavailableAndRecover();
+                }
+            }
+            catch
+            {
+                // Мониторинг не должен ронять приложение
+            }
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
 
     /// <summary>
@@ -341,6 +442,8 @@ public sealed class PocketTtsService : IDisposable
 
     public void Dispose()
     {
+        try { _healthTimer?.Dispose(); } catch { }
+
         if (_ownsProcess)
             StopProcess();
 

@@ -129,7 +129,11 @@ def test_client_sends_system_field_not_prompt_prefix() -> None:
     assert SYSTEM_PROMPT not in body["prompt"]
     assert "Пользователь:" not in body["prompt"]
     assert body["model"] == "test-model"
-    assert body["options"] == {"temperature": 0.7}
+    # options: temperature + num_ctx (этап 1 — фиксированный размер
+    # контекста ускоряет инференс, анализ S5)
+    assert body["options"] == {"num_ctx": 2048, "temperature": 0.7}
+    # keep_alive из конфига: -1 — модель не выгружается из Ollama (S5)
+    assert body["keep_alive"] == -1
 
 
 def test_client_falls_back_to_builtin_system_prompt() -> None:

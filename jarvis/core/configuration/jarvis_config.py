@@ -44,6 +44,18 @@ class JarvisConfig:
     auto_memory: bool = True
     ollama_timeout_minutes: int = 10
 
+    # --- LLM (Ollama) — параметры скорости/стабильности (паритет с C#) ---
+    # keep_alive в секундах: -1 — модель остаётся в памяти Ollama
+    # бессрочно (иначе после 5 мин простоя следующий запрос платит
+    # загрузку +2…5 с, анализ S5).
+    llm_keep_alive: int = -1
+    # Лимит ответа в токенах в ГОЛОСОВОМ режиме (96 ≈ 1–2 предложения;
+    # текстовый режим лимит не применяется).
+    llm_max_tokens: int = 96
+    # Таймаут запроса к Ollama в секундах: для голоса прежние 10 минут
+    # недопустимы (пользователь молча ждёт, анализ S5).
+    llm_timeout_seconds: int = 60
+
     # --- TTS (паритет с C# JarvisConfig) -------------------
     # Движок озвучки: "pocket" — xVibePocketTTS (клонирование голоса),
     # "piper" — классический синтез. У Python-порта PocketTTS пока нет,
@@ -65,6 +77,9 @@ class JarvisConfig:
         "OllamaTimeoutMinutes": "ollama_timeout_minutes",
         "TtsEngine": "tts_engine",
         "VoiceReferencePath": "voice_reference_path",
+        "LlmKeepAlive": "llm_keep_alive",
+        "LlmMaxTokens": "llm_max_tokens",
+        "LlmTimeoutSeconds": "llm_timeout_seconds",
     }
 
     def __getattr__(self, name: str) -> Any:

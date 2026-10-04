@@ -1,6 +1,7 @@
 using JARVIS.AI;
 using JARVIS.Core.AI;
 using JARVIS.Core.Configuration;
+using JARVIS.Core.Context;
 using JARVIS.Core.Plugins;
 
 namespace JARVIS.Core.Handlers;
@@ -10,14 +11,23 @@ public class AIHandler : IJarvisHandler
     private readonly OllamaClient _ai;
     private readonly ContextBuilder _context;
     private readonly PluginManager _pluginManager;
+    private readonly RuntimeContext? _runtime;
+    private readonly JarvisConfig? _config;
 
     private const string AssistantName = "JARVIS";
 
-    public AIHandler(OllamaClient ai, ContextBuilder context, PluginManager pluginManager)
+    public AIHandler(
+        OllamaClient ai,
+        ContextBuilder context,
+        PluginManager pluginManager,
+        RuntimeContext? runtime = null,
+        JarvisConfig? config = null)
     {
         _ai = ai;
         _context = context;
         _pluginManager = pluginManager;
+        _runtime = runtime;
+        _config = config;
     }
 
     public bool CanHandle(string message)
@@ -30,6 +40,24 @@ public class AIHandler : IJarvisHandler
         var personality = _pluginManager.ActivePersonality;
         var systemPrompt = GetSystemPrompt();
 
+        // Этап 1 (анализ S5): голосовой режим → короткий ответ и жёсткий
+        // лимит токенов. Иначе модель печатает простыни, которые TTS
+        // проговаривает десятки секунд.
+        var isVoice = _runtime?.VoiceMode == true;
+        int? maxTokens = null;
+
+        if (isVoice)
+        {
+            systemPrompt += """
+
+                ГОЛОСОВОЙ РЕЖИМ: ответ будет произнесён вслух. Максимум 1–2 коротких
+                предложения. Без списков, кода, markdown и пояснений.
+                """;
+
+            if (_config != null && _config.LlmMaxTokens > 0)
+                maxTokens = _config.LlmMaxTokens;
+        }
+
         // P1-2: system-промпт в prompt НЕ встраивается — он уходит отдельным
         // полем system в OllamaClient, иначе модель получала его дважды.
         var prompt = new PromptBuilder()
@@ -38,7 +66,7 @@ public class AIHandler : IJarvisHandler
             .UserMessage(message)
             .Build();
 
-        return await _ai.GenerateAsync(prompt, systemPrompt, personality?.Temperature);
+        return await _ai.GenerateAsync(prompt, systemPrompt, personality?.Temperature, maxTokens);
     }
 
     private string GetSystemPrompt()

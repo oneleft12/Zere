@@ -11,6 +11,7 @@ import time
 import wave
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 from jarvis.core.logging.log_service import log_error
 from jarvis.voice.audio.audio_player import AudioPlayer
@@ -32,6 +33,9 @@ class VoiceManager:
         self._piper = PiperService()
         self.config = VoiceConfig()  # Config { get; } — публичный атрибут
         self._wake_word_detector: WakeWordDetector | None = None
+        # Семафор записи: панель и консоль не должны писать микрофон
+        # одновременно (анализ F4).
+        self._record_lock = threading.Lock()
 
         self._personality_voices: dict[str, str] = {
             "Friendly": "ru_RU-ruslan-medium",
@@ -94,7 +98,17 @@ class VoiceManager:
             print("[Voice] Whisper не установлен.")
             return ""
 
-        wav = self._recorder.record()
+        # Семафор записи + защита от сбоя микрофона (анализы F4/F1)
+        with self._record_lock:
+            try:
+                wav = self._recorder.record()
+            except Exception as ex:  # noqa: BLE001
+                log_error("VoiceManager", f"listen(record): {ex}")
+                print(f"[Voice] Ошибка записи: {ex}. Переключаюсь на текстовый ввод.")
+                return ""
+
+        if not wav or not os.path.exists(wav):
+            return ""
 
         print("Распознаю речь...")
 
@@ -104,6 +118,11 @@ class VoiceManager:
             log_error("VoiceManager", f"listen: {ex}")
             print(f"[Voice] Ошибка распознавания: {ex}")
             return ""
+        finally:
+            try:
+                os.remove(wav)
+            except OSError:
+                pass
 
     def speak(self, text: str) -> None:
         """Озвучивает текст через Piper (порт SpeakAsync); без TTS или при ошибке
@@ -113,6 +132,8 @@ class VoiceManager:
         if not self._piper.is_loaded:
             print(f"[JARVIS] {text}")
             return
+
+        started = time.monotonic()
 
         try:
             wav_file = self._piper.speak(text)
@@ -125,6 +146,11 @@ class VoiceManager:
             # Синтез не удался (после reconnect в PiperService) — текстовый вывод
             print(f"[JARVIS] {text}")
             return
+
+        # Этап 0 (метрики): готовность первого аудиофайла (синтез) —
+        # дальше DSP + воспроизведение.
+        synth_ms = int((time.monotonic() - started) * 1000)
+        print(f"[Perf] TTS synth={synth_ms} мс (piper)")
 
         file_to_play = wav_file
 
@@ -156,11 +182,31 @@ class VoiceManager:
     # ─── Wake Word ──────────────────────────────────────────
 
     def enable_wake_word(self) -> WakeWordDetector:
-        """Включает режим wake word и возвращает детектор."""
-        if self._wake_word_detector is not None:
-            self._wake_word_detector.close()
-        self._wake_word_detector = WakeWordDetector(self.config)
+        """Включает режим wake word и возвращает детектор.
+
+        Детектор ОДИН на сессию (анализ S3): раньше новый создавался на
+        каждом цикле — это означало повторную калибровку VAD и повторную
+        загрузку модели Whisper на каждую команду.
+        """
+        if self._wake_word_detector is None:
+            self._wake_word_detector = WakeWordDetector(self.config, whisper=self._whisper)
         return self._wake_word_detector
+
+    def disable_wake_word(self) -> None:
+        """Выключает wake word: останавливает непрерывную запись и
+        освобождает детектор при выходе из голосового режима
+        (общий Whisper не трогается).
+        """
+        if self._wake_word_detector is None:
+            return
+
+        try:
+            self._wake_word_detector.recorder.stop_continuous_recording()
+        except Exception:  # noqa: BLE001 — рекордер уже остановлен
+            pass
+
+        self._wake_word_detector.close()
+        self._wake_word_detector = None
 
     def wait_for_wake_word(self, cancel_event: threading.Event | None = None) -> bool:
         """Ожидает произнесения ключевого слова.
@@ -185,8 +231,17 @@ class VoiceManager:
         recorder = self._wake_word_detector.recorder if self._wake_word_detector is not None else None
 
         if recorder is None or not recorder.is_recording:
-            # Fallback: используем обычный рекордер
-            wav = self._recorder.record_with_vad(max_seconds=10, silence_ms=1500)
+            # Fallback: используем обычный рекордер (семафор записи — F4;
+            # пауза тишины — из конфига, было 1500 мс, анализ S4)
+            with self._record_lock:
+                try:
+                    wav = self._recorder.record_with_vad(
+                        max_seconds=10, silence_ms=self.config.command_silence_ms
+                    )
+                except Exception as ex:  # noqa: BLE001 — анализ F1
+                    log_error("VoiceManager", f"listen_command(record): {ex}")
+                    print(f"[Voice] Ошибка записи: {ex}")
+                    return ""
 
             if not wav or not os.path.exists(wav):
                 return ""
@@ -222,12 +277,14 @@ class VoiceManager:
             print("⚠️ Речь не обнаружена.")
             return ""
 
-        # Речь обнаружена — ждём окончания
+        # Речь обнаружена — ждём окончания (пауза тишины — из конфига,
+        # было жёсткие 1500 мс, анализ S4)
         last_speech_time = datetime.now()
         speech_start = datetime.now()
+        command_silence_ms = self.config.command_silence_ms
 
         while (
-            (datetime.now() - last_speech_time).total_seconds() * 1000 < 1500
+            (datetime.now() - last_speech_time).total_seconds() * 1000 < command_silence_ms
             and (datetime.now() - speech_start).total_seconds() < 10
         ):
             time.sleep(0.2)
@@ -245,13 +302,14 @@ class VoiceManager:
             print("⚠️ Запись слишком короткая.")
             return ""
 
-        # Сохраняем во временный файл
-        # C#: Path.Combine(Directory.GetCurrentDirectory(), "voice", "input", "cmd_{ts}.wav")
+        # Сохраняем во временный файл (уникальное имя — панель и консоль
+        # могут записывать одновременно, анализ F4)
+        # C#: Path.Combine(Directory.GetCurrentDirectory(), "voice", "input", "cmd_{ts}_{guid}.wav")
         cmd_file = (
             Path.cwd()
             / "voice"
             / "input"
-            / f"cmd_{datetime.now():%Y%m%d_%H%M%S}.wav"
+            / f"cmd_{datetime.now():%Y%m%d_%H%M%S}_{uuid4().hex}.wav"
         )
         cmd_file.parent.mkdir(parents=True, exist_ok=True)
 

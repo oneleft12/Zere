@@ -1,6 +1,8 @@
+using JARVIS.AI;
 using JARVIS.App.Api;
 using JARVIS.Core;
 using JARVIS.Core.Configuration;
+using JARVIS.Core.Context;
 using JARVIS.Core.Dependencies;
 using JARVIS.Core.Logging;
 using JARVIS.Core.Plugins;
@@ -166,11 +168,30 @@ if (config.VoiceEnabled)
     voiceManager.ConfigureTts(config.TtsEngine, config.VoiceReferencePath);
     voiceManager.Initialize(activePersonality?.Style.ToString());
     Console.WriteLine("[Голос] Режим: текст + голос");
+
+    // Этап 1 (анализ S3): предзагрузка Whisper в фоне — первая транскрибация
+    // не должна ждать загрузку модели ggml.
+    _ = Task.Run(() => voiceManager.PreloadWhisper());
 }
 else
 {
     Console.WriteLine("[Голос] Отключен. Только текстовый режим.");
 }
+
+// Этап 1 (анализ S5): прогрев Ollama в фоне — убирает загрузку модели
+// с первого запроса; keep_alive из конфига удерживает её в памяти.
+_ = Task.Run(async () =>
+{
+    try
+    {
+        var ai = services.GetRequiredService<OllamaClient>();
+        await ai.WarmupAsync();
+    }
+    catch (Exception ex)
+    {
+        logger.Error($"Warmup: {ex.Message}");
+    }
+});
 
 Console.WriteLine("Команды: 'настройки' — панель настроек, 'exit' — выход");
 Console.WriteLine("         'панель' / 'panel' — открыть окно панели");
@@ -178,9 +199,18 @@ Console.WriteLine("         'голос' / 'voice' — переключить г
 Console.WriteLine("         'записать голос' — записать референс для клонирования\n");
 
 var voiceMode = false;
+var runtime = services.GetRequiredService<RuntimeContext>();
 
 while (true)
 {
+    // Голосовой режим этой реплики → AIHandler отвечает коротко (этап 1).
+    runtime.VoiceMode = voiceMode;
+
+    // Вышли из голосового режима → детектор и микрофон освобождаются,
+    // при следующем входе создаётся заново (общий Whisper переиспользуется).
+    if (!voiceMode)
+        voiceManager.DisableWakeWord();
+
     if (voiceMode)
     {
         // Режим с ключевым словом

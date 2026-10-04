@@ -7,8 +7,10 @@ import threading
 import webbrowser
 
 from jarvis import paths
+from jarvis.ai.ollama_client import OllamaClient
 from jarvis.api.server import PanelServer
 from jarvis.core.configuration.jarvis_config import JarvisConfig
+from jarvis.core.context.runtime_context import RuntimeContext
 from jarvis.core.dependencies.dependency_checker import DependencyChecker
 from jarvis.core.engine import JarvisEngine
 from jarvis.core.logging.log_service import LogService
@@ -120,6 +122,22 @@ def main() -> None:
     else:
         print("[Голос] Отключен. Только текстовый режим.")
 
+    # Прогрев Ollama в фоне (этап 1, анализ S5): первый «настоящий»
+    # запрос не платит за загрузку модели; keep_alive из конфига
+    # удерживает её в памяти. Ошибки не критичны.
+    def _warmup_llm() -> None:
+        try:
+            client = services.get(OllamaClient)
+            if client is not None:
+                client.warmup()
+        except Exception as ex:  # noqa: BLE001 — прогрев не должен мешать старту
+            logger.error(f"Warmup: {ex}")
+
+    threading.Thread(target=_warmup_llm, daemon=True).start()
+
+    # Флаги рантайма: voice_mode → AIHandler отвечает коротко (этап 1, S5)
+    runtime = services.get(RuntimeContext)
+
     print("Команды: 'настройки' — панель настроек, 'exit' — выход")
     print("         'панель' / 'panel' — открыть окно панели")
     print("         'голос' / 'voice' — переключить голосовой режим\n")
@@ -128,8 +146,18 @@ def main() -> None:
 
     while True:
         if voice_mode:
+            if runtime is not None:
+                runtime.voice_mode = True
+
             run_voice_mode(voice_manager, jarvis, config, logger, voice_mode_holder := [True])
+
+            if runtime is not None:
+                runtime.voice_mode = False
+
             voice_mode = False
+            # Вышли из голосового режима → детектор и микрофон
+            # освобождаются (общий Whisper переиспользуется, анализ S3).
+            voice_manager.disable_wake_word()
             continue
 
         try:

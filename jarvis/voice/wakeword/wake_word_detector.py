@@ -33,9 +33,18 @@ class WakeWordDetector:
     MAX_SEGMENT_SECONDS = 9.0        # Макс. окно извлечения (буфер 10 сек)
     SCAN_INTERVAL_MS = 400           # Интервал проверки энергии
 
-    def __init__(self, config: VoiceConfig) -> None:
+    # Таймаут транскрибации wake-сегмента (короткий, ≤9 с аудио): 15 с
+    # достаточно даже на слабом CPU, зависание не блокирует петлю.
+    WAKE_TRANSCRIBE_TIMEOUT_S = 15
+
+    def __init__(self, config: VoiceConfig, whisper: WhisperService | None = None) -> None:
+        """whisper — общий сервис STT (анализ S3): одна модель на процесс
+        вместо второй копии в каждом новом детекторе; если не передан —
+        создаётся свой (тогда детектор владеет им и освобождает в close()).
+        """
         self._recorder = ContinuousAudioRecorder()
-        self._whisper = WhisperService()
+        self._whisper = whisper if whisper is not None else WhisperService()
+        self._owns_whisper = whisper is None
         self._config = config
 
         # Точные варианты (проверка подстрокой)
@@ -106,7 +115,12 @@ class WakeWordDetector:
                     silence_duration = (datetime.now() - last_speech_time).total_seconds() * 1000
                     speech_duration = (datetime.now() - speech_start_time).total_seconds()
 
-                    if silence_duration > 1200 and speech_duration >= self.MIN_SPEECH_SECONDS:
+                    # Пауза окончания речи — из конфига (было жёсткие 1200 мс,
+                    # анализ S4: каждый цикл платил 1.2 с сверху).
+                    if (
+                        silence_duration > self._config.wake_silence_ms
+                        and speech_duration >= self.MIN_SPEECH_SECONDS
+                    ):
                         break
 
                     # Слишком длинная речь (>8 сек) — берём всё что есть в буфере
@@ -137,8 +151,13 @@ class WakeWordDetector:
                     self._try_delete(wav_file)
                     continue
 
-                # Распознаём речь
-                text = self._whisper.transcribe(wav_file)
+                # Распознаём речь (wake-сегмент короткий — таймаут 15 с,
+                # fast-режим greedy-декодирования)
+                text = self._whisper.transcribe(
+                    wav_file,
+                    timeout_s=self.WAKE_TRANSCRIBE_TIMEOUT_S,
+                    fast=True,
+                )
 
                 # Удаляем временный файл
                 self._try_delete(wav_file)
@@ -222,8 +241,14 @@ class WakeWordDetector:
             pass
 
     def close(self) -> None:
-        """Освобождение ресурсов (порт Dispose)."""
+        """Освобождение ресурсов (порт Dispose).
+
+        Общий Whisper (передан снаружи) принадлежит VoiceManager —
+        освобождаем только собственный экземпляр (анализ S3).
+        """
         self._recorder.close()
+        if self._owns_whisper and hasattr(self._whisper, "close"):
+            self._whisper.close()
 
     def __enter__(self) -> "WakeWordDetector":
         return self

@@ -13,7 +13,8 @@ namespace JARVIS.Voice.WakeWord;
 public class WakeWordDetector : IDisposable
 {
     private readonly ContinuousAudioRecorder _recorder = new();
-    private readonly WhisperService _whisper = new();
+    private readonly WhisperService _whisper;
+    private readonly bool _ownsWhisper;
     private readonly VoiceConfig _config;
 
     // Точные варианты (проверка подстрокой)
@@ -31,9 +32,21 @@ public class WakeWordDetector : IDisposable
     private const float MaxSegmentSeconds = 9f;        // Макс. окно извлечения (буфер 10 сек)
     private const float ScanIntervalMs = 400;          // Интервал проверки энергии
 
-    public WakeWordDetector(VoiceConfig config)
+    // Таймаут транскрибации wake-сегмента (короткий, ≤9 с аудио): 15 с
+    // достаточно даже на слабом CPU, зависание не блокирует петлю.
+    private const int WakeTranscribeTimeoutSeconds = 15;
+
+    /// <param name="config">Конфигурация голоса.</param>
+    /// <param name="whisper">
+    /// Общий сервис STT (анализ S3): одна модель на процесс вместо второй
+    /// копии в каждом новом детекторе. Если не передан — создаётся свой
+    /// (тогда детектор владеет им и освобождает в Dispose).
+    /// </param>
+    public WakeWordDetector(VoiceConfig config, WhisperService? whisper = null)
     {
         _config = config;
+        _whisper = whisper ?? new WhisperService();
+        _ownsWhisper = whisper == null;
 
         _wakeWordVariants = new[]
         {
@@ -86,7 +99,9 @@ public class WakeWordDetector : IDisposable
                     var silenceDuration = (DateTime.Now - lastSpeechTime).TotalMilliseconds;
                     var speechDuration = (DateTime.Now - speechStartTime).TotalSeconds;
 
-                    if (silenceDuration > 1200 && speechDuration >= MinSpeechSeconds)
+                    // Пауза окончания речи — из конфига (было жёсткие 1200 мс,
+                    // анализ S4: каждый цикл платил 1.2 с сверху).
+                    if (silenceDuration > _config.WakeSilenceMs && speechDuration >= MinSpeechSeconds)
                         break;
 
                     // Слишком длинная речь (>8 сек) — берём всё что есть в буфере
@@ -118,8 +133,9 @@ public class WakeWordDetector : IDisposable
                     continue;
                 }
 
-                // Распознаём речь
-                var text = await _whisper.TranscribeAsync(wavFile);
+                // Распознаём речь (wake-сегмент короткий — таймаут 15 с)
+                var text = await _whisper.TranscribeAsync(
+                    wavFile, timeoutSeconds: WakeTranscribeTimeoutSeconds);
 
                 // Удаляем временный файл
                 TryDelete(wavFile);
@@ -235,6 +251,12 @@ public class WakeWordDetector : IDisposable
     public void Dispose()
     {
         _recorder.Dispose();
+
+        // Общий Whisper (передан снаружи) принадлежит VoiceManager —
+        // освобождаем только собственный экземпляр (анализ S3/F3).
+        if (_ownsWhisper)
+            _whisper.Dispose();
+
         GC.SuppressFinalize(this);
     }
 }

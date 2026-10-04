@@ -938,6 +938,9 @@ components:
         - ollamaTimeoutMinutes
         - ttsEngine
         - voiceReferencePath
+        - llmKeepAlive
+        - llmMaxTokens
+        - llmTimeoutSeconds
       additionalProperties: false
       properties:
         version:
@@ -968,6 +971,26 @@ components:
         voiceReferencePath:
           type: string
           description: Путь к WAV-референсу голоса, пусто = встроенный голос
+        llmKeepAlive:
+          type: integer
+          minimum: -1
+          maximum: 86400
+          description: >-
+            keep_alive модели Ollama в секундах (-1 — держать в памяти
+            бессрочно, 0 — выгрузить сразу). Ускоряет следующий запрос,
+            пока модель не выгружена.
+        llmMaxTokens:
+          type: integer
+          minimum: 16
+          maximum: 4096
+          description: >-
+            Лимит ответа LLM в токенах в голосовом режиме
+            (текстовый режим лимит не применяется).
+        llmTimeoutSeconds:
+          type: integer
+          minimum: 5
+          maximum: 600
+          description: Таймаут запроса к Ollama в секундах (для голоса — 60).
 
     Personality:
       type: object

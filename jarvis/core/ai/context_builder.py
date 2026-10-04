@@ -7,6 +7,11 @@ from jarvis.memory.database.memory_repository import MemoryRepository
 
 
 class ContextBuilder:
+    # Анализ S5 (этап 1): память без лимита уплывала в промпт целиком —
+    # промпт рос, инференс замедлялся, контекст (num_ctx) переполнялся.
+    _MAX_MEMORY_ITEMS = 30
+    _MAX_MEMORY_CHARS = 1500
+
     def __init__(self, memory: MemoryRepository, history: ConversationRepository) -> None:
         self._memory = memory
         self._history = history
@@ -18,9 +23,25 @@ class ContextBuilder:
             return ""
 
         lines: list[str] = []
+        used = 0
+        truncated = False
 
         for item in memories:
-            lines.append(f"{item.key}: {item.value}\n")
+            if len(lines) >= self._MAX_MEMORY_ITEMS:
+                truncated = True
+                break
+
+            line = f"{item.key}: {item.value}\n"
+
+            if used + len(line) > self._MAX_MEMORY_CHARS:
+                truncated = True
+                break
+
+            lines.append(line)
+            used += len(line)
+
+        if truncated:
+            lines.append("… (часть воспоминаний опущена — лимит контекста)\n")
 
         return "".join(lines)
 

@@ -13,6 +13,7 @@ import wave
 from collections import deque
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 import numpy as np
 import sounddevice as sd
@@ -35,11 +36,11 @@ class AudioRecorder:
         """Запись аудио с микрофона.
 
         Использует 16 kHz mono (стандарт Whisper) с оптимальными настройками.
+        Уникальное имя файла (панель и консоль пишут одновременно, анализ F4);
+        при ошибке микрофона возвращает "" — приложение не падает (анализ F1).
         """
-        file = self._input_folder() / "record.wav"
-
-        if file.exists():
-            file.unlink()
+        # Уникальное имя: фиксированный record.wav перезаписывался бы у соседа.
+        file = self._input_folder() / f"record_{uuid4().hex}.wav"
 
         # Оптимальные настройки для Whisper STT: WaveFormat(sampleRate, 16, 1)
         # BufferMilliseconds=50 / NumberOfBuffers=3 — внутренняя буферизация
@@ -49,6 +50,8 @@ class AudioRecorder:
         writer.setnchannels(1)
         writer.setsampwidth(2)  # 16 бит
         writer.setframerate(sample_rate)
+
+        ok = False
 
         try:
             print(f"🎤 Слушаю {seconds} секунд...")
@@ -66,8 +69,18 @@ class AudioRecorder:
 
             # Даём время на завершение записи (Task.Delay(200) в C#)
             time.sleep(0.2)
+            ok = True
+        except Exception as ex:  # noqa: BLE001 — анализ F1: сбой микрофона
+            print(f"[Recorder] Ошибка записи: {ex}")
         finally:
             writer.close()
+
+        if not ok:
+            try:
+                file.unlink()
+            except OSError:
+                pass
+            return ""
 
         # Проверяем качество записи
         if os.path.getsize(file) < 1000:  # Слишком маленький файл = проблема
@@ -80,12 +93,11 @@ class AudioRecorder:
     def record_with_vad(self, max_seconds: int = 10, silence_ms: int = 1500) -> str:
         """Запись с автоматическим определением конца речи (VAD-подобное).
 
-        Записывает до тишины или максимального времени.
+        Записывает до тишины или максимального времени. Уникальное имя
+        файла (анализ F4); при ошибке микрофона возвращает "" — приложение
+        не падает (анализ F1).
         """
-        file = self._input_folder() / "record.wav"
-
-        if file.exists():
-            file.unlink()
+        file = self._input_folder() / f"record_{uuid4().hex}.wav"
 
         # WaveFormat(16000, 16, 1)
         writer = wave.open(str(file), "wb")
@@ -132,6 +144,8 @@ class AudioRecorder:
             callback=on_data,
         )
 
+        ok = False
+
         try:
             print("🎤 Говорите... (авто-остановка при тишине)")
 
@@ -154,12 +168,22 @@ class AudioRecorder:
             stream.stop()
             # Даём время на завершение записи
             time.sleep(0.2)
+            ok = True
+        except Exception as ex:  # noqa: BLE001 — анализ F1: сбой микрофона
+            print(f"[Recorder] Ошибка записи: {ex}")
         finally:
             try:
                 stream.close()
             except Exception:
                 pass
             writer.close()
+
+        if not ok:
+            try:
+                file.unlink()
+            except OSError:
+                pass
+            return ""
 
         with state_lock:
             speech_found = has_speech

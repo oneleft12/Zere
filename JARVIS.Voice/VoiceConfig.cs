@@ -40,4 +40,17 @@ public class VoiceConfig
     /// (piper --sentence_silence). Меньше — отзывчивее.
     /// </summary>
     public float SentenceSilence { get; set; } = 0.2f;
+
+    /// <summary>
+    /// Пауза тишины (мс), после которой wake-детектор считает речь оконченной.
+    /// Было жёсткие 1200 мс — каждый цикл платил 1.2 с сверху (анализ
+    /// docs/VOICE_PERF_STABILITY_ANALYSIS.md, S4); 700 мс покрывает
+    /// обычные межсловесные паузы и не рвёт фразу.
+    /// </summary>
+    public int WakeSilenceMs { get; set; } = 700;
+
+    /// <summary>
+    /// Пауза тишины (мс) для окончания голосовой команды (было 1500 мс).
+    /// </summary>
+    public int CommandSilenceMs { get; set; } = 800;
 }

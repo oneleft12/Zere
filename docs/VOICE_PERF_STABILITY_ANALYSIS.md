@@ -265,3 +265,57 @@
 Если делать ровно три вещи: **(1)** одиночный прогретый Whisper и отдельная дешёвая модель wake word, **(2)** `keep_alive`+прогрев+лимиты Ollama и короткие голосовые ответы, **(3)** стриминг первых предложений ответа в TTS. Эти три пункта дают ~80% возможного ускорения; остальное — устойчивость (runtime-fallback pocket, try/catch микрофона, гонки панели) и уже потом — бардж-ин и события вместо поллингов.
 
 *Отчёт подготовлен по состоянию кода ветки от 2026-09-28; оценки задержек требуют проверки на Windows (этап 0).*
+
+---
+
+## 9. Статус выполнения (этап 0 + этап 1)
+
+Выполнено в обеих редакциях (C# `.NET 10` и Python-порт) и проверено.
+
+### Этап 0 — метрики
+- `[Perf] STT=… мс (модель: …)` — каждая транскрибация (C# и Python).
+- `[Perf] LLM first token=… мс, total=… мс (модель: …)` — первый токен и суммарно;
+  `[Perf] LLM прогрев=… мс` — прогрев модели на старте.
+- `[Perf] TTS first audio=… мс (pocket|piper)` — C#: до первого воспроизведения;
+  Python: `[Perf] TTS synth=… мс (piper)` — до готовности первого файла.
+- Замеры на Windows (п.2 этапа 0: `ollama ps`, RSS) — остаются за пределами
+  Linux-окружения; логи уже пишутся, достаточно прогнать 10 команд подряд.
+
+### Этап 1 — быстрые победы
+| # | Что | Статус |
+|---|---|---|
+| 1 | Один `WhisperService` + один `WakeWordDetector` на сессию (переиспользование в цикле, `DisableWakeWord` при выходе) | ✅ C# + Python |
+| 2 | Предзагрузка Whisper в фоне, `IDisposable`/`Dispose` для `WhisperService`, shared с детектором | ✅ C# (Python — `preload_whisper` был) |
+| 3 | `keep_alive: -1`, `num_ctx: 2048`, `num_predict` (голос), таймаут 60 с, прогрев Ollama на старте, `ResponseHeadersRead` | ✅ C# + Python |
+| 4 | Паузы тишины в конфиг: wake 1200→700 мс, команда 1500→800 мс (`WakeSilenceMs`/`CommandSilenceMs`) | ✅ C# + Python |
+| 5 | try/catch вокруг записи микрофона + фолбэк на текстовый ввод | ✅ C# + Python |
+| 6 | Runtime-fallback pocket→piper: сбой потока → `MarkUnavailableAndRecover` (фоновый перезапуск) + health-loop раз в 30 с | ✅ C# |
+| 7 | GUID-имена temp-файлов + семафор записи (панель ↔ консоль) | ✅ C# + Python |
+| 8 | Таймаут транскрибации: C# 30 с (wake 15 с) с out-наблюдением исключений; Python 30 с (wake 15 с, `beam_size=1`, `condition_on_previous_text=False`) | ✅ |
+| 9 | Лимит памяти в промпте: ≤30 фактов и ≤1500 символов с пометкой об усечении | ✅ C# + Python |
+| 10 | Голосовой режим → короткий ответ: инструкция в system prompt + `llmMaxTokens` (`RuntimeContext.VoiceMode`) | ✅ C# + Python |
+
+### Новые ключи конфигурации (`config/config.json`)
+| Ключ | По умолчанию | Смысл |
+|---|---|---|
+| `llmKeepAlive` | `-1` | keep_alive Ollama в секундах (`-1` — бессрочно в памяти) |
+| `llmMaxTokens` | `96` | лимит ответа LLM в токенах в голосовом режиме (0 не используется; диапазон 16…4096) |
+| `llmTimeoutSeconds` | `60` | таймаут запроса к Ollama (5…600) |
+
+Ключи согласованы во всём стеке: `JarvisConfig` (C#/Python), валидация
+`POST /api/config` (C# `PanelServer` + Python `_validate_config_payload`),
+`docs/api/openapi.yaml` (schema `Config`), `installer/install.ps1`,
+`panel/src/api.ts`. Панель переносит их GET→POST автоматически.
+
+### Проверки
+- `dotnet build JARVIS.slnx` (`-p:EnableWindowsTargeting=true`): **0 ошибок**.
+- `python3 tests/test_panel_api.py`: **83/83**.
+- `python3 tests/test_system_prompt.py`: **3/3** (обновлено под `num_ctx`/`keep_alive`).
+- `python3 tests/test_installer.py`: **9/9**.
+- `python3 -m compileall jarvis main.py`: OK.
+
+### Не сделано (осознанно — этапы 2–3)
+Стриминг LLM→TTS, отдельная tiny-модель wake word, Piper без файлов,
+событийная петля VAD, бардж-ин, выбор STT-модели по сценарию — см. §6
+«Этап 2» и «Этап 3». Фактический бюджет задержек нужно замерить `[Perf]`-логами
+на Windows после этого коммита.

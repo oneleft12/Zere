@@ -1583,7 +1583,14 @@ def _validate_config_payload(payload: Any) -> Optional[str]:
     if not isinstance(payload, dict):
         return "Ожидался JSON-объект конфигурации."
 
-    allowed = set(_STRING_FIELDS) | set(_BOOL_FIELDS) | {"voiceVolume", "ollamaTimeoutMinutes"}
+    allowed = set(_STRING_FIELDS) | set(_BOOL_FIELDS) | {
+        "voiceVolume",
+        "ollamaTimeoutMinutes",
+        # LLM-параметры скорости/стабильности (анализ S5, этап 1)
+        "llmKeepAlive",
+        "llmMaxTokens",
+        "llmTimeoutSeconds",
+    }
 
     for key in payload:
         if key not in allowed:
@@ -1618,6 +1625,18 @@ def _validate_config_payload(payload: Any) -> Optional[str]:
         return "Ключ «ollamaTimeoutMinutes» должен быть целым числом."
     if not 1 <= timeout <= 120:
         return "Ключ «ollamaTimeoutMinutes» должен быть в диапазоне 1…120."
+
+    llm_ranges = (
+        ("llmKeepAlive", -1, 86400),
+        ("llmMaxTokens", 16, 4096),
+        ("llmTimeoutSeconds", 5, 600),
+    )
+    for key, low, high in llm_ranges:
+        value = payload[key]
+        if isinstance(value, bool) or not isinstance(value, int):
+            return f"Ключ «{key}» должен быть целым числом."
+        if not low <= value <= high:
+            return f"Ключ «{key}» должен быть в диапазоне {low}…{high}."
 
     return None
 
