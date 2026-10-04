@@ -158,6 +158,8 @@ tools/voice_cache/
 
 # Голосовой референс пользователя (биометрия — не коммитим)
 voice/reference.wav
+# Тестовые WAV для сравнения звучания (генерируются вручную, не коммитим)
+voice/tts_compare/
 tools/uvw.exe
 tools/uvx.exe
 

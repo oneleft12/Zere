@@ -15,13 +15,37 @@ from uuid import uuid4
 
 from jarvis.core.logging.log_service import log_error
 from jarvis.voice.audio.audio_player import AudioPlayer
-from jarvis.voice.audio.audio_processor import AudioProcessor
+from jarvis.voice.audio.audio_processor import DEFAULT_SAMPLE_RATE, AudioProcessor
 from jarvis.voice.audio.audio_recorder import AudioRecorder
 from jarvis.voice.piper.piper_service import PiperService
 from jarvis.voice.sherpa.gigaam_service import GigaamService
 from jarvis.voice.voice_config import VoiceConfig
 from jarvis.voice.wakeword.wake_word_detector import WakeWordDetector
 from jarvis.voice.whisper.whisper_service import WhisperService
+
+
+def output_sample_rate() -> int:
+    """Частота устройства вывода по умолчанию — под неё ресемплится озвучка.
+
+    Берётся `default_samplerate` устройства вывода sounddevice (44100 у
+    большинства USB-гарнитур, 48000 у HDMI/NVIDIA). Если узнать не удалось,
+    используется DEFAULT_SAMPLE_RATE (44100): она заведомо лучше, чем отдать
+    22050 Гц, которые PortAudio потом конвертирует сам своим слабым
+    ресемплером — это и давало «металлический» призвук на выходе.
+    """
+    try:
+        import sounddevice as sd
+
+        device = sd.default.device[1]
+
+        if device is None or device < 0:
+            return DEFAULT_SAMPLE_RATE
+
+        rate = int(sd.query_devices(device)["default_samplerate"])
+
+        return rate if rate > 0 else DEFAULT_SAMPLE_RATE
+    except Exception:  # noqa: BLE001 — нет устройства/PortAudio: дефолт надёжнее
+        return DEFAULT_SAMPLE_RATE
 
 
 class VoiceManager:
@@ -204,9 +228,13 @@ class VoiceManager:
         file_to_play = wav_file
 
         try:
-            # Профессиональная DSP-обработка: EQ, компрессия, нормализация
+            # Профессиональная DSP-обработка: ресемплинг под устройство, EQ,
+            # компрессия, нормализация. Ресемплинг здесь обязателен: piper
+            # отдаёт 22050 Гц, и если отдать их как есть, sounddevice/PortAudio
+            # будет конвертировать сам — своим слабым ресемплером, что и даёт
+            # «металлический» призвук на выходе.
             if self.config.audio_processing:
-                file_to_play = AudioProcessor.process(wav_file)
+                file_to_play = AudioProcessor.process(wav_file, output_sample_rate())
 
             self._player.play(file_to_play, self.config.volume)
         except Exception as ex:  # noqa: BLE001 — воспроизведение не должно «резать» вывод

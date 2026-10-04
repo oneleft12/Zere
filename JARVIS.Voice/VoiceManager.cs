@@ -297,10 +297,14 @@ public class VoiceManager : IDisposable
 
             string fileToPlay = wavFile;
 
-            // Профессиональная DSP-обработка: EQ, компрессия, нормализация
+            // Профессиональная DSP-обработка: ресемплинг под устройство, EQ,
+            // компрессия, нормализация. Ресемплинг здесь обязателен: piper
+            // отдаёт 22050 Гц, и если отдать их как есть, NAudio/WASAPI будет
+            // конвертировать сам — своим слабым ресемплером, что и даёт
+            // «металлический» призвук на выходе.
             if (_config.AudioProcessing)
             {
-                fileToPlay = AudioProcessor.Process(wavFile);
+                fileToPlay = AudioProcessor.Process(wavFile, ResolveOutputSampleRate());
             }
 
             if (!firstAudioLogged)
@@ -397,6 +401,37 @@ public class VoiceManager : IDisposable
             return;
 
         try { File.Delete(path); } catch { /* файл мог уже удалиться */ }
+    }
+
+    /// <summary>
+    /// Частота устройства вывода по умолчанию — под неё ресемплится озвучка.
+    ///
+    /// Определяется через системный микшер (MMDeviceEnumerator/WASAPI): берётся
+    /// MixFormat устройства по умолчанию. Если узнать не удалось, используется
+    /// AudioProcessor.DefaultSampleRate (44100) — нативная частота большинства
+    /// устройств; она заведомо лучше, чем отдать 22050 Гц, которые аудио-движок
+    /// потом конвертирует сам своим слабым ресемплером.
+    /// </summary>
+    private static int ResolveOutputSampleRate()
+    {
+        try
+        {
+            using var enumerator = new NAudio.CoreAudioApi.MMDeviceEnumerator();
+            using var device = enumerator.GetDefaultAudioEndpoint(
+                NAudio.CoreAudioApi.DataFlow.Render,
+                NAudio.CoreAudioApi.Role.Multimedia);
+
+            var rate = device.AudioClient.MixFormat.SampleRate;
+
+            if (rate > 0)
+                return rate;
+        }
+        catch
+        {
+            // Устройство могло исчезнуть/смениться — дефолт надёжнее исключения.
+        }
+
+        return AudioProcessor.DefaultSampleRate;
     }
 
     /// <summary>
