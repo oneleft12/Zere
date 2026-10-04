@@ -217,6 +217,68 @@ def test_model_files_and_live_decode() -> None:
     )
 
 
+def test_model_download_and_extract() -> None:
+    """Ветка скачивания: SHA-256/размер проверяются, архив распаковывается.
+
+    Гоняем на уменьшенном аналоге архива (реальные 163 МБ в тестах не нужны):
+    подменяем константы и urllib, распаковка — настоящая (tarfile).
+    """
+    import hashlib
+    import io
+    import tarfile
+    import tempfile
+
+    from jarvis.voice.sherpa import gigaam_service as gs
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        staging = tmp / "staging" / gs.MODEL_DIR_NAME
+        staging.mkdir(parents=True)
+        (staging / "tokens.txt").write_text("а\nб\n", encoding="utf-8")
+        (staging / "encoder.int8.onnx").write_bytes(b"weights" * 8)
+
+        archive = tmp / "model.tar.bz2"
+        with tarfile.open(archive, "w:bz2") as tar:
+            tar.add(staging, arcname=gs.MODEL_DIR_NAME)
+        payload = archive.read_bytes()
+        good_sha = hashlib.sha256(payload).hexdigest()
+
+        class _Response(io.BytesIO):
+            """Минимальная замена HTTP-ответа urllib (context manager + headers)."""
+
+            headers = {"Content-Length": str(len(payload))}
+
+            def __enter__(self) -> "_Response":
+                return self
+
+            def __exit__(self, *exc: object) -> bool:
+                return False
+
+        def fake_urlopen(url: str, timeout: int | None = None) -> _Response:  # noqa: ARG001
+            return _Response(payload)
+
+        models_dir = tmp / "models"
+        models_dir.mkdir()
+
+        # 1. Успешный путь: размер и SHA-256 совпадают → распаковка
+        with mock.patch.object(gs, "MODEL_SIZE_BYTES", len(payload)), \
+             mock.patch.object(gs, "MODEL_SHA256", good_sha), \
+             mock.patch("urllib.request.urlopen", fake_urlopen):
+            assert gs._download_model(models_dir) is True, "скачивание должно пройти"
+        extracted = models_dir / gs.MODEL_DIR_NAME
+        assert (extracted / "tokens.txt").is_file(), "файлы модели не распакованы"
+        assert (extracted / "encoder.int8.onnx").is_file()
+
+        # 2. Негативный путь: чужой SHA-256 → отказ, без распаковки
+        bad_dir = tmp / "bad_models"
+        bad_dir.mkdir()
+        with mock.patch.object(gs, "MODEL_SIZE_BYTES", len(payload)), \
+             mock.patch.object(gs, "MODEL_SHA256", "0" * 64), \
+             mock.patch("urllib.request.urlopen", fake_urlopen):
+            assert gs._download_model(bad_dir) is False, "битый архив не должен приниматься"
+        assert not (bad_dir / gs.MODEL_DIR_NAME).exists(), "битый архив распакован"
+
+
 def main() -> None:
     tests = [
         value
