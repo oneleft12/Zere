@@ -18,6 +18,7 @@ export const VOICE_EN: Record<string, string> = {
   "Отменить изменения": "Revert changes",
   "Сохранено — вступит в силу после перезапуска": "Saved — takes effect after restart",
   "Громкость применена сразу": "Volume applied immediately",
+  "Применено сразу, без перезапуска": "Applied immediately, without a restart",
   "Сервер отклонил настройки: {message}": "The server rejected the settings: {message}",
   "Ошибка сохранения голосовых настроек": "Failed to save voice settings",
 
@@ -30,6 +31,10 @@ export const VOICE_EN: Record<string, string> = {
   "pocket — клонирование голоса": "pocket — voice cloning",
   "piper — быстрый, без клонирования": "piper — fast, no cloning",
   "Смена движка вступает в силу после перезапуска": "Engine change takes effect after restart",
+  "DSP-обработка озвучки (Piper)": "Speech DSP (Piper)",
+  "EQ + мягкая компрессия + нормализация": "EQ + gentle compression + normalization",
+  "Применяется сразу; выключено — «сырой» выход piper без фильтров":
+    "Applied immediately; off — raw piper output without filters",
   "Референс голоса (WAV)": "Voice reference (WAV)",
   "путь к WAV-референсу, пусто = встроенный голос":
     "path to the WAV reference, empty = built-in voice",
@@ -40,6 +45,12 @@ export const VOICE_EN: Record<string, string> = {
   "PocketTTS: {value}": "PocketTTS: {value}",
   "скорость речи: {value}": "speech speed: {value}",
   "громкость сразу: {value}": "instant volume: {value}",
+  "DSP-обработка: {value}": "DSP processing: {value}",
+  "включена": "on",
+  "выключена": "off",
+  "Обработка": "Processing",
+  "DSP включена": "DSP on",
+  "DSP выключена": "DSP off",
   "микрофон (STT): {value}": "microphone (STT): {value}",
   "есть": "yes",
   "нет": "no",

@@ -696,9 +696,10 @@ paths:
       operationId: updateVoice
       summary: >
         Обновление любого непустого подмножества голосовых полей.
-        voiceVolume применяется сразу (liveVolumeApply); voiceEnabled,
-        ttsEngine и voiceReferencePath — после рестарта: appliedOnRestart
-        становится true, если одно из них изменилось
+        voiceVolume и audioProcessing применяются сразу (liveVolumeApply /
+        DSP читается на каждое предложение); voiceEnabled, ttsEngine и
+        voiceReferencePath — после рестарта: appliedOnRestart становится
+        true, если одно из них изменилось
       tags: [voice]
       requestBody:
         required: true
@@ -1056,6 +1057,12 @@ components:
         voiceReferencePath:
           type: string
           description: Путь к WAV-референсу голоса, пусто = встроенный голос
+        audioProcessing:
+          type: boolean
+          description: >-
+            DSP-обработка озвучки Piper (EQ, мягкая компрессия, нормализация);
+            false — «сырой» выход piper. Необязательный ключ: старые клиенты
+            могут его не присылать.
         llmKeepAlive:
           type: integer
           minimum: -1
@@ -1479,7 +1486,13 @@ components:
 
     VoiceSettings:
       type: object
-      required: [voiceEnabled, voiceVolume, ttsEngine, voiceReferencePath, capabilities]
+      required:
+        - voiceEnabled
+        - voiceVolume
+        - ttsEngine
+        - voiceReferencePath
+        - audioProcessing
+        - capabilities
       additionalProperties: false
       properties:
         voiceEnabled:
@@ -1493,12 +1506,24 @@ components:
           enum: [pocket, piper]
         voiceReferencePath:
           type: string
+        audioProcessing:
+          type: boolean
+          description: >
+            DSP-обработка озвучки Piper (EQ, мягкая компрессия, нормализация).
+            Читается на каждое предложение — переключается без перезапуска;
+            false — «сырой» выход piper
         capabilities:
           $ref: "#/components/schemas/VoiceCapabilities"
 
     VoiceSettingsApplied:
       type: object
-      required: [voiceEnabled, voiceVolume, ttsEngine, voiceReferencePath, appliedOnRestart]
+      required:
+        - voiceEnabled
+        - voiceVolume
+        - ttsEngine
+        - voiceReferencePath
+        - audioProcessing
+        - appliedOnRestart
       additionalProperties: false
       properties:
         voiceEnabled:
@@ -1512,11 +1537,16 @@ components:
           enum: [pocket, piper]
         voiceReferencePath:
           type: string
+        audioProcessing:
+          type: boolean
+          description: >
+            DSP-обработка озвучки: применяется сразу (на следующее
+            предложение), на appliedOnRestart не влияет
         appliedOnRestart:
           type: boolean
           description: >
             true, если изменилось voiceEnabled/ttsEngine/voiceReferencePath
-            (громкость применяется сразу и не влияет на флаг)
+            (громкость и audioProcessing применяются сразу и на флаг не влияют)
 
     VoiceUpdate:
       type: object
@@ -1535,6 +1565,8 @@ components:
           enum: [pocket, piper]
         voiceReferencePath:
           type: string
+        audioProcessing:
+          type: boolean
 
     VoiceModeState:
       type: object

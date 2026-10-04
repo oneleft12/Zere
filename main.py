@@ -112,6 +112,10 @@ def main() -> None:
     # Движок распознавания речи из config.json (sttEngine, дефолт gigaam)
     voice_manager.config.stt_engine = str(config.stt_engine)
 
+    # DSP-обработка озвучки из config.json (audioProcessing, дефолт true):
+    # читается на каждое предложение — переключается из панели на лету
+    voice_manager.config.audio_processing = bool(config.audio_processing)
+
     active_personality = jarvis.plugin_manager.active_personality
     if active_personality is not None:
         print(f"[Личность] {active_personality.name} | Стиль: {active_personality.style}\n")

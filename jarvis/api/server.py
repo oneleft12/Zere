@@ -535,6 +535,13 @@ class _PanelHandler(BaseHTTPRequestHandler):
         config = self.panel.config
         for camel_key, value in payload.items():
             setattr(config, _camel_to_snake(camel_key), value)
+
+        # DSP-обработка озвучки: применяется на лету (читается на каждое
+        # предложение), поэтому помимо config.json обновляем живой VoiceConfig.
+        voice = self.panel.voice
+        if voice is not None and "audioProcessing" in payload:
+            voice.config.audio_processing = bool(config.audio_processing)
+
         config.save()
 
         self._send_json(200, None, config.to_camel_dict())
@@ -896,6 +903,7 @@ class _PanelHandler(BaseHTTPRequestHandler):
             "voiceVolume": float(config.voice_volume),
             "ttsEngine": str(config.tts_engine),
             "voiceReferencePath": str(config.voice_reference_path),
+            "audioProcessing": bool(config.audio_processing),
         }
 
     def _voice_capabilities(self, voice: Any) -> dict[str, Any]:
@@ -930,7 +938,7 @@ class _PanelHandler(BaseHTTPRequestHandler):
         )
 
     def _handle_voice_post(self) -> None:
-        """Обновление голоса: громкость применяется сразу, остальное — после рестарта."""
+        """Обновление голоса: громкость и audioProcessing — сразу, остальное после рестарта."""
         voice = self._require_voice()
         if voice is None:
             return
@@ -953,6 +961,12 @@ class _PanelHandler(BaseHTTPRequestHandler):
             config.voice_volume = volume
             # liveVolumeApply: VoiceConfig читается на каждое воспроизведение
             voice.config.volume = volume
+
+        if "audioProcessing" in payload:
+            processing = bool(payload["audioProcessing"])
+            config.audio_processing = processing
+            # читается на каждое предложение — тоже применяется сразу
+            voice.config.audio_processing = processing
 
         for key in restart_keys:
             if key in payload:
@@ -1660,6 +1674,9 @@ _STRING_FIELDS = ("version", "assistantName", "language", "model", "ttsEngine", 
 # присылать (openapi: свойство есть в схеме, но вне required).
 _OPTIONAL_STRING_FIELDS = ("sttEngine",)
 _BOOL_FIELDS = ("voiceEnabled", "autoMemory")
+# Необязательные логические ключи — тот же контракт, что у sttEngine:
+# свойство есть в схеме, но вне required (старые клиенты его не шлют).
+_OPTIONAL_BOOL_FIELDS = ("audioProcessing",)
 
 
 def _validate_config_payload(payload: Any) -> Optional[str]:
@@ -1670,21 +1687,27 @@ def _validate_config_payload(payload: Any) -> Optional[str]:
     if not isinstance(payload, dict):
         return "Ожидался JSON-объект конфигурации."
 
-    allowed = set(_STRING_FIELDS) | set(_OPTIONAL_STRING_FIELDS) | set(_BOOL_FIELDS) | {
-        "voiceVolume",
-        "ollamaTimeoutMinutes",
-        # LLM-параметры скорости/стабильности (анализ S5, этап 1)
-        "llmKeepAlive",
-        "llmMaxTokens",
-        "llmTimeoutSeconds",
-    }
+    allowed = (
+        set(_STRING_FIELDS)
+        | set(_OPTIONAL_STRING_FIELDS)
+        | set(_BOOL_FIELDS)
+        | set(_OPTIONAL_BOOL_FIELDS)
+        | {
+            "voiceVolume",
+            "ollamaTimeoutMinutes",
+            # LLM-параметры скорости/стабильности (анализ S5, этап 1)
+            "llmKeepAlive",
+            "llmMaxTokens",
+            "llmTimeoutSeconds",
+        }
+    )
 
     for key in payload:
         if key not in allowed:
             return f"Неизвестный ключ конфигурации: «{key}»."
 
     for key in allowed:
-        if key in _OPTIONAL_STRING_FIELDS:
+        if key in _OPTIONAL_STRING_FIELDS or key in _OPTIONAL_BOOL_FIELDS:
             continue  # необязательный: присутствие не требуется
         if key not in payload:
             return f"Отсутствует обязательный ключ: «{key}»."
@@ -1699,6 +1722,10 @@ def _validate_config_payload(payload: Any) -> Optional[str]:
 
     for key in _BOOL_FIELDS:
         if not isinstance(payload[key], bool):
+            return f"Ключ «{key}» должен быть логическим значением."
+
+    for key in _OPTIONAL_BOOL_FIELDS:
+        if key in payload and not isinstance(payload[key], bool):
             return f"Ключ «{key}» должен быть логическим значением."
 
     if payload["language"] not in ("ru", "en"):
@@ -1758,12 +1785,14 @@ def _validate_voice_mode_payload(payload: Any) -> Optional[str]:
 def _validate_voice_payload(payload: Any) -> Optional[str]:
     """Подмножество голосовых ключей (POST /api/voice): строго, как config.
 
-    Любой из четырёх голосовых полей, но не все вместе и не посторонние.
+    Любое из пяти голосовых полей, но не пустой объект и без посторонних ключей.
     """
     if not isinstance(payload, dict):
         return "Ожидался JSON-объект голосовых настроек."
 
-    allowed = {"voiceEnabled", "voiceVolume", "ttsEngine", "voiceReferencePath"}
+    allowed = {
+        "voiceEnabled", "voiceVolume", "ttsEngine", "voiceReferencePath", "audioProcessing"
+    }
 
     for key in payload:
         if key not in allowed:
@@ -1774,6 +1803,9 @@ def _validate_voice_payload(payload: Any) -> Optional[str]:
 
     if "voiceEnabled" in payload and not isinstance(payload["voiceEnabled"], bool):
         return "Ключ «voiceEnabled» должен быть логическим значением."
+
+    if "audioProcessing" in payload and not isinstance(payload["audioProcessing"], bool):
+        return "Ключ «audioProcessing» должен быть логическим значением."
 
     if "voiceVolume" in payload:
         volume = payload["voiceVolume"]

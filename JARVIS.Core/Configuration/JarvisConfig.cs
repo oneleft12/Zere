@@ -56,6 +56,12 @@ public class JarvisConfig
     // Заполняется командой «записать голос».
     public string VoiceReferencePath { get; set; } = "";
 
+    // DSP-обработка озвучки Piper (EQ + мягкий компрессор + нормализация).
+    // Ключ config.json: audioProcessing. Читается на каждое предложение
+    // (VoiceManager), поэтому переключается на лету из панели; false —
+    // «сырой» выход piper без единого фильтра.
+    public bool AudioProcessing { get; set; } = true;
+
     private static readonly string ConfigPath =
         Path.Combine(
             Directory.GetCurrentDirectory(),

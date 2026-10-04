@@ -349,6 +349,8 @@ export interface VoiceSettings {
   voiceVolume: number;
   ttsEngine: "pocket" | "piper";
   voiceReferencePath: string;
+  /** DSP-обработка озвучки Piper: применяется сразу, без перезапуска. */
+  audioProcessing: boolean;
   capabilities: VoiceCapabilities;
 }
 
@@ -357,6 +359,7 @@ export interface VoiceSettingsApplied {
   voiceVolume: number;
   ttsEngine: "pocket" | "piper";
   voiceReferencePath: string;
+  audioProcessing: boolean;
   appliedOnRestart: boolean;
 }
 

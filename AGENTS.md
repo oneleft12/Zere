@@ -152,7 +152,7 @@ Pipeline обработки команд (порядок важен):
 
 - **Модель**: qwen3.5:2b (через Ollama)
 - **Язык**: ru
-- **Голос**: STT `sttEngine` = `gigaam` (GigaAM-v3 punct на sherpa-onnx — основной; при сбоях/отсутствии модели — автоматический откат на `whisper`, wake word всегда на Whisper) + TTS: `ttsEngine` = `pocket` (xVibePocketTTS, клонирование голоса; при сбоях — автоматический откат на `piper`), `voiceReferencePath` — WAV-референс (записывается командой «записать голос»)
+- **Голос**: STT `sttEngine` = `gigaam` (GigaAM-v3 punct на sherpa-onnx — основной; при сбоях/отсутствии модели — автоматический откат на `whisper`, wake word всегда на Whisper) + TTS: `ttsEngine` = `pocket` (xVibePocketTTS, клонирование голоса; при сбоях — автоматический откат на `piper`), `voiceReferencePath` — WAV-референс (записывается командой «записать голос»), `audioProcessing` — DSP-обработка озвучки Piper (тумблер на экране «Голос», по умолчанию `true`; применяется без перезапуска)
 - **Память**: автоизвлечение фактов из диалога
 
 ---

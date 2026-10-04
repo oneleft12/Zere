@@ -73,6 +73,12 @@ class JarvisConfig:
     # Путь к WAV-референсу голоса пользователя (пусто = встроенный голос).
     voice_reference_path: str = ""
 
+    # DSP-обработка озвучки Piper (EQ + мягкий компрессор + нормализация),
+    # паритет с C# JarvisConfig.AudioProcessing. Ключ config.json:
+    # audioProcessing. Читается на каждое предложение (VoiceManager), поэтому
+    # переключается из панели на лету; false — «сырой» выход piper.
+    audio_processing: bool = True
+
     # --- Совместимость с C#-стилем обращений (Version, AssistantName, ...) ---
     _PASCAL_ALIASES = {
         "Version": "version",
@@ -86,6 +92,7 @@ class JarvisConfig:
         "TtsEngine": "tts_engine",
         "SttEngine": "stt_engine",
         "VoiceReferencePath": "voice_reference_path",
+        "AudioProcessing": "audio_processing",
         "LlmKeepAlive": "llm_keep_alive",
         "LlmMaxTokens": "llm_max_tokens",
         "LlmTimeoutSeconds": "llm_timeout_seconds",

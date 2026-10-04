@@ -167,6 +167,11 @@ if (config.VoiceEnabled)
 {
     // Громкость голосового вывода из config.json (voiceVolume).
     voiceManager.Config.Volume = (float)config.VoiceVolume;
+
+    // DSP-обработка озвучки из config.json (audioProcessing, дефолт true).
+    // Переключается на лету из панели — читается на каждое предложение.
+    voiceManager.Config.AudioProcessing = config.AudioProcessing;
+
     voiceManager.ConfigureTts(config.TtsEngine, config.VoiceReferencePath);
     voiceManager.ConfigureStt(config.SttEngine);
     voiceManager.Initialize(activePersonality?.Style.ToString());

@@ -31,8 +31,10 @@ public class VoiceConfig
     public string WakeWord { get; set; } = "джарвис";
 
     /// <summary>
-    /// Включить DSP-обработку голоса (EQ, компрессия, нормализация).
-    /// Делает звук более «кинематографичным».
+    /// Включить DSP-обработку голоса (EQ, мягкая компрессия, нормализация).
+    /// Делает звук более «кинематографичным». Значение приходит из config.json
+    /// (ключ audioProcessing) через VoiceManager/панель и читается на каждое
+    /// предложение — переключается без перезапуска. false = «сырой» выход piper.
     /// </summary>
     public bool AudioProcessing { get; set; } = true;
 

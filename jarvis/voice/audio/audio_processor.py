@@ -1,7 +1,8 @@
-"""Профессиональная DSP-цепочка обработки голоса (TTS)
+"""DSP-цепочка обработки голоса (TTS)
 (порт JARVIS.Voice/Audio/AudioProcessor.cs).
 
-Делает звук «кинематографичным»: тёплый бас, чёткая подача, глубина.
+Делает звук плотнее и «кинематографичнее», но без артефактов: один мягкий
+компрессор вместо каскада, без шумовых гейтов и без апсемплинга.
 NAudio (AudioFileReader/WaveFileWriter) заменён на stdlib wave + numpy.
 """
 
@@ -67,7 +68,14 @@ class AudioProcessor:
 
     @staticmethod
     def process(input_wav_path: str) -> str:
-        """Полная обработка WAV-файла: ресемплинг → EQ → компрессия → нормализация → лимитер."""
+        """HPF → корректирующий EQ → EQ → компрессия → нормализация → лимитер.
+
+        Ресемплинга здесь нет намеренно: piper отдаёт 22050 Гц, а прежний
+        апсемпл 22050→44100 линейной интерполяцией (без анти-imaging фильтра)
+        добавлял зеркальную копию спектра выше 11 кГц — это и был
+        «металлический» призвук. Частота сохраняется как есть, ресемплинг
+        отдан аудио-движку ОС.
+        """
         try:
             input_path = Path(input_wav_path)
             if not input_path.exists():
@@ -77,77 +85,45 @@ class AudioProcessor:
             output_dir = input_path.parent or Path(tempfile.gettempdir())
             output_path = output_dir / f"processed_{input_path.name}"
 
-            input_rate, samples = _read_all_float(input_path)
+            sample_rate, samples = _read_all_float(input_path)
 
-            # Ресемплинг до 44100 Hz если нужно
-            target_rate = 44100 if input_rate < 44100 else input_rate
-            if input_rate != target_rate:
-                samples = _resample(samples, input_rate, target_rate)
-
-            # === Кинематографичная DSP-цепочка (баритон) ===
+            # === DSP-цепочка (баритон, без артефактов) ===
 
             # 1. HPF: убираем гул и комнатный румбл ниже 75 Гц
-            _apply_high_pass(samples, target_rate, 75.0)
+            _apply_high_pass(samples, sample_rate, 75.0)
 
-            # 2. Шумовой гейт: подавляет шипение/фон в паузах (до нормализации)
-            _apply_noise_gate(samples, target_rate, threshold_db=-42.0, reduction_db=14.0)
-
-            # 3. Чистка «эхо» и шума:
+            # 2. Чистка «эхо» и шума:
             #    - Срез боксовой резонансной составляющей (350 Гц -3 dB) — убирает «комнатность»
             #    - Десессер (6.5 кГц -2.5 dB) — убирает шипение/свист
-            _apply_biquad_peak(samples, target_rate, 350.0, -3.0, 1.1)
-            _apply_biquad_peak(samples, target_rate, 6500.0, -2.5, 1.6)
+            _apply_biquad_peak(samples, sample_rate, 350.0, -3.0, 1.1)
+            _apply_biquad_peak(samples, sample_rate, 6500.0, -2.5, 1.6)
 
-            # 4. Кинематографичный EQ:
-            #    - Низкий бас (120 Гц +3.0 dB) — «бархатистость»
-            #    - Тепло (250 Гц +1.5 dB) — наполненность
-            #    - Присутствие (2.8 кГц +2.0 dB) — чёткая дикция
-            #    - Воздух (9 кГц +0.5 dB) — лёгкость (снижено, меньше шипения)
-            _apply_cinematic_eq(samples, target_rate)
+            # 3. Кинематографичный EQ (умеренный: без «бочки» и без шипения)
+            _apply_cinematic_eq(samples, sample_rate)
 
-            # 5. Мульти-компрессор: два слоя для «давления»
-            #    - Мягкий: 3:1, -20 dBFS (выравнивает)
-            #    - Жёсткий: 6:1, -12 dBFS (сжимает пики)
-            _apply_compressor(samples, target_rate, threshold_db=-20.0, ratio=3.0)
-            _apply_compressor(samples, target_rate, threshold_db=-12.0, ratio=6.0)
+            # 4. ОДИН мягкий компрессор 2.5:1 @ -18 dBFS.
+            #    Атака 20 мс (было 3 мс): на 3 мс усиление успевало промодулироваться
+            #    внутри периода голоса (~8 мс), что и давало металлическую грязь.
+            #    Раньше здесь стояли ДВА компрессора подряд (3:1 и 6:1) — это была
+            #    та самая «перекомпрессия».
+            _apply_compressor(
+                samples, sample_rate, threshold_db=-18.0, ratio=2.5,
+                attack_ms=20.0, release_ms=250.0,
+            )
 
-            # 6. Нормализация пика -1.5 dBFS (максимальная громкость)
-            _normalize(samples, target_peak_db=-1.5)
+            # 5. Нормализация пика -3 dBFS: запас по динамике вместо «стены» на -1.5
+            _normalize(samples, target_peak_db=-3.0)
 
-            # 7. Мягкий лимитер -0.3 dBFS
-            _apply_soft_limiter(samples, ceiling_db=-0.3)
+            # 6. Мягкий лимитер -0.5 dBFS
+            _apply_soft_limiter(samples, ceiling_db=-0.5)
 
-            # 8. Гейт на выходе: добивает остаточный шип в тишине (после нормализации)
-            _apply_noise_gate(samples, target_rate, threshold_db=-50.0, reduction_db=18.0)
-
-            # Запись в WAV (WaveFormat(targetRate, 16, 1))
-            _write_wav_16bit(output_path, target_rate, samples)
+            # Запись в WAV на исходной частоте (без ресемплинга)
+            _write_wav_16bit(output_path, sample_rate, samples)
 
             return str(output_path)
         except Exception as ex:  # noqa: BLE001 — дословно как в C#
             print(f"[AudioProcessor] Ошибка обработки: {ex}")
             return input_wav_path
-
-
-# ─── Утилиты ────────────────────────────────────────────────
-
-
-def _resample(input_samples: np.ndarray, from_rate: int, to_rate: int) -> np.ndarray:
-    """Линейная интерполяция (дословный порт AudioProcessor.Resample)."""
-    ratio = from_rate / to_rate
-    output_length = int(len(input_samples) / ratio)
-    output = np.zeros(output_length, dtype=np.float32)
-
-    for i in range(output_length):
-        pos = i * ratio
-        idx = int(pos)
-        frac = np.float32(pos - idx)
-
-        if idx + 1 < len(input_samples):
-            output[i] = input_samples[idx] * (np.float32(1.0) - frac) + input_samples[idx + 1] * frac
-        else:
-            output[i] = input_samples[idx]
-    return output
 
 
 # ─── DSP-фильтры (in-memory) ────────────────────────────────
@@ -169,45 +145,17 @@ def _apply_high_pass(samples: np.ndarray, sample_rate: int, cutoff_hz: float) ->
 
 
 def _apply_cinematic_eq(samples: np.ndarray, sample_rate: int) -> None:
-    # Кинематографичный EQ: 4 полосы для глубокого баритона
+    # Кинематографичный EQ: 4 полосы (гейны умеренные — громкость даёт
+    # нормализация, а не подъём полос)
     bands = (
-        (120.0, 3.0, 1.0),   # Низкий бас — «бархатистость»
-        (250.0, 1.5, 1.2),   # Тепло — наполненность голоса
-        (2800.0, 2.0, 1.4),  # Присутствие — чёткая дикция
+        (120.0, 2.0, 1.0),   # Низкий бас — «бархатистость»
+        (250.0, 1.0, 1.2),   # Тепло — наполненность голоса
+        (2800.0, 1.5, 1.4),  # Присутствие — чёткая дикция
         (9000.0, 0.5, 0.8),  # Воздух — лёгкость (умеренно, без шипения)
     )
 
     for hz, gain_db, q in bands:
         _apply_biquad_peak(samples, sample_rate, hz, gain_db, q)
-
-
-def _apply_noise_gate(
-    samples: np.ndarray, sample_rate: int, threshold_db: float, reduction_db: float
-) -> None:
-    """Шумовой гейт с плавной атакой/спадом — подавляет фон в паузах без щелчков."""
-    threshold = 10.0 ** (threshold_db / 20.0)
-    closed_gain = 10.0 ** (-reduction_db / 20.0)
-
-    # Огибающая: быстрая атака 3ms, медленный спад 120ms (не режет хвосты слов)
-    env_attack = math.exp(-1.0 / (0.003 * sample_rate))
-    env_release = math.exp(-1.0 / (0.120 * sample_rate))
-    # Плавность гейта: открытие 5ms, закрытие 80ms (без щелчков)
-    open_coeff = math.exp(-1.0 / (0.005 * sample_rate))
-    close_coeff = math.exp(-1.0 / (0.080 * sample_rate))
-
-    envelope = 0.0
-    gain = 1.0
-
-    for i in range(len(samples)):
-        abs_val = abs(float(samples[i]))
-        env_coeff = env_attack if abs_val > envelope else env_release
-        envelope = env_coeff * envelope + (1.0 - env_coeff) * abs_val
-
-        target_gain = 1.0 if envelope >= threshold else closed_gain
-        coeff = open_coeff if target_gain > gain else close_coeff
-        gain = coeff * gain + (1.0 - coeff) * target_gain
-
-        samples[i] = np.float32(samples[i] * gain)
 
 
 def _apply_biquad_peak(
@@ -238,11 +186,14 @@ def _apply_biquad_peak(
 
 
 def _apply_compressor(
-    samples: np.ndarray, sample_rate: int, threshold_db: float, ratio: float
+    samples: np.ndarray, sample_rate: int, threshold_db: float, ratio: float,
+    attack_ms: float, release_ms: float,
 ) -> None:
+    """Один мягкий компрессор с медленной атакой: выравнивает громкость фразы,
+    но не трогает форму волны внутри периода голоса (иначе — «металл»)."""
     threshold = 10.0 ** (threshold_db / 20.0)
-    attack_coeff = math.exp(-1.0 / (0.003 * sample_rate))   # Быстрый attack 3ms
-    release_coeff = math.exp(-1.0 / (0.250 * sample_rate))  # Медленный release 250ms — сохраняет хвост слов
+    attack_coeff = math.exp(-1.0 / (attack_ms / 1000.0 * sample_rate))
+    release_coeff = math.exp(-1.0 / (release_ms / 1000.0 * sample_rate))
     envelope = 0.0
 
     for i in range(len(samples)):

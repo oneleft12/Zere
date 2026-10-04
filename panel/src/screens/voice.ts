@@ -47,6 +47,7 @@ interface Draft {
   voiceVolume: number;
   ttsEngine: VoiceSettings["ttsEngine"];
   voiceReferencePath: string;
+  audioProcessing: boolean;
 }
 
 function toDraft(settings: VoiceSettings): Draft {
@@ -55,6 +56,7 @@ function toDraft(settings: VoiceSettings): Draft {
     voiceVolume: settings.voiceVolume,
     ttsEngine: settings.ttsEngine,
     voiceReferencePath: settings.voiceReferencePath,
+    audioProcessing: settings.audioProcessing,
   };
 }
 
@@ -63,7 +65,8 @@ function isDirty(base: VoiceSettings, draft: Draft): boolean {
     base.voiceEnabled !== draft.voiceEnabled ||
     base.voiceVolume !== draft.voiceVolume ||
     base.ttsEngine !== draft.ttsEngine ||
-    base.voiceReferencePath !== draft.voiceReferencePath
+    base.voiceReferencePath !== draft.voiceReferencePath ||
+    base.audioProcessing !== draft.audioProcessing
   );
 }
 
@@ -140,19 +143,20 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
           voiceVolume: applied.voiceVolume,
           ttsEngine: applied.ttsEngine,
           voiceReferencePath: applied.voiceReferencePath,
+          audioProcessing: applied.audioProcessing,
           capabilities: base.capabilities,
         };
 
         toast(
           applied.appliedOnRestart
             ? t("Сохранено — вступит в силу после перезапуска")
-            : t("Громкость применена сразу"),
+            : t("Применено сразу, без перезапуска"),
           applied.appliedOnRestart ? "warn" : "ok",
         );
         logEvent(
           applied.appliedOnRestart
             ? "Голосовые настройки сохранены (перезапуск требуется)"
-            : "Громкость голоса применена без перезапуска",
+            : "Громкость и DSP применены без перезапуска",
         );
         render(next, toDraft(next), modeState);
       } catch (error) {
@@ -211,6 +215,18 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
           t("Смена движка вступает в силу после перезапуска"),
         ),
         field(
+          t("DSP-обработка озвучки (Piper)"),
+          toggle({
+            label: t("EQ + мягкая компрессия + нормализация"),
+            checked: draft.audioProcessing,
+            onChange: (v) => {
+              draft.audioProcessing = v;
+              updateDirty();
+            },
+          }),
+          t("Применяется сразу; выключено — «сырой» выход piper без фильтров"),
+        ),
+        field(
           t("Референс голоса (WAV)"),
           textInput({
             value: draft.voiceReferencePath,
@@ -252,6 +268,12 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
           caps.liveVolumeApply ? "ok" : "warn",
         ),
         badge(
+          t("DSP-обработка: {value}", {
+            value: base.audioProcessing ? t("включена") : t("выключена"),
+          }),
+          base.audioProcessing ? "ok" : "warn",
+        ),
+        badge(
           t("микрофон (STT): {value}", { value: caps.sttTest ? t("доступен") : t("нет") }),
           caps.sttTest ? "ok" : "warn",
         ),
@@ -267,6 +289,10 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
       keyValue([
         { key: t("Референс"), value: base.voiceReferencePath || "—" },
         { key: t("Движок"), value: base.ttsEngine },
+        {
+          key: t("Обработка"),
+          value: base.audioProcessing ? t("DSP включена") : t("DSP выключена"),
+        },
       ]),
     );
     capsCard.classList.add("col-6");

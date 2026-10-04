@@ -99,6 +99,10 @@ public sealed class PanelServer : IDisposable
 
     private static readonly string[] BoolFields = ["voiceEnabled", "autoMemory"];
 
+    // Необязательные логические ключи — тот же контракт, что у sttEngine:
+    // свойство есть в схеме, но вне required (старые клиенты его не шлют).
+    private static readonly string[] OptionalBoolFields = ["audioProcessing"];
+
     private static readonly string[] AllowedHosts = ["127.0.0.1", "localhost"];
 
     private readonly HttpListener _listener = new();
@@ -684,6 +688,7 @@ public sealed class PanelServer : IDisposable
             allowed.UnionWith(StringFields);
             allowed.UnionWith(OptionalStringFields);
             allowed.UnionWith(BoolFields);
+            allowed.UnionWith(OptionalBoolFields);
             allowed.Add("voiceVolume");
             allowed.Add("ollamaTimeoutMinutes");
             allowed.Add("llmKeepAlive");
@@ -701,7 +706,8 @@ public sealed class PanelServer : IDisposable
 
             foreach (var name in allowed)
             {
-                if (OptionalStringFields.Contains(name, StringComparer.Ordinal))
+                if (OptionalStringFields.Contains(name, StringComparer.Ordinal) ||
+                    OptionalBoolFields.Contains(name, StringComparer.Ordinal))
                     continue;  // необязательный: присутствие не требуется
 
                 if (!supplied.ContainsKey(name))
@@ -759,6 +765,11 @@ public sealed class PanelServer : IDisposable
             if (sttEngine.GetString() is not ("gigaam" or "whisper"))
                 return "Ключ «sttEngine» допускает только «gigaam» или «whisper».";
         }
+
+        // Необязательный audioProcessing (DSP-обработка озвучки) — если прислан.
+        if (supplied.TryGetValue("audioProcessing", out var audioProcessing) &&
+            audioProcessing.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            return "Ключ «audioProcessing» должен быть логическим значением.";
 
         var volume = supplied["voiceVolume"];
 
@@ -826,6 +837,17 @@ public sealed class PanelServer : IDisposable
 
         if (supplied.TryGetValue("sttEngine", out var sttEngine) && sttEngine.ValueKind == JsonValueKind.String)
             _config.SttEngine = sttEngine.GetString() ?? _config.SttEngine;
+
+        // DSP-обработка озвучки: применяется на лету (читается на каждое
+        // предложение), поэтому помимо config.json обновляем живой VoiceConfig.
+        if (supplied.TryGetValue("audioProcessing", out var audioProcessing) &&
+            audioProcessing.ValueKind is (JsonValueKind.True or JsonValueKind.False))
+        {
+            _config.AudioProcessing = audioProcessing.GetBoolean();
+
+            if (_voice is not null)
+                _voice.Config.AudioProcessing = _config.AudioProcessing;
+        }
 
         _config.VoiceReferencePath = supplied["voiceReferencePath"].GetString() ?? _config.VoiceReferencePath;
         _config.LlmKeepAlive = supplied["llmKeepAlive"].GetInt32();
@@ -1412,11 +1434,15 @@ public sealed class PanelServer : IDisposable
             voiceVolume = _config.VoiceVolume,
             ttsEngine = _config.TtsEngine,
             voiceReferencePath = _config.VoiceReferencePath,
+            audioProcessing = _config.AudioProcessing,
             capabilities = BuildVoiceCapabilities(_voice.IsVoiceAvailable),
         });
     }
 
-    /// <summary>Обновление голоса: громкость применяется сразу, остальное — после рестарта.</summary>
+    /// <summary>
+    /// Обновление голоса: громкость и audioProcessing применяются сразу,
+    /// остальное — после рестарта.
+    /// </summary>
     private async Task HandleVoicePostAsync(HttpListenerRequest request, HttpListenerResponse response)
     {
         if (_voice is null)
@@ -1457,6 +1483,13 @@ public sealed class PanelServer : IDisposable
                 _voice.Config.Volume = volume;
             }
 
+            if (supplied.TryGetValue("audioProcessing", out var audioElement))
+            {
+                _config.AudioProcessing = audioElement.GetBoolean();
+                // читается на каждое предложение — тоже применяется сразу
+                _voice.Config.AudioProcessing = _config.AudioProcessing;
+            }
+
             if (supplied.TryGetValue("voiceEnabled", out var enabledElement))
                 _config.VoiceEnabled = enabledElement.GetBoolean();
 
@@ -1479,6 +1512,7 @@ public sealed class PanelServer : IDisposable
                 voiceVolume = _config.VoiceVolume,
                 ttsEngine = _config.TtsEngine,
                 voiceReferencePath = _config.VoiceReferencePath,
+                audioProcessing = _config.AudioProcessing,
                 appliedOnRestart,
             });
         }
@@ -1671,7 +1705,8 @@ public sealed class PanelServer : IDisposable
 
     private static string? ValidateVoicePayload(Dictionary<string, JsonElement> supplied)
     {
-        string[] allowed = ["voiceEnabled", "voiceVolume", "ttsEngine", "voiceReferencePath"];
+        string[] allowed =
+            ["voiceEnabled", "voiceVolume", "ttsEngine", "voiceReferencePath", "audioProcessing"];
 
         foreach (var name in supplied.Keys)
         {
@@ -1685,6 +1720,10 @@ public sealed class PanelServer : IDisposable
         if (supplied.TryGetValue("voiceEnabled", out var enabled) &&
             enabled.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
             return "Ключ «voiceEnabled» должен быть логическим значением.";
+
+        if (supplied.TryGetValue("audioProcessing", out var audioProcessing) &&
+            audioProcessing.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            return "Ключ «audioProcessing» должен быть логическим значением.";
 
         if (supplied.TryGetValue("voiceVolume", out var volume))
         {

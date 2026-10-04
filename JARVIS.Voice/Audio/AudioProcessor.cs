@@ -3,13 +3,21 @@ using NAudio.Wave;
 namespace JARVIS.Voice.Audio;
 
 /// <summary>
-/// Профессиональная DSP-цепочка обработки голоса (TTS).
-/// Делает звук «кинематографичным»: тёплый бас, чёткая подача, глубина.
+/// DSP-цепочка обработки голоса (TTS).
+/// Делает звук плотнее и «кинематографичнее», но без артефактов: один мягкий
+/// компрессор вместо каскада, без шумовых гейтов и без апсемплинга.
 /// </summary>
 public static class AudioProcessor
 {
     /// <summary>
-    /// Полная обработка WAV-файла: ресемплинг → EQ → компрессия → нормализация → лимитер.
+    /// Обработка WAV-файла: HPF → корректирующий EQ → EQ → компрессия →
+    /// нормализация → мягкий лимитер.
+    ///
+    /// Ресемплинг здесь намеренно НЕ делается. Piper отдаёт 22050 Гц, а прежний
+    /// апсемпл 22050→44100 линейной интерполяцией (без анти-imaging фильтра)
+    /// добавлял зеркальную копию спектра выше 11 кГц — это и был «металлический»
+    /// призвук. Частота сэмплирования сохраняется как есть, ресемплинг отдан
+    /// аудио-движку Windows (он делает это с полноценным фильтром).
     /// </summary>
     public static string Process(string inputWavPath)
     {
@@ -23,52 +31,39 @@ public static class AudioProcessor
                 $"processed_{Path.GetFileName(inputWavPath)}");
 
             using var reader = new AudioFileReader(inputWavPath);
-            var inputRate = reader.WaveFormat.SampleRate;
+            var sampleRate = reader.WaveFormat.SampleRate;
             var samples = ReadAllFloat(reader);
 
-            // Ресемплинг до 44100 Hz если нужно
-            var targetRate = inputRate < 44100 ? 44100 : inputRate;
-            if (inputRate != targetRate)
-                samples = Resample(samples, inputRate, targetRate);
-
-            // === Кинематографичная DSP-цепочка (баритон) ===
+            // === DSP-цепочка (баритон, без артефактов) ===
 
             // 1. HPF: убираем гул и комнатный румбл ниже 75 Гц
-            ApplyHighPass(samples, targetRate, 75.0);
+            ApplyHighPass(samples, sampleRate, 75.0);
 
-            // 2. Шумовой гейт: подавляет шипение/фон в паузах (до нормализации)
-            ApplyNoiseGate(samples, targetRate, thresholdDb: -42.0, reductionDb: 14.0);
-
-            // 3. Чистка «эхо» и шума:
+            // 2. Чистка «эхо» и шума:
             //    - Срез боксовой резонансной составляющей (350 Гц -3 dB) — убирает «комнатность»
             //    - Десессер (6.5 кГц -2.5 dB) — убирает шипение/свист
-            ApplyBiquadPeak(samples, targetRate, 350.0, -3.0, 1.1);
-            ApplyBiquadPeak(samples, targetRate, 6500.0, -2.5, 1.6);
+            ApplyBiquadPeak(samples, sampleRate, 350.0, -3.0, 1.1);
+            ApplyBiquadPeak(samples, sampleRate, 6500.0, -2.5, 1.6);
 
-            // 4. Кинематографичный EQ:
-            //    - Низкий бас (120 Гц +3.0 dB) — «бархатистость»
-            //    - Тепло (250 Гц +1.5 dB) — наполненность
-            //    - Присутствие (2.8 кГц +2.0 dB) — чёткая дикция
-            //    - Воздух (9 кГц +0.5 dB) — лёгкость (снижено, меньше шипения)
-            ApplyCinematicEq(samples, targetRate);
+            // 3. Кинематографичный EQ (умеренный: без «бочки» и без шипения)
+            ApplyCinematicEq(samples, sampleRate);
 
-            // 5. Мульти-компрессор: два слоя для «давления»
-            //    - Мягкий: 3:1, -20 dBFS (выравнивает)
-            //    - Жёсткий: 6:1, -12 dBFS (сжимает пики)
-            ApplyCompressor(samples, targetRate, thresholdDb: -20.0, ratio: 3.0);
-            ApplyCompressor(samples, targetRate, thresholdDb: -12.0, ratio: 6.0);
+            // 4. ОДИН мягкий компрессор 2.5:1 @ -18 dBFS.
+            //    Атака 20 мс (было 3 мс): на 3 мс усиление успевало промодулироваться
+            //    внутри периода голоса (~8 мс), что и давало металлическую грязь.
+            //    Раньше здесь стояли ДВА компрессора подряд (3:1 и 6:1) — это была
+            //    та самая «перекомпрессия».
+            ApplyCompressor(samples, sampleRate,
+                thresholdDb: -18.0, ratio: 2.5, attackMs: 20.0, releaseMs: 250.0);
 
-            // 6. Нормализация пика -1.5 dBFS (максимальная громкость)
-            Normalize(samples, targetPeakDb: -1.5);
+            // 5. Нормализация пика -3 dBFS: запас по динамике вместо «стены» на -1.5
+            Normalize(samples, targetPeakDb: -3.0);
 
-            // 7. Мягкий лимитер -0.3 dBFS
-            ApplySoftLimiter(samples, ceilingDb: -0.3);
+            // 6. Мягкий лимитер -0.5 dBFS
+            ApplySoftLimiter(samples, ceilingDb: -0.5);
 
-            // 8. Гейт на выходе: добивает остаточный шип в тишине (после нормализации)
-            ApplyNoiseGate(samples, targetRate, thresholdDb: -50.0, reductionDb: 18.0);
-
-            // Запись в WAV
-            var outputFormat = new WaveFormat(targetRate, 16, 1);
+            // Запись в WAV на исходной частоте (без ресемплинга)
+            var outputFormat = new WaveFormat(sampleRate, 16, 1);
             using (var writer = new WaveFileWriter(outputPath, outputFormat))
             {
                 for (int i = 0; i < samples.Length; i++)
@@ -108,26 +103,6 @@ public static class AudioProcessor
         return result;
     }
 
-    private static float[] Resample(float[] input, int fromRate, int toRate)
-    {
-        var ratio = (double)fromRate / toRate;
-        var outputLength = (int)(input.Length / ratio);
-        var output = new float[outputLength];
-
-        for (int i = 0; i < outputLength; i++)
-        {
-            var pos = i * ratio;
-            var idx = (int)pos;
-            var frac = (float)(pos - idx);
-
-            if (idx + 1 < input.Length)
-                output[i] = input[idx] * (1 - frac) + input[idx + 1] * frac;
-            else
-                output[i] = input[idx];
-        }
-        return output;
-    }
-
     // ─── DSP-фильтры (in-memory) ────────────────────────────
 
     private static void ApplyHighPass(float[] samples, int sampleRate, double cutoffHz)
@@ -149,50 +124,18 @@ public static class AudioProcessor
 
     private static void ApplyCinematicEq(float[] samples, int sampleRate)
     {
-        // Кинематографичный EQ: 4 полосы для глубокого баритона
+        // Кинематографичный EQ: 4 полосы (гейны умеренные — громкость даёт
+        // нормализация, а не подъём полос)
         var bands = new (double hz, double gainDb, double q)[]
         {
-            (120.0,   3.0, 1.0),  // Низкий бас — «бархатистость»
-            (250.0,   1.5, 1.2),  // Тепло — наполненность голоса
-            (2800.0,  2.0, 1.4),  // Присутствие — чёткая дикция
+            (120.0,   2.0, 1.0),  // Низкий бас — «бархатистость»
+            (250.0,   1.0, 1.2),  // Тепло — наполненность голоса
+            (2800.0,  1.5, 1.4),  // Присутствие — чёткая дикция
             (9000.0,  0.5, 0.8)   // Воздух — лёгкость (умеренно, без шипения)
         };
 
         foreach (var (hz, gainDb, q) in bands)
             ApplyBiquadPeak(samples, sampleRate, hz, gainDb, q);
-    }
-
-    /// <summary>
-    /// Шумовой гейт с плавной атакой/спадом — подавляет фон в паузах без щелчков.
-    /// </summary>
-    private static void ApplyNoiseGate(float[] samples, int sampleRate,
-        double thresholdDb, double reductionDb)
-    {
-        var threshold = Math.Pow(10, thresholdDb / 20.0);
-        var closedGain = Math.Pow(10, -reductionDb / 20.0);
-
-        // Огибающая: быстрая атака 3ms, медленный спад 120ms (не режет хвосты слов)
-        var envAttack = Math.Exp(-1.0 / (0.003 * sampleRate));
-        var envRelease = Math.Exp(-1.0 / (0.120 * sampleRate));
-        // Плавность гейта: открытие 5ms, закрытие 80ms (без щелчков)
-        var openCoeff = Math.Exp(-1.0 / (0.005 * sampleRate));
-        var closeCoeff = Math.Exp(-1.0 / (0.080 * sampleRate));
-
-        double envelope = 0;
-        double gain = 1.0;
-
-        for (int i = 0; i < samples.Length; i++)
-        {
-            var abs = Math.Abs(samples[i]);
-            var envCoeff = abs > envelope ? envAttack : envRelease;
-            envelope = envCoeff * envelope + (1.0 - envCoeff) * abs;
-
-            var targetGain = envelope >= threshold ? 1.0 : closedGain;
-            var coeff = targetGain > gain ? openCoeff : closeCoeff;
-            gain = coeff * gain + (1.0 - coeff) * targetGain;
-
-            samples[i] = (float)(samples[i] * gain);
-        }
     }
 
     private static void ApplyBiquadPeak(float[] samples, int sampleRate,
@@ -222,12 +165,16 @@ public static class AudioProcessor
         }
     }
 
+    /// <summary>
+    /// Один мягкий компрессор с медленной атакой: выравнивает громкость фразы,
+    /// но не трогает форму волны внутри периода голоса (иначе — «металл»).
+    /// </summary>
     private static void ApplyCompressor(float[] samples, int sampleRate,
-        double thresholdDb, double ratio)
+        double thresholdDb, double ratio, double attackMs, double releaseMs)
     {
         var threshold = Math.Pow(10, thresholdDb / 20.0);
-        var attackCoeff = Math.Exp(-1.0 / (0.003 * sampleRate));  // Быстрый attack 3ms
-        var releaseCoeff = Math.Exp(-1.0 / (0.250 * sampleRate)); // Медленный release 250ms — сохраняет хвост слов
+        var attackCoeff = Math.Exp(-1.0 / (attackMs / 1000.0 * sampleRate));
+        var releaseCoeff = Math.Exp(-1.0 / (releaseMs / 1000.0 * sampleRate));
         double envelope = 0;
 
         for (int i = 0; i < samples.Length; i++)
