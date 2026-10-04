@@ -1,4 +1,4 @@
-"""Оркестратор STT (Whisper) + TTS (Piper) (порт JARVIS.Voice/VoiceManager.cs).
+"""Оркестратор STT (GigaAM/Whisper) + TTS (Piper) (порт JARVIS.Voice/VoiceManager.cs).
 
 Отмена (CancellationToken в C#) → threading.Event.
 """
@@ -18,6 +18,7 @@ from jarvis.voice.audio.audio_player import AudioPlayer
 from jarvis.voice.audio.audio_processor import AudioProcessor
 from jarvis.voice.audio.audio_recorder import AudioRecorder
 from jarvis.voice.piper.piper_service import PiperService
+from jarvis.voice.sherpa.gigaam_service import GigaamService
 from jarvis.voice.voice_config import VoiceConfig
 from jarvis.voice.wakeword.wake_word_detector import WakeWordDetector
 from jarvis.voice.whisper.whisper_service import WhisperService
@@ -30,6 +31,7 @@ class VoiceManager:
         self._recorder = AudioRecorder()
         self._player = AudioPlayer()
         self._whisper = WhisperService()
+        self._gigaam = GigaamService()
         self._piper = PiperService()
         self.config = VoiceConfig()  # Config { get; } — публичный атрибут
         self._wake_word_detector: WakeWordDetector | None = None
@@ -46,9 +48,26 @@ class VoiceManager:
         }
 
     @property
+    def _active_stt(self):
+        """Активный STT-движок (роутинг gigaam→whisper, §5 отчёта STT).
+
+        GigaAM, если он выбран (sttEngine) и модель готова; иначе Whisper,
+        если тот есть; иначе GigaAm. Ленивая проверка на каждый вызов —
+        после завершения скачивания модели выбор переключается сам.
+        Wake word детектор намеренно остаётся на Whisper (§5.3 отчёта).
+        """
+        if self.config.stt_engine.lower() == "gigaam" and self._gigaam.is_installed():
+            return self._gigaam
+
+        if self._whisper.is_installed():
+            return self._whisper
+
+        return self._gigaam
+
+    @property
     def is_voice_available(self) -> bool:
-        """Доступен ли STT (Whisper)."""
-        return self._whisper.is_installed()
+        """Доступен ли STT (GigaAM или Whisper)."""
+        return self._active_stt.is_installed()
 
     @property
     def is_tts_available(self) -> bool:
@@ -82,20 +101,50 @@ class VoiceManager:
         """Прямая смена голоса Piper (контракт спецификации; в C# — PiperService.SetVoice)."""
         self._piper.set_voice(voice_name)
 
-    def preload_whisper(self) -> None:
-        """Предзагрузка модели Whisper в фоне при старте (ROADMAP 1.3):
-        первый вызов распознавания не ждёт загрузки модели.
+    def preload_stt(self) -> None:
+        """Предзагрузка активного STT-движка в фоне при старте (ROADMAP 1.3):
+        первый вызов распознавания не ждёт загрузки модели. Для GigaAM при
+        отсутствии модели здесь же выполняется разовое скачивание
+        (163 МБ, SHA-256) — зеркало PreloadStt в C#.
         """
         try:
-            if self._whisper.preload():
-                print(f"[Voice] Whisper предзагружен ({self._whisper.current_model}).")
+            if self.config.stt_engine.lower() == "gigaam":
+                # Предпочитаемый движок: скачиваем/греем GigaAM; если он не
+                # поднялся — подстраховываемся Whisper, чтобы голос работал.
+                if not self._gigaam.preload() and self._whisper.is_installed():
+                    self._whisper.preload()
+            else:
+                self._whisper.preload()
+
+            active = self._active_stt
+            print(
+                f"[Voice] STT активен: {active.current_model} "
+                f"(запрошен движок: {self.config.stt_engine})."
+            )
         except Exception as ex:  # noqa: BLE001 — предзагрузка не должна ронять старт
-            log_error("VoiceManager", f"Предзагрузка Whisper: {ex}")
+            log_error("VoiceManager", f"Предзагрузка STT: {ex}")
+
+    def _transcribe_stt(self, wav_file: str, timeout_s: int | None = None) -> str:
+        """Распознавание через активный STT-движок с откатом на Whisper.
+
+        Сбой GigaAM (например, битый файл модели) уводит на Whisper —
+        зеркало отката pocket→piper (§5 плана STT-исследования).
+        """
+        engine = self._active_stt
+
+        try:
+            return engine.transcribe(wav_file, timeout_s=timeout_s)
+        except Exception as ex:  # noqa: BLE001
+            if engine is self._gigaam and self._whisper.is_installed():
+                log_error("VoiceManager", f"STT gigaam сбой: {ex} — откат на Whisper")
+                print(f"[Voice] STT (gigaam) сбой: {ex} — откат на Whisper.")
+                return self._whisper.transcribe(wav_file, timeout_s=timeout_s)
+            raise
 
     def listen(self) -> str:
         """Записывает речь с микрофона и распознаёт её (порт ListenAsync)."""
-        if not self._whisper.is_installed():
-            print("[Voice] Whisper не установлен.")
+        if not self._active_stt.is_installed():
+            print("[Voice] STT не установлен (нет ни GigaAM, ни Whisper).")
             return ""
 
         # Семафор записи + защита от сбоя микрофона (анализы F4/F1)
@@ -113,7 +162,7 @@ class VoiceManager:
         print("Распознаю речь...")
 
         try:
-            return self._whisper.transcribe(wav)
+            return self._transcribe_stt(wav)
         except Exception as ex:  # noqa: BLE001 — fallback: текстовый ввод
             log_error("VoiceManager", f"listen: {ex}")
             print(f"[Voice] Ошибка распознавания: {ex}")
@@ -223,8 +272,8 @@ class VoiceManager:
         Использует тот же ContinuousAudioRecorder что и детектор — без пересоздания.
         Ждёт речи, записывает, останавливается при тишине.
         """
-        if not self._whisper.is_installed():
-            print("[Voice] Whisper не установлен.")
+        if not self._active_stt.is_installed():
+            print("[Voice] STT не установлен (нет ни GigaAM, ни Whisper).")
             return ""
 
         # Используем рекордер из детектора (непрерывная запись)
@@ -255,7 +304,7 @@ class VoiceManager:
 
             print("🧠 Распознаю команду...")
             try:
-                result = self._whisper.transcribe(wav)
+                result = self._transcribe_stt(wav)
             except Exception as ex:  # noqa: BLE001 — fallback: текстовый ввод
                 log_error("VoiceManager", f"listen_command: {ex}")
                 result = ""
@@ -324,7 +373,7 @@ class VoiceManager:
         print("🧠 Распознаю команду...")
 
         try:
-            cmd_result = self._whisper.transcribe(str(cmd_file))
+            cmd_result = self._transcribe_stt(str(cmd_file))
         except Exception as ex:  # noqa: BLE001 — fallback: текстовый ввод
             log_error("VoiceManager", f"listen_command: {ex}")
             cmd_result = ""

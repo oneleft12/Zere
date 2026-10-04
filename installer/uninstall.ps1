@@ -17,8 +17,9 @@
 
 .PARAMETER RemoveAssets
     Дополнительно удалить голосовые артефакты:
-    JARVIS.Voice\Models\*.bin, бинарники Piper (piper.exe, *.dll,
-    espeak-ng-data, *.onnx). Git-трекаемые файлы не удаляются.
+    JARVIS.Voice\Models\*.bin, папку модели GigaAM (sherpa-onnx-*),
+    бинарники Piper (piper.exe, *.dll, espeak-ng-data, *.onnx).
+    Git-трекаемые файлы не удаляются.
 
 .PARAMETER PurgeData
     Дополнительно удалить пользовательские данные:
@@ -98,7 +99,7 @@ $plan = @(
     'C#-публикация publish\app'
 )
 if ($RemoveAssets) {
-    $plan += 'Голосовые артефакты: JARVIS.Voice\Models\*.bin, бинарники Piper (*.exe, *.dll, espeak-ng-data, *.onnx)'
+    $plan += 'Голосовые артефакты: JARVIS.Voice\Models\*.bin и sherpa-onnx-*, бинарники Piper (*.exe, *.dll, espeak-ng-data, *.onnx)'
 }
 if ($PurgeData) {
     $plan += 'Пользовательские данные: jarvis.db, logs\, backups\, config\panel.token, voice\reference.wav, voice\input\'
@@ -150,6 +151,11 @@ if ($RemoveAssets) {
         Get-ChildItem -LiteralPath $modelsDir -Filter '*.bin' -File -ErrorAction SilentlyContinue | ForEach-Object {
             try { Remove-Item -LiteralPath $_.FullName -Force; Write-Ok ('удалено: ' + $_.Name) }
             catch { Write-Warn2 ('не удалось удалить ' + $_.Name) }
+        }
+        # Пакет модели GigaAM (основной STT) — целиком папкой
+        foreach ($gigaam in @('sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16')) {
+            $p = Join-Path $modelsDir $gigaam
+            if (Test-Path $p) { $null = Remove-ItemSafe -Path $p -Label ('модель GigaAM ' + $gigaam) }
         }
     }
     $piperDir = Join-Path $Prefix 'JARVIS.Voice\Piper'

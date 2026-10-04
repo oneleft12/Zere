@@ -93,6 +93,10 @@ public sealed class PanelServer : IDisposable
     private static readonly string[] StringFields =
         ["version", "assistantName", "language", "model", "ttsEngine", "voiceReferencePath"];
 
+    // Необязательные строковые ключи (openapi: свойство есть в схеме, но вне
+    // required): старые клиенты/скрипты могут их не присылать.
+    private static readonly string[] OptionalStringFields = ["sttEngine"];
+
     private static readonly string[] BoolFields = ["voiceEnabled", "autoMemory"];
 
     private static readonly string[] AllowedHosts = ["127.0.0.1", "localhost"];
@@ -678,6 +682,7 @@ public sealed class PanelServer : IDisposable
 
             var allowed = new HashSet<string>(StringComparer.Ordinal);
             allowed.UnionWith(StringFields);
+            allowed.UnionWith(OptionalStringFields);
             allowed.UnionWith(BoolFields);
             allowed.Add("voiceVolume");
             allowed.Add("ollamaTimeoutMinutes");
@@ -696,6 +701,9 @@ public sealed class PanelServer : IDisposable
 
             foreach (var name in allowed)
             {
+                if (OptionalStringFields.Contains(name, StringComparer.Ordinal))
+                    continue;  // необязательный: присутствие не требуется
+
                 if (!supplied.ContainsKey(name))
                 {
                     await SendErrorAsync(response, 400, "VALIDATION_ERROR", $"Отсутствует обязательный ключ: «{name}».");
@@ -741,6 +749,16 @@ public sealed class PanelServer : IDisposable
 
         if (engine is not ("pocket" or "piper"))
             return "Ключ «ttsEngine» допускает только «pocket» или «piper».";
+
+        // Необязательный sttEngine: проверяем только если прислан.
+        if (supplied.TryGetValue("sttEngine", out var sttEngine))
+        {
+            if (sttEngine.ValueKind != JsonValueKind.String)
+                return "Ключ «sttEngine» должен быть строкой.";
+
+            if (sttEngine.GetString() is not ("gigaam" or "whisper"))
+                return "Ключ «sttEngine» допускает только «gigaam» или «whisper».";
+        }
 
         var volume = supplied["voiceVolume"];
 
@@ -805,6 +823,10 @@ public sealed class PanelServer : IDisposable
         _config.AutoMemory = supplied["autoMemory"].GetBoolean();
         _config.OllamaTimeoutMinutes = supplied["ollamaTimeoutMinutes"].GetInt32();
         _config.TtsEngine = supplied["ttsEngine"].GetString() ?? _config.TtsEngine;
+
+        if (supplied.TryGetValue("sttEngine", out var sttEngine) && sttEngine.ValueKind == JsonValueKind.String)
+            _config.SttEngine = sttEngine.GetString() ?? _config.SttEngine;
+
         _config.VoiceReferencePath = supplied["voiceReferencePath"].GetString() ?? _config.VoiceReferencePath;
         _config.LlmKeepAlive = supplied["llmKeepAlive"].GetInt32();
         _config.LlmMaxTokens = supplied["llmMaxTokens"].GetInt32();

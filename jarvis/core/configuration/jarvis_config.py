@@ -62,6 +62,14 @@ class JarvisConfig:
     # поэтому при любом значении фактически работает Piper (эквивалент
     # отката pocket→piper из C#-версии).
     tts_engine: str = "pocket"
+
+    # --- STT (паритет с C# JarvisConfig, отчёт docs/STT_ENGINE_RESEARCH.md) ---
+    # Движок распознавания речи: "gigaam" — GigaAM-v3 punct (sherpa-onnx,
+    # основной; модель качается установщиком или при первой предзагрузке),
+    # "whisper" — откат на Whisper. При сбое gigaam всегда откат на whisper
+    # (зеркало отката pocket→piper).
+    stt_engine: str = "gigaam"
+
     # Путь к WAV-референсу голоса пользователя (пусто = встроенный голос).
     voice_reference_path: str = ""
 
@@ -76,6 +84,7 @@ class JarvisConfig:
         "AutoMemory": "auto_memory",
         "OllamaTimeoutMinutes": "ollama_timeout_minutes",
         "TtsEngine": "tts_engine",
+        "SttEngine": "stt_engine",
         "VoiceReferencePath": "voice_reference_path",
         "LlmKeepAlive": "llm_keep_alive",
         "LlmMaxTokens": "llm_max_tokens",

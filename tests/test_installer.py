@@ -34,6 +34,10 @@ BOM = b"\xef\xbb\xbf"
 # Контрольные суммы из install.ps1 (источники: HuggingFace x-linked-etag,
 # SHA-256 вычислен при скачивании с GitHub release).
 EXPECTED_ARTIFACTS = {
+    "GigaAm": (
+        "f9620a0099019c6afcee26525ef9ed3297fa50dd5691c1902af0c948fc1a470b",
+        170197019,
+    ),
     "Whisper": (
         "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
         147951465,

@@ -5,7 +5,7 @@ using Whisper.net;
 
 namespace JARVIS.Voice.Whisper;
 
-public class WhisperService : IDisposable
+public class WhisperService : ISttService
 {
     private readonly string _mediumModelPath;
     private readonly string _baseModelPath;

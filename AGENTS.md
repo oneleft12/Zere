@@ -21,7 +21,7 @@
 | **JARVIS.AI** | Клиент Ollama (HTTP) для генерации ответов |
 | **JARVIS.Memory** | SQLite-память: воспоминания + история разговоров |
 | **JARVIS.Tools** | Инструменты: приложения, файлы, игры, Windows, система |
-| **JARVIS.Voice** | Голосовой ввод (Whisper) и вывод (Piper / PocketTTS-клонирование) |
+| **JARVIS.Voice** | Голосовой ввод (GigaAM-v3, откат на Whisper) и вывод (Piper / PocketTTS-клонирование) |
 
 ---
 
@@ -55,15 +55,17 @@
 - **PowerController** — управление питанием (выключение, перезагрузка)
 
 ### Voice (`JARVIS.Voice/`)
-- **VoiceManager** — оркестратор STT (Whisper) + TTS (движок выбирается: PocketTTS с клонированием, откат на Piper)
+- **VoiceManager** — оркестратор STT (роутинг `sttEngine`: `gigaam` — GigaAM-v3 основной, автоматический откат на `whisper`) + TTS (движок выбирается: PocketTTS с клонированием, откат на Piper)
+- **ISttService** — общий контракт STT-движков (`IsInstalled`/`Preload`/`TranscribeAsync`), за ним скрыт выбор активного движка
+- **GigaAmService** — основной STT: sherpa-onnx + GigaAM-v3 punct (русский, с пунктуацией; модель ~163 МБ качается при установке или при `Preload`, SHA-256)
 - **AudioRecorder** — запись с микрофона (и запись референса голоса для клонирования)
 - **AudioPlayer** — воспроизведение WAV
 - **StreamPlayer** — потоковое воспроизведение PCM (играет, пока TTS ещё синтезирует)
-- **WhisperService** — распознавание речи (speech-to-text)
+- **WhisperService** — распознавание речи (откатный STT + wake word — детектор просыпания намеренно остаётся на Whisper)
 - **PiperService** — синтез речи (text-to-speech), попредложенное стримирование
 - **PocketTtsService** — клиент к серверу xVibePocketTTS: клонирование голоса, PCM-поток, первый звук через ~150–700 мс
 - **SpeechText** — чистка текста от TTS-мусора + разбивка на предложения
-- **VoiceConfig** — конфигурация голоса
+- **VoiceConfig** — конфигурация голоса (`sttEngine` и др.)
 
 ### Tools (`tools/`, в git входит только сервер)
 - **jarvis_tts_server.py** — HTTP-сервер TTS (`/health`, потоковый `/tts`), поднимается PocketTtsService автоматически
@@ -135,7 +137,7 @@ Pipeline обработки команд (порядок важен):
 
 ### Установщик (`installer/`)
 
-- `install.ps1` — полная установка на Windows: Python 3.12+ (winget), `.venv` + `requirements.txt`, Ollama + модель из конфига, голосовые артефакты (Whisper/Piper/голос — все скачивания проверяются по SHA-256), веб-панель, ярлыки, лаунчер `JARVIS.bat`, манифест, smoke-тест
+- `install.ps1` — полная установка на Windows: Python 3.12+ (winget), `.venv` + `requirements.txt`, Ollama + модель из конфига, голосовые артефакты (GigaAM/Whisper/Piper/голос — все скачивания проверяются по SHA-256), веб-панель, ярлыки, лаунчер `JARVIS.bat`, манифест, smoke-тест
 - `install.ps1 -CheckOnly` — dry-run (ничего не меняет; коды возврата: 0 — готово, 1 — требуются действия)
 - Параметры: `-Edition python|dotnet|both`, `-Yes`, `-NoLaunch`, `-SkipOllama`, `-SkipVoice`, `-SkipShortcuts`, `-Model`, `-Prefix`
 - `uninstall.ps1` — удаление (ярлыки, `.venv`, `publish`, манифест; `-RemoveAssets` — голосовые артефакты; `-PurgeData` — `jarvis.db`, логи, референс голоса); исходный код не трогает
@@ -150,7 +152,7 @@ Pipeline обработки команд (порядок важен):
 
 - **Модель**: qwen3.5:2b (через Ollama)
 - **Язык**: ru
-- **Голос**: Whisper (STT) + TTS: `ttsEngine` = `pocket` (xVibePocketTTS, клонирование голоса; при сбоях — автоматический откат на `piper`), `voiceReferencePath` — WAV-референс (записывается командой «записать голос»)
+- **Голос**: STT `sttEngine` = `gigaam` (GigaAM-v3 punct на sherpa-onnx — основной; при сбоях/отсутствии модели — автоматический откат на `whisper`, wake word всегда на Whisper) + TTS: `ttsEngine` = `pocket` (xVibePocketTTS, клонирование голоса; при сбоях — автоматический откат на `piper`), `voiceReferencePath` — WAV-референс (записывается командой «записать голос»)
 - **Память**: автоизвлечение фактов из диалога
 
 ---
@@ -239,10 +241,13 @@ Jarvis/
 │       └── PowerController.cs
 │
 ├── JARVIS.Voice/               # Голос
-│   ├── VoiceManager.cs        # Оркестратор STT + TTS (роутинг pocket/piper)
-│   ├── VoiceConfig.cs         # Конфигурация голоса
+│   ├── VoiceManager.cs        # Оркестратор STT (gigaam→whisper) + TTS (pocket→piper)
+│   ├── VoiceConfig.cs         # Конфигурация голоса (sttEngine, ttsEngine, ...)
+│   ├── ISttService.cs         # Контракт STT-движков (распознавание)
+│   ├── Sherpa/
+│   │   └── GigaAmService.cs   # Основной STT: sherpa-onnx + GigaAM-v3 punct (модель качается сама)
 │   ├── Whisper/
-│   │   └── WhisperService.cs  # STT (speech-to-text)
+│   │   └── WhisperService.cs  # STT-откат + wake word (speech-to-text)
 │   ├── Piper/
 │   │   └── PiperService.cs    # TTS (попредложенное стримирование)
 │   ├── Pocket/
@@ -253,7 +258,7 @@ Jarvis/
 │   │   ├── AudioRecorder.cs   # Запись с микрофона
 │   │   ├── AudioPlayer.cs     # Воспроизведение WAV
 │   │   └── StreamPlayer.cs    # Потоковое воспроизведение PCM
-│   └── Models/ggml-base.bin   # Модель Whisper
+│   └── Models/                # Модели STT (gitignored): ggml-base.bin + пакет GigaAM
 │
 ├── tools/                      # TTS-инструментарий
 │   └── jarvis_tts_server.py    # HTTP-сервер клонирования (uv.exe, xVibePocketTTS — gitignored)
@@ -275,6 +280,7 @@ Jarvis/
 ├── tests/
 │   ├── test_panel_api.py       # Контрактные тесты панели (91, по OpenAPI)
 │   ├── test_installer.py       # Тесты установщика (BOM, CRLF, SHA-256, связность)
+│   ├── test_stt_engine.py      # Тесты STT GigaAM (константы, роутинг, живое распознавание)
 │   ├── test_system_prompt.py   # Тесты P1-2
 │   └── e2e_server.py           # Раннер панели с фейками для E2E
 │

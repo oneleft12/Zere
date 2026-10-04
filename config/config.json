@@ -8,6 +8,7 @@
   "autoMemory": true,
   "ollamaTimeoutMinutes": 10,
   "ttsEngine": "piper",
+  "sttEngine": "gigaam",
   "voiceReferencePath": "",
   "llmKeepAlive": -1,
   "llmMaxTokens": 96,

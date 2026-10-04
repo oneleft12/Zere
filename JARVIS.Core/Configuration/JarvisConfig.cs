@@ -45,6 +45,13 @@ public class JarvisConfig
     // "piper" — классический синтез. При сбое pocket всегда откат на piper.
     public string TtsEngine { get; set; } = "pocket";
 
+    // ── STT (отчёт docs/STT_ENGINE_RESEARCH.md, §5) ───────
+    // Движок распознавания речи: "gigaam" — GigaAM-v3 punct (sherpa-onnx,
+    // основной; модель качается установщиком или при первой предзагрузке),
+    // "whisper" — откат на Whisper (ggml). При сбое gigaam всегда откат
+    // на whisper — зеркало отката pocket→piper.
+    public string SttEngine { get; set; } = "gigaam";
+
     // Путь к WAV-референсу голоса пользователя (пусто = встроенный голос).
     // Заполняется командой «записать голос».
     public string VoiceReferencePath { get; set; } = "";

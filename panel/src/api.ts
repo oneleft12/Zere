@@ -201,6 +201,8 @@ export interface Config {
   autoMemory: boolean;
   ollamaTimeoutMinutes: number;
   ttsEngine: "pocket" | "piper";
+  /** Движок STT: gigaam — GigaAM-v3 (основной), whisper — откат. */
+  sttEngine: "gigaam" | "whisper";
   voiceReferencePath: string;
   /** keep_alive Ollama в секундах (-1 — бессрочно в памяти). */
   llmKeepAlive: number;

@@ -168,12 +168,14 @@ if (config.VoiceEnabled)
     // Громкость голосового вывода из config.json (voiceVolume).
     voiceManager.Config.Volume = (float)config.VoiceVolume;
     voiceManager.ConfigureTts(config.TtsEngine, config.VoiceReferencePath);
+    voiceManager.ConfigureStt(config.SttEngine);
     voiceManager.Initialize(activePersonality?.Style.ToString());
     Console.WriteLine("[Голос] Режим: текст + голос");
 
-    // Этап 1 (анализ S3): предзагрузка Whisper в фоне — первая транскрибация
-    // не должна ждать загрузку модели ggml.
-    _ = Task.Run(() => voiceManager.PreloadWhisper());
+    // Этап 1 (анализ S3): предзагрузка STT в фоне — первая транскрибация
+    // не должна ждать загрузку модели; для GigaAM здесь же скачивается
+    // модель (~163 МБ), если её ещё нет.
+    _ = Task.Run(() => voiceManager.PreloadStt());
 }
 else
 {

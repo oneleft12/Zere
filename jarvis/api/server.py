@@ -43,6 +43,9 @@ _MAX_TEXT_LENGTH = 4000
 
 _ALLOWED_HOSTS = frozenset({"127.0.0.1", "localhost"})
 _ALLOWED_TTS_ENGINES = ("pocket", "piper")
+# STT: gigaam — GigaAM-v3 (основной), whisper — откат
+# (отчёт docs/STT_ENGINE_RESEARCH.md, §5).
+_ALLOWED_STT_ENGINES = ("gigaam", "whisper")
 
 # Путь → допустимые методы (маршрутизация до проверки токена не доходит).
 _ROUTES = {
@@ -1653,6 +1656,9 @@ def _camel_to_snake(key: str) -> str:
 
 
 _STRING_FIELDS = ("version", "assistantName", "language", "model", "ttsEngine", "voiceReferencePath")
+# Необязательные строковые ключи: старые клиенты/скрипты могут их не
+# присылать (openapi: свойство есть в схеме, но вне required).
+_OPTIONAL_STRING_FIELDS = ("sttEngine",)
 _BOOL_FIELDS = ("voiceEnabled", "autoMemory")
 
 
@@ -1664,7 +1670,7 @@ def _validate_config_payload(payload: Any) -> Optional[str]:
     if not isinstance(payload, dict):
         return "Ожидался JSON-объект конфигурации."
 
-    allowed = set(_STRING_FIELDS) | set(_BOOL_FIELDS) | {
+    allowed = set(_STRING_FIELDS) | set(_OPTIONAL_STRING_FIELDS) | set(_BOOL_FIELDS) | {
         "voiceVolume",
         "ollamaTimeoutMinutes",
         # LLM-параметры скорости/стабильности (анализ S5, этап 1)
@@ -1678,11 +1684,17 @@ def _validate_config_payload(payload: Any) -> Optional[str]:
             return f"Неизвестный ключ конфигурации: «{key}»."
 
     for key in allowed:
+        if key in _OPTIONAL_STRING_FIELDS:
+            continue  # необязательный: присутствие не требуется
         if key not in payload:
             return f"Отсутствует обязательный ключ: «{key}»."
 
     for key in _STRING_FIELDS:
         if not isinstance(payload[key], str):
+            return f"Ключ «{key}» должен быть строкой."
+
+    for key in _OPTIONAL_STRING_FIELDS:
+        if key in payload and not isinstance(payload[key], str):
             return f"Ключ «{key}» должен быть строкой."
 
     for key in _BOOL_FIELDS:
@@ -1694,6 +1706,9 @@ def _validate_config_payload(payload: Any) -> Optional[str]:
 
     if payload["ttsEngine"] not in _ALLOWED_TTS_ENGINES:
         return "Ключ «ttsEngine» допускает только «pocket» или «piper»."
+
+    if "sttEngine" in payload and payload["sttEngine"] not in _ALLOWED_STT_ENGINES:
+        return "Ключ «sttEngine» допускает только «gigaam» или «whisper»."
 
     volume = payload["voiceVolume"]
     if isinstance(volume, bool) or not isinstance(volume, (int, float)):

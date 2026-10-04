@@ -1046,6 +1046,13 @@ components:
         ttsEngine:
           type: string
           enum: [pocket, piper]
+        sttEngine:
+          type: string
+          enum: [gigaam, whisper]
+          description: >-
+            Движок распознавания речи: gigaam — GigaAM-v3 (основной),
+            whisper — откат (отчёт docs/STT_ENGINE_RESEARCH.md).
+            Необязательный ключ: старые клиенты могут его не присылать.
         voiceReferencePath:
           type: string
           description: Путь к WAV-референсу голоса, пусто = встроенный голос

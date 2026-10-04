@@ -109,6 +109,9 @@ def main() -> None:
     # Громкость голоса из config.json (voiceVolume, дефолт 0.5)
     voice_manager.config.volume = float(config.voice_volume)
 
+    # Движок распознавания речи из config.json (sttEngine, дефолт gigaam)
+    voice_manager.config.stt_engine = str(config.stt_engine)
+
     active_personality = jarvis.plugin_manager.active_personality
     if active_personality is not None:
         print(f"[Личность] {active_personality.name} | Стиль: {active_personality.style}\n")
@@ -117,9 +120,10 @@ def main() -> None:
         voice_manager.initialize(str(active_personality.style) if active_personality else None)
         print("[Голос] Режим: текст + голос")
 
-        # Предзагрузка Whisper в фоне (ROADMAP 1.3): не блокируем старт
+        # Предзагрузка STT в фоне (ROADMAP 1.3): не блокируем старт;
+        # для GigaAM здесь же качается модель (~163 МБ), если её ещё нет
         threading.Thread(
-            target=voice_manager.preload_whisper,
+            target=voice_manager.preload_stt,
             daemon=True,
         ).start()
     else:

@@ -1,5 +1,6 @@
 requests>=2.32
 faster-whisper>=1.0
+sherpa-onnx>=1.13.8
 sounddevice>=0.4.6
 pycaw>=20240210
 comtypes>=1.4

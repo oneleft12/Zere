@@ -12,6 +12,14 @@ public class VoiceConfig
     /// </summary>
     public string WhisperModel { get; set; } = "medium";
 
+    /// <summary>
+    /// Движок распознавания речи: "gigaam" — GigaAM-v3 punct (sherpa-onnx,
+    /// основной, MIT; отчёт docs/STT_ENGINE_RESEARCH.md), "whisper" — откат
+    /// на Whisper (ggml). Значение приходит из config.json (sttEngine) через
+    /// VoiceManager.ConfigureStt; поле держит паритет с Python VoiceConfig.
+    /// </summary>
+    public string SttEngine { get; set; } = "gigaam";
+
     public string PiperVoice { get; set; } = "ru_RU-ruslan-medium";
 
     public int MicrophoneIndex { get; set; } = 0;

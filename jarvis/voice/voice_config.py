@@ -17,6 +17,12 @@ class VoiceConfig:
     # medium значительно точнее для русского языка.
     whisper_model: str = "medium"
 
+    # Движок распознавания речи: "gigaam" — GigaAM-v3 punct (sherpa-onnx,
+    # основной, MIT; отчёт docs/STT_ENGINE_RESEARCH.md), "whisper" — откат
+    # на Whisper. Значение приходит из config.json (sttEngine) в main.py,
+    # паритет с VoiceConfig.SttEngine в C#.
+    stt_engine: str = "gigaam"
+
     piper_voice: str = "ru_RU-ruslan-medium"
 
     microphone_index: int = 0

@@ -8,7 +8,7 @@
       1. Проверка/установка Python 3.12+ (winget) и создание виртуального окружения .venv
       2. Установка зависимостей из requirements.txt
       3. Установка/запуск Ollama и загрузка модели из config/config.json (по умолчанию qwen3.5:2b)
-      4. Загрузка голосовых артефактов: Whisper ggml-base.bin, Piper, голос ru_RU-ruslan-medium
+      4. Загрузка голосовых артефактов: GigaAM-v3 (основной STT), Whisper ggml-base.bin, Piper, голос ru_RU-ruslan-medium
          (все скачивания проверяются по SHA-256)
       5. Опционально: .NET SDK 10 + dotnet publish C#-версии (-Edition dotnet|both)
       6. Сборка web-панели (npm), если отсутствует panel/dist
@@ -38,7 +38,7 @@
     Не устанавливать/проверять Ollama и модель.
 
 .PARAMETER SkipVoice
-    Не скачивать голосовые артефакты (Whisper, Piper, голос).
+    Не скачивать голосовые артефакты (GigaAM, Whisper, Piper, голос).
 
 .PARAMETER SkipShortcuts
     Не создавать ярлыки на рабочем столе и в меню «Пуск».
@@ -68,6 +68,12 @@ $ErrorActionPreference = 'Stop'
 # Константы: артефакты для скачивания + контрольные SHA-256
 # ---------------------------------------------------------------------------
 $Artifacts = @{
+    GigaAm        = @{
+        Url    = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16.tar.bz2'
+        Sha256 = 'f9620a0099019c6afcee26525ef9ed3297fa50dd5691c1902af0c948fc1a470b'
+        Size   = 170197019
+        Label  = 'модель GigaAM-v3 для распознавания речи (~163 МБ)'
+    }
     Whisper      = @{
         Url    = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin'
         Sha256 = '60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe'
@@ -105,6 +111,7 @@ $DefaultConfigJson = @'
   "autoMemory": true,
   "ollamaTimeoutMinutes": 10,
   "ttsEngine": "piper",
+  "sttEngine": "gigaam",
   "voiceReferencePath": "",
   "llmKeepAlive": -1,
   "llmMaxTokens": 96,
@@ -371,7 +378,9 @@ function Get-VenvState {
     if (Test-Path -LiteralPath $VenvPy) {
         $res.Venv = $true
         $r = Invoke-Native -FilePath $VenvPy -Arguments @('-m', 'pip', 'show', 'faster-whisper')
-        if ($r.ExitCode -eq 0) {
+        # sherpa-onnx — рантайм основного STT (GigaAM), см. requirements.txt
+        $r2 = Invoke-Native -FilePath $VenvPy -Arguments @('-m', 'pip', 'show', 'sherpa-onnx')
+        if (($r.ExitCode -eq 0) -and ($r2.ExitCode -eq 0)) {
             $res.Deps = $true
             $res.Detail = '.venv готов, зависимости установлены'
         } else {
@@ -526,6 +535,37 @@ function Install-VoiceAssets {
         if (-not (Get-Artifact -Url $Artifacts.Whisper.Url -Dest $whisperDest -Sha256 $Artifacts.Whisper.Sha256 -Size $Artifacts.Whisper.Size)) {
             Write-Fail2 'не удалось скачать/проверить модель Whisper'
             $ok = $false
+        }
+    }
+
+    # 1b. GigaAM-v3 — основной STT (отчёт docs/STT_ENGINE_RESEARCH.md, §5):
+    # архив tar.bz2 распаковывается tar.exe (есть в Windows 10 1803+).
+    $gigaamDirName = 'sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16'
+    $gigaamDir = Join-Path $modelsDir $gigaamDirName
+    $gigaamReady = (Test-Path -LiteralPath (Join-Path $gigaamDir 'encoder.int8.onnx')) -and
+                   (Test-Path -LiteralPath (Join-Path $gigaamDir 'tokens.txt'))
+    if ($gigaamReady) {
+        Write-Info 'модель GigaAM уже на месте'
+    } else {
+        Write-Info $Artifacts.GigaAm.Label
+        $gzPath = Join-Path $env:TEMP 'jarvis-installer\gigaam.tar.bz2'
+        if (-not (Get-Artifact -Url $Artifacts.GigaAm.Url -Dest $gzPath -Sha256 $Artifacts.GigaAm.Sha256 -Size $Artifacts.GigaAm.Size)) {
+            Write-Fail2 'не удалось скачать модель GigaAM (голос уйдёт на Whisper)'
+            $ok = $false
+        } else {
+            try {
+                $tar = Get-Command 'tar.exe' -ErrorAction SilentlyContinue
+                if ($null -eq $tar) { $tar = Get-Command 'tar' -ErrorAction SilentlyContinue }
+                if ($null -eq $tar) { throw 'tar не найден (нужен Windows 10 1803+)' }
+                & $tar.Source -xjf $gzPath -C $modelsDir
+                if ($LASTEXITCODE -ne 0) { throw ('tar: код ' + $LASTEXITCODE) }
+                Write-Ok 'модель GigaAM распакована в JARVIS.Voice\Models'
+            } catch {
+                Write-Fail2 ('ошибка распаковки GigaAM: ' + $_.Exception.Message)
+                $ok = $false
+            } finally {
+                Remove-Item -LiteralPath $gzPath -Force -ErrorAction SilentlyContinue
+            }
         }
     }
 

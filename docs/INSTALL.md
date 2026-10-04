@@ -1,7 +1,7 @@
 # Установка JARVIS на Windows
 
 Установщик полностью готовит окружение: Python-зависимости, Ollama с моделью,
-голосовые компоненты (Whisper/Piper), ярлыки и лаунчер. Все скачиваемые
+голосовые компоненты (GigaAM/Whisper/Piper), ярлыки и лаунчер. Все скачиваемые
 артефакты проверяются по **SHA-256**.
 
 ## Способы установки
@@ -45,10 +45,11 @@ powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1 -WorkingTree 
 | Компонент | Источник | Проверка |
 |---|---|---|
 | Python 3.12+ | winget (`Python.Python.3.14` → `3.13` → `3.12`) | запуск интерпретатора |
-| Виртуальное окружение `.venv` | `requirements.txt` (pip) | `pip show faster-whisper` |
+| Виртуальное окружение `.venv` | `requirements.txt` (pip) | `pip show faster-whisper` + `sherpa-onnx` |
 | Ollama | winget (`Ollama.Ollama`), сервер на `127.0.0.1:11434` | `ollama list` |
 | Модель LLM | из `config/config.json` (по умолчанию `qwen3.5:2b`) | `ollama pull` |
-| Whisper `ggml-base.bin` (~141 МБ) | HuggingFace `ggerganov/whisper.cpp` | SHA-256 + размер |
+| Модель GigaAM-v3 (~163 МБ, основной STT) | GitHub `k2-fsa/sherpa-onnx` release `asr-models` | SHA-256 + размер, распаковка `tar -xjf` |
+| Whisper `ggml-base.bin` (~141 МБ, откат STT) | HuggingFace `ggerganov/whisper.cpp` | SHA-256 + размер |
 | Движок Piper (~21 МБ) | GitHub `rhasspy/piper` release 2023.11.14-2 | SHA-256 + размер |
 | Голос `ru_RU-ruslan-medium` (~60 МБ) | HuggingFace `rhasspy/piper-voices` | SHA-256 + размер |
 | Web-панель | `panel/dist` (сборка npm, если dist отсутствует) | наличие `dist/index.html` |
@@ -58,6 +59,8 @@ powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1 -WorkingTree 
 Контрольные суммы (`SHA-256`):
 
 ```
+sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16.tar.bz2
+                            f9620a0099019c6afcee26525ef9ed3297fa50dd5691c1902af0c948fc1a470b
 ggml-base.bin            60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe
 piper_windows_amd64.zip  f3c58906402b24f3a96d92145f58acba6d86c9b5db896d207f78dc80811efcea
 ru_RU-ruslan-medium.onnx 72a5f88e0b20928064eb45d88e1daa21f8af62d18613580d32cbb4aed48dcf7f

@@ -1,6 +1,7 @@
 using JARVIS.Voice.Audio;
 using JARVIS.Voice.Piper;
 using JARVIS.Voice.Pocket;
+using JARVIS.Voice.Sherpa;
 using JARVIS.Voice.WakeWord;
 using JARVIS.Voice.Whisper;
 
@@ -11,6 +12,7 @@ public class VoiceManager : IDisposable
     private readonly AudioRecorder _recorder = new();
     private readonly AudioPlayer _player = new();
     private readonly WhisperService _whisper = new();
+    private readonly GigaAmService _gigaam = new();
     private readonly PiperService _piper = new();
     private readonly PocketTtsService _pocket = new();
     private readonly VoiceConfig _config = new();
@@ -20,6 +22,7 @@ public class VoiceManager : IDisposable
     private StreamPlayer? _activePlayer;
     private string _ttsEngine = "piper";
     private string _voiceReferencePath = "";
+    private string _sttEngine = "gigaam";
 
     private readonly Dictionary<string, string> _personalityVoices = new()
     {
@@ -30,9 +33,43 @@ public class VoiceManager : IDisposable
         ["Casual"] = "ru_RU-ruslan-medium"
     };
 
-    public bool IsVoiceAvailable => _whisper.IsInstalled();
+    public bool IsVoiceAvailable => ActiveStt.IsInstalled();
     public bool IsTtsAvailable => _pocket.IsAvailable || _piper.IsLoaded;
     public VoiceConfig Config => _config;
+
+    /// <summary>
+    /// Активный STT-движок (роутинг gigaam→whisper, §5 отчёта STT):
+    /// GigaAM, если он выбран и модель готова; иначе Whisper, если тот есть;
+    /// иначе GigaAm (попытка достроить модель). Ленивая проверка на каждый
+    /// вызов — после завершения скачивания модели выбор переключается сам.
+    /// </summary>
+    private ISttService ActiveStt
+    {
+        get
+        {
+            var wantGigaAm = _sttEngine.Equals("gigaam", StringComparison.OrdinalIgnoreCase);
+
+            if (wantGigaAm && _gigaam.IsInstalled())
+                return _gigaam;
+
+            if (_whisper.IsInstalled())
+                return _whisper;
+
+            return _gigaam;
+        }
+    }
+
+    /// <summary>
+    /// Настройка движка распознавания ДО Initialize (паритет ConfigureTts).
+    /// engine: "gigaam" — GigaAM-v3 (sherpa-onnx, основной),
+    /// "whisper" — откат на Whisper (ggml).
+    /// </summary>
+    public void ConfigureStt(string engine)
+    {
+        _sttEngine = string.IsNullOrWhiteSpace(engine)
+            ? "gigaam"
+            : engine.Trim().ToLowerInvariant();
+    }
 
     /// <summary>
     /// Настройка движка озвучки ДО Initialize.
@@ -97,26 +134,62 @@ public class VoiceManager : IDisposable
     }
 
     /// <summary>
-    /// Предзагрузка модели Whisper в память при старте (анализ S3):
-    /// первая транскрибация не ждёт загрузку ggml-файла. Вызывается в фоне.
+    /// Предзагрузка активного STT-движка при старте (анализ S3): первая
+    /// транскрибация не ждёт загрузку модели. Для GigaAM при отсутствии
+    /// модели здесь же выполняется разовое скачивание (163 МБ, SHA-256).
+    /// Вызывается в фоне.
     /// </summary>
-    public void PreloadWhisper()
+    public void PreloadStt()
     {
         try
         {
-            _whisper.Preload();
+            if (_sttEngine.Equals("gigaam", StringComparison.OrdinalIgnoreCase))
+            {
+                // Предпочитаемый движок: скачиваем/греем GigaAM; если он не
+                // поднялся — подстраховываемся Whisper, чтобы голос работал.
+                if (!_gigaam.Preload() && _whisper.IsInstalled())
+                    _whisper.Preload();
+            }
+            else
+            {
+                _whisper.Preload();
+            }
+
+            Console.WriteLine(
+                $"[Voice] STT активен: {ActiveStt.CurrentModel} (запрошен движок: {_sttEngine}).");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Voice] Предзагрузка Whisper: {ex.Message}");
+            Console.WriteLine($"[Voice] Предзагрузка STT: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Транскрибация через активный STT-движок с автоматическим откатом:
+    /// сбой GigaAM уводит на Whisper — зеркало отката pocket→piper (§5 плана
+    /// STT-исследования).
+    /// </summary>
+    private async Task<string> TranscribeSttAsync(string wavFile, int timeoutSeconds = 30)
+    {
+        var engine = ActiveStt;
+
+        try
+        {
+            return await engine.TranscribeAsync(wavFile, timeoutSeconds);
+        }
+        catch (Exception ex) when (engine is not WhisperService && _whisper.IsInstalled())
+        {
+            Console.WriteLine(
+                $"[Voice] STT ({engine.CurrentModel}) сбой: {ex.Message} — откат на Whisper.");
+            return await _whisper.TranscribeAsync(wavFile, timeoutSeconds);
         }
     }
 
     public async Task<string> ListenAsync()
     {
-        if (!_whisper.IsInstalled())
+        if (!ActiveStt.IsInstalled())
         {
-            Console.WriteLine("[Voice] Whisper не установлен.");
+            Console.WriteLine("[Voice] STT не установлен (нет ни GigaAM, ни Whisper).");
             return "";
         }
 
@@ -148,7 +221,7 @@ public class VoiceManager : IDisposable
 
         try
         {
-            var text = await _whisper.TranscribeAsync(wav, timeoutSeconds: 30);
+            var text = await TranscribeSttAsync(wav);
             return text;
         }
         catch (Exception ex)
@@ -427,9 +500,9 @@ public class VoiceManager : IDisposable
     /// </summary>
     public async Task<string> ListenCommandAsync()
     {
-        if (!_whisper.IsInstalled())
+        if (!ActiveStt.IsInstalled())
         {
-            Console.WriteLine("[Voice] Whisper не установлен.");
+            Console.WriteLine("[Voice] STT не установлен (нет ни GigaAM, ни Whisper).");
             return "";
         }
 
@@ -475,7 +548,7 @@ public class VoiceManager : IDisposable
 
             try
             {
-                result = await _whisper.TranscribeAsync(wav, timeoutSeconds: 30);
+                result = await TranscribeSttAsync(wav);
             }
             catch (Exception ex)
             {
@@ -550,7 +623,7 @@ public class VoiceManager : IDisposable
 
         try
         {
-            cmdResult = await _whisper.TranscribeAsync(cmdFile, timeoutSeconds: 30);
+            cmdResult = await TranscribeSttAsync(cmdFile);
         }
         catch (Exception ex)
         {
@@ -576,6 +649,7 @@ public class VoiceManager : IDisposable
         _player.Dispose();
         _wakeWordDetector?.Dispose();
         _whisper.Dispose();
+        _gigaam.Dispose();
         _recordGate.Dispose();
         GC.SuppressFinalize(this);
     }
