@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -42,6 +43,58 @@ from zere import paths  # noqa: E402
 from zere.voice.audio.csharp_speaker import CSharpSpeaker  # noqa: E402
 
 FAKE_SPEAKER = ROOT / "tests" / "fake_speaker.py"
+
+
+def _windows_path(path: Path) -> str:
+    """Путь, который сможет открыть Windows-хелпер.
+
+    Под WSL хелпер — это Windows-процесс (.exe). Пути /tmp/... и UNC
+    (\\wsl.localhost\...) ему недоступны: NAudio не откроет файл, DSP молча
+    вернёт исходный WAV. Поэтому путь переводится в C:\... через wslpath;
+    на Windows строка остаётся как есть.
+    """
+    if not sys.platform.startswith("linux") or not str(path).startswith("/"):
+        return str(path)
+
+    try:
+        converted = subprocess.run(
+            ["wslpath", "-w", str(path)],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return str(path)
+
+    if not converted:
+        return str(path)
+
+    # wslpath отдаёт UNC для путей вне /mnt/<диск>; подменяем его на букву диска,
+    # иначе Windows-хелпер файл не увидит.
+    unc = re.match(r"^\\\\(?:wsl\.localhost|wsl\$)\\[^\\]+\\mnt\\([a-zA-Z])\\(.*)$", converted)
+    if unc:
+        drive, rest = unc.group(1).upper(), unc.group(2)
+        return drive + ":\\" + rest
+
+    return converted
+
+
+def _linux_path(path: str) -> Path:
+    """Ответ хелпера (C:\\...) → путь WSL, чтобы проверить файл из теста."""
+    if sys.platform.startswith("linux") and len(path) > 2 and path[1] == ":":
+        try:
+            converted = subprocess.run(
+                ["wslpath", "-u", path],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+            if converted:
+                return Path(converted)
+        except (OSError, subprocess.CalledProcessError):
+            return Path(path)
+
+    return Path(path)
 
 
 def fake_command(log: Path, *, delay: float = 0.05, **flags: bool) -> list[str]:
@@ -204,7 +257,8 @@ def test_real_helper_dry_run_processes_wav() -> None:
         print("\n[пропущено] ZERE.Speaker не собран (нет exe — только Python-озвучка)")
         return
 
-    with tempfile.TemporaryDirectory() as tmp:
+    # dir=ROOT: на WSL /tmp недоступен Windows-процессу (см. _windows_path).
+    with tempfile.TemporaryDirectory(dir=ROOT) as tmp:
         wav = write_wav(Path(tmp) / "voice.wav", seconds=0.3, rate=22050)
 
         process = subprocess.Popen(
@@ -235,7 +289,7 @@ def test_real_helper_dry_run_processes_wav() -> None:
 
             reply = exchange({
                 "cmd": "speak",
-                "wav": str(wav),
+                "wav": _windows_path(wav),
                 "volume": 1.0,
                 "process": True,
                 "rate": 44100,
@@ -244,7 +298,7 @@ def test_real_helper_dry_run_processes_wav() -> None:
             assert reply.get("event") == "done", reply
             assert reply.get("played") is False
 
-            processed = Path(reply["file"])
+            processed = _linux_path(reply["file"])
             assert processed.is_file(), "C#-DSP должен был создать обработанный WAV"
             assert processed.name.startswith("processed_")
 
