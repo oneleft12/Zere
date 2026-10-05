@@ -92,7 +92,7 @@ test("голос: режим включается и выключается ту
   await expect(pill).toHaveText("выключен");
   await card.locator("label.toggle").click();
   await expect(toggle).toBeChecked({ timeout: 10_000 });
-  await expect(pill).toHaveText("ждёт «джарвис»", { timeout: 10_000 });
+  await expect(pill).toHaveText("ждёт «зере»", { timeout: 10_000 });
 
   await card.locator("label.toggle").click();
   await expect(toggle).not.toBeChecked({ timeout: 10_000 });
