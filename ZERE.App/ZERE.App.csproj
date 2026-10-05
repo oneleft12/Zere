@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\ZERE.Core\ZERE.Core.csproj" />
+    <ProjectReference Include="..\ZERE.AI\ZERE.AI.csproj" />
+    <ProjectReference Include="..\ZERE.Voice\ZERE.Voice.csproj" />
+    <!-- Окно панели (этап 6): WebView2 поверх SPA на 127.0.0.1 -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows7.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+
+</Project>

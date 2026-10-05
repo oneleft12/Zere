@@ -141,17 +141,17 @@ Desktop.ini
 *.pb
 
 # Piper TTS (внешние бинарники)
-JARVIS.Voice/Piper/*.exe
-JARVIS.Voice/Piper/*.dll
-JARVIS.Voice/Piper/espeak-ng-data/
-JARVIS.Voice/Piper/pkgconfig/
+ZERE.Voice/Piper/*.exe
+ZERE.Voice/Piper/*.dll
+ZERE.Voice/Piper/espeak-ng-data/
+ZERE.Voice/Piper/pkgconfig/
 # Промежуточные WAV синтеза и DSP (создаются и удаляются на лету)
-JARVIS.Voice/Piper/output_*.wav
-JARVIS.Voice/Piper/processed_*.wav
+ZERE.Voice/Piper/output_*.wav
+ZERE.Voice/Piper/processed_*.wav
 
 # Если есть папка с бинарными моделями ML (Whisper, Piper и т.д.)
-JARVIS.Voice/Models/
-JARVIS.AI/Models/
+ZERE.Voice/Models/
+ZERE.AI/Models/
 # Записи микрофона (wake word и команды) — рантайм-данные, там голос пользователя
 voice/input/
 
@@ -174,8 +174,8 @@ tools/uvx.exe
 config/panel.token
 
 # Артефакты установщика (генерируются)
-/JarvisInstaller.exe
-/JARVIS.bat
+/ZereInstaller.exe
+/ZERE.bat
 /installer/install-manifest.json
 /installer/stage/
 /installer/stage.zip

@@ -1,0 +1,9 @@
+<Solution>
+  <Project Path="ZERE.AI/ZERE.AI.csproj" />
+  <Project Path="ZERE.App/ZERE.App.csproj" />
+  <Project Path="ZERE.Core/ZERE.Core.csproj" />
+  <Project Path="ZERE.Memory/ZERE.Memory.csproj" />
+  <Project Path="ZERE.Speaker/ZERE.Speaker.csproj" />
+  <Project Path="ZERE.Tools/ZERE.Tools.csproj" />
+  <Project Path="ZERE.Voice/ZERE.Voice.csproj" />
+</Solution>
