@@ -10,6 +10,7 @@ from jarvis import paths
 from jarvis.ai.ollama_client import OllamaClient
 from jarvis.api.server import PanelServer
 from jarvis.core.configuration.jarvis_config import JarvisConfig
+from jarvis.core.console import configure_console_encoding
 from jarvis.core.context.runtime_context import RuntimeContext
 from jarvis.core.dependencies.dependency_checker import DependencyChecker
 from jarvis.core.engine import JarvisEngine
@@ -28,6 +29,10 @@ from jarvis.voice.voice_manager import VoiceManager
 
 
 def main() -> None:
+    # Эмодзи в принтах при перенаправленном выводе (cp866/cp1251) падали
+    # UnicodeEncodeError — в аудио-пути это выглядело как сбой микрофона.
+    configure_console_encoding()
+
     config = JarvisConfig.load()
     logger = LogService()
 

@@ -420,3 +420,52 @@ WASAPI напрямую**, минуя системный микшер с его 
 апсемпла. Проверено на живом устройстве: `device=44100 Гц → processed=44100 Гц`.
 
 
+## 12. Выбор аудиоустройства: WASAPI, частота и ошибка -9997
+
+Симптом из панели («Режим голоса → Состояние режима: ошибка»):
+
+```
+Error opening InputStream: Invalid sample rate [PaErrorCode -9997]
+```
+
+Причина: порт на sounddevice стал открывать микрофон в бэкенде **WASAPI**
+(низкая задержка), а WASAPI в shared-режиме принимает только частоту микшера
+Windows. Whisper/GigaAM требуют 16 кГц, микрофон Sennheiser USB headset
+заявляет 48 кГц, микшер работает на 44.1 кГц — поток не открывался вовсе.
+
+Замеры (Windows 11, Sennheiser USB headset, sounddevice 0.5.6, живые
+устройства 27 — вход, 22 — выход):
+
+| Проверка | Результат |
+|---|---|
+| `check_input_settings(27, 16000)` | **-9997** |
+| `check_input_settings(27, 16000, auto_convert=True)` | OK |
+| `check_input_settings(27, 48000)` | OK |
+| `check_output_settings(22, 44100)` | OK |
+| `check_output_settings(22, 48000)` | **-9997** |
+
+Важная деталь: `default_samplerate` WASAPI-устройства врёт — микрофон
+заявляет 48 кГц, а микшер живёт на 44.1 кГц (48000 без `auto_convert` тоже
+падал). Поэтому «взять частоту устройства» — не решение.
+
+Решение (`jarvis/voice/audio/audio_device.py`):
+
+- `input_options`/`output_options` отдают готовые аргументы открытия потока:
+  WASAPI-устройство + `sd.WasapiSettings(auto_convert=True)` (флаг
+  `paWinWasapiAutoConvert` — системный ресемплер Windows), а если вариант не
+  поддержан (`check_input_settings`/`check_output_settings`) — устройство по
+  умолчанию (MME: PortAudio ресемплирует сам);
+- все точки захвата и вывода используют эти хелперы (`AudioRecorder.record`,
+  `record_with_vad`, `ContinuousAudioRecorder.start_continuous_recording`,
+  `AudioPlayer.play`);
+- сбой захвата больше не убивает голосовой режим навсегда: `VoiceModeRunner`
+  пишет `lastError`, делает паузу и слушает дальше (раньше состояние
+  залипало в `error` до перезапуска JARVIS);
+- при перенаправленном выводе (`JARVIS.bat > log.txt`, cp866/cp1251) эмодзи
+  в принтах падали `UnicodeEncodeError` — в аудио-пути это выглядело как
+  «сбой микрофона»; `configure_console_encoding()` (`jarvis/core/console.py`)
+  заменяет непредставимые символы на «?».
+
+Тесты: `tests/test_audio_device.py` (12: регрессия -9997 на фейковом тракте +
+живое открытие 16 кГц) и `tests/test_voice_mode.py` (4: сбой записи и озвучки
+не убивает цикл).

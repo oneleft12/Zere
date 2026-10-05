@@ -2,6 +2,13 @@
 
 NAudio (WaveOutEvent + AudioFileReader) заменён на sounddevice (PCM) +
 stdlib wave (чтение WAV).
+
+Вывод идёт через **WASAPI**, а не через MME (бэкенд sounddevice по
+умолчанию): у MME ресемплер портит звук даже при совпадении частот и буфер
+180 мс против 22 мс у WASAPI (замеры — audio_device.py). Устройство ищется
+по имени среди WASAPI-устройств и открывается с системным ресемплером
+(`auto_convert`, иначе — ошибка -9997 при несовпадении частоты); если
+WASAPI не подошёл — обычное поведение (MME).
 """
 
 from __future__ import annotations
@@ -12,6 +19,8 @@ import wave
 
 import numpy as np
 import sounddevice as sd
+
+from jarvis.voice.audio.audio_device import output_options
 
 
 class AudioPlayer:
@@ -78,7 +87,17 @@ class AudioPlayer:
                 out = out.reshape(-1, channels)
 
             self._is_playing = True
-            sd.play(out, samplerate=sample_rate)
+
+            # WASAPI-аналог устройства по умолчанию с системным ресемплером
+            # (auto_convert): частота WAV может не совпадать с микшером
+            # Windows, и без флага PortAudio вернул бы -9997. Иначе — MME.
+            sd.play(
+                out,
+                samplerate=sample_rate,
+                **output_options(
+                    sample_rate, channels=channels, dtype=str(out.dtype.name)
+                ),
+            )
 
             while self._is_playing:
                 # Ожидание конца (аналог цикла while (IsPlaying) + PlaybackStopped)

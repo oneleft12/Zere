@@ -67,6 +67,8 @@
 - **ISttService** — общий контракт STT-движков (`IsInstalled`/`Preload`/`TranscribeAsync`), за ним скрыт выбор активного движка
 - **GigaAmService** — основной STT: sherpa-onnx + GigaAM-v3 punct (русский, с пунктуацией; модель ~163 МБ качается при установке или при `Preload`, SHA-256)
 - **AudioRecorder** — запись с микрофона (и запись референса голоса для клонирования)
+- **ContinuousAudioRecorder** — непрерывная запись с круговым буфером и адаптивным VAD (wake word)
+- **AudioDevice (Python, `audio_device.py`)** — выбор устройства: WASAPI-аналог устройства по умолчанию (низкая задержка) + системный ресемплер (`auto_convert`), иначе откат на MME; `input_options`/`output_options` отдают готовые аргументы открытия потока и лечат `Invalid sample rate [PaErrorCode -9997]` (16 кГц против микшера 44.1/48 кГц)
 - **AudioPlayer** — воспроизведение WAV
 - **StreamPlayer** — потоковое воспроизведение PCM (играет, пока TTS ещё синтезирует)
 - **WhisperService** — распознавание речи (откатный STT + wake word — детектор просыпания намеренно остаётся на Whisper)
@@ -291,6 +293,8 @@ Jarvis/
 │   ├── test_panel_api.py       # Контрактные тесты панели (91, по OpenAPI)
 │   ├── test_installer.py       # Тесты установщика (BOM, CRLF, SHA-256, связность)
 │   ├── test_stt_engine.py      # Тесты STT GigaAM (константы, роутинг, живое распознавание)
+│   ├── test_audio_device.py    # Тесты звуковых устройств (WASAPI+auto_convert, откат, регрессия -9997, живой микрофон)
+│   ├── test_voice_mode.py      # Тесты голосового режима (сбой записи/озвучки не убивает цикл)
 │   ├── test_system_prompt.py   # Тесты P1-2
 │   ├── test_drawing.py         # Тесты рисования (31: роутер, геометрия, текст, обработчик)
 │   └── e2e_server.py           # Раннер панели с фейками для E2E

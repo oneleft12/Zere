@@ -1,11 +1,21 @@
+using NAudio.CoreAudioApi;
 using NAudio.Wave;
 
 namespace JARVIS.Voice.Audio;
 
+/// <summary>
+/// Воспроизведение WAV-файла.
+///
+/// Вывод идёт через <see cref="WasapiOut"/>, а не через WaveOutEvent (WinMM):
+/// WinMM — legacy-тракт, который портит звук своим ресемплером и держит буфер
+/// в сотни миллисекунд. Замеры на Sennheiser USB headset (44100 Гц): MME
+/// 180 мс против WASAPI 22 мс. При недоступности WASAPI — откат на WinMM,
+/// чтобы голос не пропадал.
+/// </summary>
 public class AudioPlayer : IDisposable
 {
     private readonly object _lock = new();
-    private WaveOutEvent? _output;
+    private IWavePlayer? _output;
     private AudioFileReader? _reader;
     private bool _cleaningUp;
 
@@ -29,7 +39,7 @@ public class AudioPlayer : IDisposable
                 Volume = volume
             };
 
-            _output = new WaveOutEvent();
+            _output = AudioOutputFactory.Create();
             _output.Init(_reader);
 
             IsPlaying = true;

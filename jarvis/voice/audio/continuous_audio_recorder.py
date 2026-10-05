@@ -17,6 +17,8 @@ from pathlib import Path
 import numpy as np
 import sounddevice as sd
 
+from jarvis.voice.audio.audio_device import input_options
+
 
 class ContinuousAudioRecorder:
     """Непрерывный записывающий устройство с круговым буфером и VAD.
@@ -91,13 +93,16 @@ class ContinuousAudioRecorder:
             self._rms_window_start = datetime.now()
 
             # WaveFormat(sampleRate, 16, 1); BufferMilliseconds=50, NumberOfBuffers=3,
-            # DeviceNumber=0 — внутреннюю буферизацию и выбор микрофона по умолчанию
-            # выполняет sounddevice.
+            # DeviceNumber=0 — внутреннюю буферизацию выполняет sounddevice.
+            # Устройство — WASAPI-аналог микрофона по умолчанию с системным
+            # ресемплером (16 кГц на WASAPI без auto_convert даёт -9997),
+            # иначе — устройство по умолчанию (MME).
             self._stream = sd.InputStream(
                 samplerate=sample_rate,
                 channels=1,
                 dtype="int16",
                 callback=self._on_data_available,
+                **input_options(sample_rate, channels=1, dtype="int16"),
             )
             self._stream.start()
             self._is_recording = True

@@ -10,6 +10,8 @@
 - wake word выключен → слушаем команду сразу (старый вариант);
 - «выход»/«стоп» голосом — выключение режима;
 - ошибка LLM/TTS не убивает цикл: пишем lastError и слушаем дальше;
+- ошибка записи (микрофон занят/отключён, сбой PortAudio) тоже не убивает
+  цикл: lastError + пауза, состояние возвращается к sleeping;
 - выход из цикла always освобождает wake-детектор (disable_wake_word).
 
 Отмена: threading.Event (аналог CancellationToken в C#); stop() дополнительно
@@ -36,6 +38,10 @@ _EXIT_WORDS = ("выход", "стоп", "exit")
 # Пауза после пустого распознавания: микрофон молчит/ошибка — не крутим
 # горячий цикл (иначе 100% CPU на повторных попытках записи).
 _EMPTY_TRANSCRIPT_PAUSE = 0.3
+
+# Пауза после сбоя захвата (микрофон занят/отключён, PortAudio -9997 и т.п.):
+# режим остаётся включённым, но не долбит сломанное устройство в цикле.
+_CAPTURE_ERROR_PAUSE = 0.5
 
 # Сколько ждём остановки потока в stop(): запись с микрофона может быть
 # длинной (VAD), поэтому джойн с таймаутом, а не навсегда.
@@ -150,7 +156,18 @@ class VoiceModeRunner:
 
         try:
             while not cancel.is_set():
-                text = self._capture(cancel)
+                try:
+                    text = self._capture(cancel)
+                except Exception as ex:  # noqa: BLE001 — сбой микрофона/PortAudio
+                    # Раньше здесь режим умирал в состоянии «error» навсегда
+                    # (например «Invalid sample rate [PaErrorCode -9997]»).
+                    # Теперь ошибка видна в lastError, а цикл продолжает
+                    # слушать: устройство могли занять или переткнуть.
+                    log_error("VoiceModeRunner", f"capture: {ex}")
+                    self._last_error = str(ex)
+                    self._set_state(STATE_SLEEPING)
+                    cancel.wait(_CAPTURE_ERROR_PAUSE)
+                    continue
 
                 if cancel.is_set():
                     break

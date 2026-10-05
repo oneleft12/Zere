@@ -6,11 +6,14 @@ namespace JARVIS.Voice.Audio;
 /// Потоковый плеер: принимает PCM-сэмплы (s16le моно) по мере поступления
 /// из TTS и играет их без ожидания полного файла — первый звук не ждёт
 /// окончания синтеза.
+///
+/// Устройство вывода — WASAPI (см. <see cref="AudioOutputFactory"/>): у WinMM
+/// лишний ресемплинг и на порядок большая задержка.
 /// </summary>
 public sealed class StreamPlayer : IDisposable
 {
     private readonly BufferedWaveProvider _buffer;
-    private readonly WaveOutEvent _output;
+    private readonly IWavePlayer _output;
     private volatile bool _completed;
     private volatile bool _stopped;
 
@@ -24,11 +27,8 @@ public sealed class StreamPlayer : IDisposable
             DiscardOnBufferOverflow = false
         };
 
-        _output = new WaveOutEvent
-        {
-            DesiredLatency = 120,
-            Volume = Math.Clamp(volume, 0f, 1f)
-        };
+        _output = AudioOutputFactory.Create();
+        _output.Volume = Math.Clamp(volume, 0f, 1f);
         _output.Init(_buffer);
         _output.Play();
     }

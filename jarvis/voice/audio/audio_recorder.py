@@ -18,6 +18,8 @@ from uuid import uuid4
 import numpy as np
 import sounddevice as sd
 
+from jarvis.voice.audio.audio_device import input_options
+
 
 class AudioRecorder:
     """Запись аудио с микрофона (порт AudioRecorder.cs)."""
@@ -56,11 +58,15 @@ class AudioRecorder:
         try:
             print(f"🎤 Слушаю {seconds} секунд...")
 
+            # WASAPI-аналог микрофона по умолчанию с системным ресемплером
+            # (auto_convert), иначе — устройство по умолчанию: без этого
+            # 16 кГц на WASAPI падают с paInvalidSampleRate (-9997).
             data = sd.rec(
                 int(seconds * sample_rate),
                 samplerate=sample_rate,
                 channels=1,
                 dtype="int16",
+                **input_options(sample_rate, channels=1, dtype="int16"),
             )
             sd.wait()
 
@@ -142,6 +148,8 @@ class AudioRecorder:
             channels=1,
             dtype="int16",
             callback=on_data,
+            # WASAPI + auto_convert (иначе -9997 на 16 кГц), откат на MME.
+            **input_options(16000, channels=1, dtype="int16"),
         )
 
         ok = False
