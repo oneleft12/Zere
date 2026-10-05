@@ -19,7 +19,7 @@ import {
 } from "../ui";
 import type { Cleanup, ScreenFactory } from "../router";
 
-/** Метаданные встроенной личности (JARVIS.Core/Plugins/BuiltIn). */
+/** Метаданные встроенной личности (ZERE.Core/Plugins/BuiltIn). */
 const STYLE_META: Record<string, { temperature: string; description: string }> = {
   Friendly: { temperature: "0.7", description: "Дружелюбный, тёплый, с эмодзи" },
   Formal: { temperature: "0.3", description: "Официальный, строгий, профессиональный" },

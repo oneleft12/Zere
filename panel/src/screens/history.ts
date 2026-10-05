@@ -194,8 +194,8 @@ export const historyScreen: ScreenFactory = (container): Cleanup => {
       { class: "conv fade-in" },
       h("div", { class: "conv__role conv__role--user", text: t("Вы") }),
       h("p", { class: "conv__text", text: item.userMessage }),
-      h("div", { class: "conv__role conv__role--ai", text: "JARVIS" }),
-      h("p", { class: "conv__text", text: item.jarvisResponse }),
+      h("div", { class: "conv__role conv__role--ai", text: "ZERE" }),
+      h("p", { class: "conv__text", text: item.zereResponse }),
       h("div", { class: "conv__meta", text: formatTimestamp(item.timestamp) }),
     );
   }
@@ -243,7 +243,7 @@ export const historyScreen: ScreenFactory = (container): Cleanup => {
 
       if (cancelled) return;
 
-      downloadJson(`jarvis-history-${dateStamp()}.json`, {
+      downloadJson(`zere-history-${dateStamp()}.json`, {
         exportedAt: new Date().toISOString(),
         search,
         total: items.length,

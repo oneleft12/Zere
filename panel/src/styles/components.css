@@ -135,7 +135,7 @@ select:focus-visible {
 .status-pill--idle .status-pill__dot { background: var(--text-dim); }
 
 .status-pill--live .status-pill__dot {
-  animation: jarvis-pulse 1.6s ease-in-out infinite; /* «слушает/думает/говорит» */
+  animation: zere-pulse 1.6s ease-in-out infinite; /* «слушает/думает/говорит» */
 }
 
 .status-pill__label {
@@ -388,10 +388,10 @@ select:focus-visible {
   border: 2px solid var(--border);
   border-top-color: var(--accent);
   border-radius: 50%;
-  animation: jarvis-spin 800ms linear infinite;
+  animation: zere-spin 800ms linear infinite;
 }
 
-@keyframes jarvis-spin {
+@keyframes zere-spin {
   to { transform: rotate(360deg); }
 }
 
@@ -467,7 +467,7 @@ select:focus-visible {
   border-radius: var(--radius-sm);
   font-size: 13px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  animation: jarvis-fade-in 150ms ease-out;
+  animation: zere-fade-in 150ms ease-out;
 }
 
 .toast--ok { border-left-color: var(--ok); }

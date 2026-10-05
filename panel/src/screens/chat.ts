@@ -1,7 +1,7 @@
 /**
  * Экран «Чат» (этап 3 плана, §6): потоковый ответ по SSE
  * (`GET /api/chat/stream`). `EventSource` не умеет отправлять заголовки,
- * а контракт требует `X-JARVIS-Token`, поэтому стрим читается через
+ * а контракт требует `X-ZERE-Token`, поэтому стрим читается через
  * `fetch` + `ReadableStream` (см. `api.ts`). Каждый диалог сохраняется
  * движком в истории — он появляется на экране «История».
  */
@@ -34,7 +34,7 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
 
   const input = textInput({
     value: "",
-    placeholder: t("Спросите JARVIS…"),
+    placeholder: t("Спросите ZERE…"),
     onInput: (value) => {
       draft = value;
     },
@@ -83,7 +83,7 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
         emptyState({
           icon: "💬",
           title: t("Начните диалог"),
-          hint: t("Спросите JARVIS о процессах, файлах или погоде — ответ придёт потоком и попадёт в историю."),
+          hint: t("Спросите ZERE о процессах, файлах или погоде — ответ придёт потоком и попадёт в историю."),
         }),
       );
       return;
@@ -119,7 +119,7 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
     busy = value;
     input.disabled = value;
     sendButton.disabled = value;
-    status.textContent = value ? t("JARVIS отвечает…") : t("Enter — отправить");
+    status.textContent = value ? t("ZERE отвечает…") : t("Enter — отправить");
   }
 
   // ── Отправка ───────────────────────────────────────────────────

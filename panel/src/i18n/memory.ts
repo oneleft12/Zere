@@ -6,8 +6,8 @@
 export const MEMORY_EN: Record<string, string> = {
   // ── Шапка, поиск, фильтр ──────────────────────────────────────
   "Память": "Memory",
-  "Факты, которые JARVIS запомнил о вас: вручную и извлечённые автоматически":
-    "Facts JARVIS has remembered about you: added manually and extracted automatically",
+  "Факты, которые ZERE запомнил о вас: вручную и извлечённые автоматически":
+    "Facts ZERE has remembered about you: added manually and extracted automatically",
   "Поиск по ключу и значению…": "Search by key and value…",
   "Все источники": "All sources",
   "Добавить запись": "Add record",
@@ -21,8 +21,8 @@ export const MEMORY_EN: Record<string, string> = {
   "Ничего не найдено": "Nothing found",
   "Память пуста": "Memory is empty",
   "Измените запрос или фильтр источника.": "Change your query or the source filter.",
-  "Добавьте запись вручную или попросите JARVIS что-нибудь запомнить.":
-    "Add a record manually or ask JARVIS to remember something.",
+  "Добавьте запись вручную или попросите ZERE что-нибудь запомнить.":
+    "Add a record manually or ask ZERE to remember something.",
   "записей: {count}": "records: {count}",
   "найдено {shown} из {total}": "found {shown} of {total}",
 

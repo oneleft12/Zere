@@ -74,7 +74,7 @@ export const memoryScreen: ScreenFactory = (container): Cleanup => {
   container.appendChild(
     pageHeader(
       t("Память"),
-      t("Факты, которые JARVIS запомнил о вас: вручную и извлечённые автоматически"),
+      t("Факты, которые ZERE запомнил о вас: вручную и извлечённые автоматически"),
       [addButton],
     ),
   );
@@ -174,7 +174,7 @@ export const memoryScreen: ScreenFactory = (container): Cleanup => {
           hint:
             search || category
               ? t("Измените запрос или фильтр источника.")
-              : t("Добавьте запись вручную или попросите JARVIS что-нибудь запомнить."),
+              : t("Добавьте запись вручную или попросите ZERE что-нибудь запомнить."),
           action:
             search || category
               ? undefined

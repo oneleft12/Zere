@@ -32,7 +32,7 @@ test("навигация: переход в «Чат» и честное пус�
 test("чат: SSE-ответ доходит до экрана", async ({ page }) => {
   await page.goto("/chat");
 
-  await page.getByPlaceholder("Спросите JARVIS…").fill("привет");
+  await page.getByPlaceholder("Спросите ZERE…").fill("привет");
   await page.getByRole("button", { name: "Отправить" }).click();
 
   await expect(page.locator(".msg--assistant")).toContainText("ответ: привет", {
@@ -45,7 +45,7 @@ test("настройки: правка конфига сохраняется ч�
   await expect(page.locator(TITLE)).toHaveText("Настройки");
 
   // Уникальное значение — иначе повторный прогон не сделает черновик «грязным».
-  const name = `JARVIS E2E ${Date.now()}`;
+  const name = `ZERE E2E ${Date.now()}`;
   await page
     .locator("label.field", { hasText: "Имя ассистента" })
     .locator("input")

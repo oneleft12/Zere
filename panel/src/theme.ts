@@ -2,10 +2,10 @@
 
 export type Theme = "dark" | "light";
 
-const STORAGE_KEY = "jarvis-theme";
+const STORAGE_KEY = "zere-theme";
 
 /** Имя события смены темы: detail — новая тема. */
-export const THEME_EVENT = "jarvis-theme";
+export const THEME_EVENT = "zere-theme";
 
 function apply(theme: Theme): void {
   document.documentElement.dataset.theme = theme;

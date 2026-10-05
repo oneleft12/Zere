@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-// Dev-режим: vite dev-сервер проксирует /api на локальный бэкенд JARVIS,
+// Dev-режим: vite dev-сервер проксирует /api на локальный бэкенд ZERE,
 // подставляя токен из config/panel.token — UI в dev шлёт плейсхолдер.
 function panelToken(): string {
   try {
@@ -24,7 +24,7 @@ export default defineConfig({
       "/api": {
         target: "http://127.0.0.1:8080",
         changeOrigin: false,
-        headers: { "X-JARVIS-Token": panelToken() },
+        headers: { "X-ZERE-Token": panelToken() },
       },
     },
   },

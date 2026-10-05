@@ -1,9 +1,9 @@
 {
-  "name": "jarvis-panel",
+  "name": "zere-panel",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Локальная веб-панель JARVIS (Vite + vanilla TypeScript, без тяжёлых фреймворков)",
+  "description": "Локальная веб-панель ZERE (Vite + vanilla TypeScript, без тяжёлых фреймворков)",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json && vite build",

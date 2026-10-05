@@ -75,7 +75,7 @@ export function createShell(onNavigate: (path: string) => void): ShellInstance {
       "div",
       { class: "sidebar__brand" },
       h("span", { class: "sidebar__brand-glyph", text: "◈" }),
-      h("span", { text: "JARVIS" }),
+      h("span", { text: "ZERE" }),
     ),
   );
 

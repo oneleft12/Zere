@@ -57,7 +57,7 @@ function render(): void {
 
   while (mountEl.firstChild) mountEl.removeChild(mountEl.firstChild);
 
-  document.title = `${t(route.title)} — JARVIS`;
+  document.title = `${t(route.title)} — ZERE`;
   onRoute?.(route);
 
   const result = route.factory(mountEl);

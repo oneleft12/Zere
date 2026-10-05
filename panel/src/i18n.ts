@@ -19,7 +19,7 @@ import { VOICE_EN } from "./i18n/voice";
 
 export type Lang = "ru" | "en";
 
-const STORAGE_KEY = "jarvis-lang";
+const STORAGE_KEY = "zere-lang";
 
 /** ru → en. Ключи — точные русские строки из интерфейса. */
 const CORE_EN: Record<string, string> = {

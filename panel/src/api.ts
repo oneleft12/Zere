@@ -25,7 +25,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     response = await fetch(path, {
       method,
       headers: {
-        "X-JARVIS-Token": TOKEN,
+        "X-ZERE-Token": TOKEN,
         ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -80,7 +80,7 @@ export async function apiConfirm<T>(path: string, confirm: "KILL" | "POWER"): Pr
 }
 
 // ── SSE (/api/chat/stream) ───────────────────────────────────────
-// EventSource не умеет шлить заголовки, а контракт требует X-JARVIS-Token,
+// EventSource не умеет шлить заголовки, а контракт требует X-ZERE-Token,
 // поэтому стрим читаем через fetch + ReadableStream и парсим сами.
 
 export interface SseHandlers {
@@ -99,7 +99,7 @@ export async function apiSse(
   try {
     response = await fetch(path, {
       method: "GET",
-      headers: { "X-JARVIS-Token": TOKEN },
+      headers: { "X-ZERE-Token": TOKEN },
       signal,
     });
   } catch (error) {
@@ -221,7 +221,7 @@ export interface Personality {
 export interface HistoryItem {
   id: number;
   userMessage: string;
-  jarvisResponse: string;
+  zereResponse: string;
   timestamp: string;
 }
 
