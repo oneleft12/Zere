@@ -93,7 +93,7 @@ jobs:
         run: pip install pyyaml requests
 
       - name: Компиляция
-        run: python -m compileall -q jarvis main.py
+        run: python -m compileall -q zere main.py
 
       - name: Проверка порта (AST-контракт)
         run: python scripts/check_port.py
@@ -119,7 +119,7 @@ jobs:
           dotnet-version: "10.0.x"
 
       - name: Сборка решения
-        run: dotnet build JARVIS.slnx -v q
+        run: dotnet build ZERE.slnx -v q
 
       - name: Python для контрактных тестов
         run: python -m pip install pyyaml requests
@@ -132,7 +132,7 @@ jobs:
           ZERE_PANEL_DESTRUCTIVE: "1"
         run: |
           set -euo pipefail
-          dotnet run --project JARVIS.App --no-build -- --panel &
+          dotnet run --project ZERE.App --no-build -- --panel &
           SERVER_PID=$!
           trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
           ZERE_PANEL_EXTERNAL=1 python tests/test_panel_api.py
