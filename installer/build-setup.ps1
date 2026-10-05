@@ -1,14 +1,14 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Сборка дистрибутива JarvisInstaller.exe (Inno Setup 6).
+    Сборка дистрибутива ZereInstaller.exe (Inno Setup 6).
 
 .DESCRIPTION
     1. Наполняет installer\stage через `git archive HEAD` — в дистрибутив
        попадают только отслеживаемые git-файлы (без .git, .venv, bin/obj,
-       jarvis.db, logs и прочих локальных данных).
-    2. Запускает ISCC.exe для installer\Jarvis.iss.
-    Результат: installer\Output\JarvisInstaller.exe
+       zere.db, logs и прочих локальных данных).
+    2. Запускает ISCC.exe для installer\Zere.iss.
+    Результат: installer\Output\ZereInstaller.exe
 
 .PARAMETER Edition
     Редакция для install.ps1: both (по умолчанию) | python | dotnet.
@@ -37,7 +37,7 @@ function Write-Info([string]$Msg) { Write-Host ('   ' + $Msg) -ForegroundColor G
 function Write-Fail2([string]$Msg) { Write-Host ('   [X]  ' + $Msg) -ForegroundColor Red }
 
 $root = Split-Path -Parent $PSScriptRoot
-$issPath = Join-Path $PSScriptRoot 'Jarvis.iss'
+$issPath = Join-Path $PSScriptRoot 'Zere.iss'
 $stageDir = Join-Path $PSScriptRoot 'stage'
 $stageZip = Join-Path $PSScriptRoot 'stage.zip'
 $outputDir = Join-Path $PSScriptRoot 'Output'
@@ -54,7 +54,7 @@ if (Test-Path $cfgPath) {
     }
 }
 Write-Host ''
-Write-Host ('=== Сборка дистрибутива JARVIS ' + $version + ' (редакция: ' + $Edition + ') ===') -ForegroundColor Cyan
+Write-Host ('=== Сборка дистрибутива ZERE ' + $version + ' (редакция: ' + $Edition + ') ===') -ForegroundColor Cyan
 
 # --- 2. ISCC.exe ---
 function Find-ISCC {
@@ -119,8 +119,8 @@ if ($WorkingTree) {
     Remove-Item -LiteralPath $stageZip -Force
 }
 
-if (-not (Test-Path (Join-Path $stageDir 'installer\Jarvis.iss'))) {
-    Write-Fail2 'В stage нет installer\Jarvis.iss — выполняйте сборку из репозитория JARVIS.'
+if (-not (Test-Path (Join-Path $stageDir 'installer\Zere.iss'))) {
+    Write-Fail2 'В stage нет installer\Zere.iss — выполняйте сборку из репозитория ZERE.'
     exit 2
 }
 $staged = @(Get-ChildItem -LiteralPath $stageDir -Recurse -File).Count
@@ -160,7 +160,7 @@ if ($code -ne 0) {
     exit 1
 }
 
-$setup = Join-Path $outputDir 'JarvisInstaller.exe'
+$setup = Join-Path $outputDir 'ZereInstaller.exe'
 if (Test-Path $setup) {
     $sizeMb = [math]::Round((Get-Item $setup).Length / 1MB, 1)
     Write-Host ''

@@ -1,11 +1,11 @@
 ; ============================================================
-; JARVIS — Inno Setup script (Windows Installer GUI)
+; ZERE — Inno Setup script (Windows Installer GUI)
 ;
 ; Компиляция:
 ;   installer\build-setup.ps1              (стандартный режим)
 ;   installer\build-setup.ps1 -Edition both
 ;   или вручную:
-;   ISCC.exe /DStageDir=installer\stage /DEdition=python installer\Jarvis.iss
+;   ISCC.exe /DStageDir=installer\stage /DEdition=python installer\Zere.iss
 ;
 ; StageDir — каталог с исходниками (наполняется git-архивом
 ; build-setup.ps1, чтобы в дистрибутив не попали .git, .venv,
@@ -29,10 +29,10 @@
   #define MyAppVersion "1.8.0"
 #endif
 
-#define MyAppName "JARVIS"
-#define MyAppPublisher "JARVIS Project"
-#define MyAppURL "https://github.com/oneleft12/Jarvis"
-#define MyAppExeName "JARVIS.bat"
+#define MyAppName "ZERE"
+#define MyAppPublisher "ZERE Project"
+#define MyAppURL "https://github.com/oneleft12/Zere"
+#define MyAppExeName "ZERE.bat"
 
 [Setup]
 AppId={{5E7A1C42-93B8-4F6D-A2E1-7C4D0B9F3A55}
@@ -49,7 +49,7 @@ DisableProgramGroupPage=yes
 ; Установка без прав администратора (per-user)
 PrivilegesRequired=lowest
 OutputDir=Output
-OutputBaseFilename=JarvisInstaller
+OutputBaseFilename=ZereInstaller
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -77,26 +77,26 @@ Name: "{userprograms}\{#MyAppName}\{#MyAppName}"; Filename: "{app}\{#MyAppExeNam
 ; Окно консоли НЕ скрыто — пользователь видит ход установки.
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\install.ps1"" -Prefix ""{app}"" -Edition {#Edition} -Yes -NoLaunch"; \
-    StatusMsg: "Настройка JARVIS ( зависимости, модели, ярлыки )..."; \
+    StatusMsg: "Настройка ZERE ( зависимости, модели, ярлыки )..."; \
     Flags: waituntilterminated postinstall
 
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\uninstall.ps1"" -Prefix ""{app}"" -Yes"; \
-    RunOnceId: "UninstallJarvis"; \
+    RunOnceId: "UninstallZere"; \
     Flags: waituntilterminated
 
 [UninstallDelete]
 ; Всё, что создали мы (могло быть создано install.ps1 вне журнала Inno)
-Type: files; Name: "{app}\JARVIS.bat"
+Type: files; Name: "{app}\ZERE.bat"
 Type: files; Name: "{app}\installer\install-manifest.json"
 Type: filesandordirs; Name: "{app}\.venv"
 Type: filesandordirs; Name: "{app}\publish"
 ; Скачано install.ps1 (вне журнала Inno) + кэш компиляции smoke-теста
-Type: filesandordirs; Name: "{app}\JARVIS.Voice"
-Type: filesandordirs; Name: "{app}\jarvis"
+Type: filesandordirs; Name: "{app}\ZERE.Voice"
+Type: filesandordirs; Name: "{app}\zere"
 Type: filesandordirs; Name: "{app}\__pycache__"
 ; Ярлыки могли быть созданы install.ps1 (вне журнала Inno)
 Type: files; Name: "{userdesktop}\{#MyAppName}.lnk"
-Type: files; Name: "{userdesktop}\JARVIS - panel.url"
+Type: files; Name: "{userdesktop}\ZERE - panel.url"
 Type: filesandordirs; Name: "{userprograms}\{#MyAppName}"

@@ -1,12 +1,12 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Деинсталлятор JARVIS — удаляет установленные установщиком компоненты.
+    Деинсталлятор ZERE — удаляет установленные установщиком компоненты.
 
 .DESCRIPTION
     По умолчанию удаляет ТОЛЬКО то, что создал установщик:
       - ярлыки (рабочий стол, меню «Пуск»)
-      - лаунчер JARVIS.bat
+      - лаунчер ZERE.bat
       - виртуальное окружение .venv
       - C#-публикацию publish\app
       - манифест installer\install-manifest.json
@@ -17,13 +17,13 @@
 
 .PARAMETER RemoveAssets
     Дополнительно удалить голосовые артефакты:
-    JARVIS.Voice\Models\*.bin, папку модели GigaAM (sherpa-onnx-*),
+    ZERE.Voice\Models\*.bin, папку модели GigaAM (sherpa-onnx-*),
     бинарники Piper (piper.exe, *.dll, espeak-ng-data, *.onnx).
     Git-трекаемые файлы не удаляются.
 
 .PARAMETER PurgeData
     Дополнительно удалить пользовательские данные:
-    jarvis.db (память и история), logs\, backups\, config\panel.token,
+    zere.db (память и история), logs\, backups\, config\panel.token,
     voice\reference.wav (голосовой референс), voice\input\.
 
 .PARAMETER Yes
@@ -70,12 +70,12 @@ $Prefix = [System.IO.Path]::GetFullPath($Prefix)
 
 Write-Host ''
 Write-Host '=================================================' -ForegroundColor Cyan
-Write-Host '   JARVIS — деинсталлятор' -ForegroundColor Cyan
+Write-Host '   ZERE — деинсталлятор' -ForegroundColor Cyan
 Write-Host ('   Корень: ' + $Prefix) -ForegroundColor Gray
 Write-Host '=================================================' -ForegroundColor Cyan
 
 if (-not (Test-Path (Join-Path $Prefix 'main.py'))) {
-    Write-Warn2 ('В папке нет main.py — похоже, это не корень JARVIS: ' + $Prefix)
+    Write-Warn2 ('В папке нет main.py — похоже, это не корень ZERE: ' + $Prefix)
     exit 2
 }
 
@@ -93,16 +93,16 @@ if (Test-Path $manifestPath) {
 # --- План ---
 Write-Step 'Что будет удалено'
 $plan = @(
-    'Ярлыки: рабочий стол (JARVIS.lnk, JARVIS - panel.url) и меню «Пуск»\JARVIS',
-    'Лаунчер JARVIS.bat',
+    'Ярлыки: рабочий стол (ZERE.lnk, ZERE - panel.url) и меню «Пуск»\ZERE',
+    'Лаунчер ZERE.bat',
     'Виртуальное окружение .venv',
     'C#-публикация publish\app'
 )
 if ($RemoveAssets) {
-    $plan += 'Голосовые артефакты: JARVIS.Voice\Models\*.bin и sherpa-onnx-*, бинарники Piper (*.exe, *.dll, espeak-ng-data, *.onnx)'
+    $plan += 'Голосовые артефакты: ZERE.Voice\Models\*.bin и sherpa-onnx-*, бинарники Piper (*.exe, *.dll, espeak-ng-data, *.onnx)'
 }
 if ($PurgeData) {
-    $plan += 'Пользовательские данные: jarvis.db, logs\, backups\, config\panel.token, voice\reference.wav, voice\input\'
+    $plan += 'Пользовательские данные: zere.db, logs\, backups\, config\panel.token, voice\reference.wav, voice\input\'
 }
 $plan += 'Исходный код и git-репозиторий НЕ удаляются'
 foreach ($p in $plan) { Write-Host ('   - ' + $p) -ForegroundColor White }
@@ -125,13 +125,13 @@ trap {
 Write-Step 'Ярлыки'
 $desktop = [Environment]::GetFolderPath('Desktop')
 $startMenu = [Environment]::GetFolderPath('StartMenu')
-$null = Remove-ItemSafe -Path (Join-Path $desktop 'JARVIS.lnk') -Label 'ярлык на рабочем столе'
-$null = Remove-ItemSafe -Path (Join-Path $desktop 'JARVIS - panel.url') -Label 'ярлык панели на рабочем столе'
-$null = Remove-ItemSafe -Path (Join-Path $startMenu 'Programs\JARVIS') -Label 'папка в меню «Пуск»'
+$null = Remove-ItemSafe -Path (Join-Path $desktop 'ZERE.lnk') -Label 'ярлык на рабочем столе'
+$null = Remove-ItemSafe -Path (Join-Path $desktop 'ZERE - panel.url') -Label 'ярлык панели на рабочем столе'
+$null = Remove-ItemSafe -Path (Join-Path $startMenu 'Programs\ZERE') -Label 'папка в меню «Пуск»'
 
 # --- 2. Лаунчер ---
 Write-Step 'Лаунчер'
-$null = Remove-ItemSafe -Path (Join-Path $Prefix 'JARVIS.bat') -Label 'JARVIS.bat'
+$null = Remove-ItemSafe -Path (Join-Path $Prefix 'ZERE.bat') -Label 'ZERE.bat'
 
 # --- 3. Окружение и публикация ---
 Write-Step 'Окружение и сборки'
@@ -146,7 +146,7 @@ $null = Remove-ItemSafe -Path $manifestPath -Label 'install-manifest.json'
 # --- 4. Голосовые артефакты ---
 if ($RemoveAssets) {
     Write-Step 'Голосовые артефакты'
-    $modelsDir = Join-Path $Prefix 'JARVIS.Voice\Models'
+    $modelsDir = Join-Path $Prefix 'ZERE.Voice\Models'
     if (Test-Path $modelsDir) {
         Get-ChildItem -LiteralPath $modelsDir -Filter '*.bin' -File -ErrorAction SilentlyContinue | ForEach-Object {
             try { Remove-Item -LiteralPath $_.FullName -Force; Write-Ok ('удалено: ' + $_.Name) }
@@ -158,7 +158,7 @@ if ($RemoveAssets) {
             if (Test-Path $p) { $null = Remove-ItemSafe -Path $p -Label ('модель GigaAM ' + $gigaam) }
         }
     }
-    $piperDir = Join-Path $Prefix 'JARVIS.Voice\Piper'
+    $piperDir = Join-Path $Prefix 'ZERE.Voice\Piper'
     if (Test-Path $piperDir) {
         foreach ($pattern in @('*.exe', '*.dll', '*.onnx')) {
             Get-ChildItem -LiteralPath $piperDir -Filter $pattern -File -ErrorAction SilentlyContinue | ForEach-Object {
@@ -168,7 +168,7 @@ if ($RemoveAssets) {
         }
         foreach ($dirName in @('espeak-ng-data', 'pkgconfig')) {
             $p = Join-Path $piperDir $dirName
-            if (Test-Path $p) { $null = Remove-ItemSafe -Path $p -Label ('JARVIS.Voice\Piper\' + $dirName) }
+            if (Test-Path $p) { $null = Remove-ItemSafe -Path $p -Label ('ZERE.Voice\Piper\' + $dirName) }
         }
     }
 }
@@ -176,7 +176,7 @@ if ($RemoveAssets) {
 # --- 5. Пользовательские данные ---
 if ($PurgeData) {
     Write-Step 'Пользовательские данные'
-    $null = Remove-ItemSafe -Path (Join-Path $Prefix 'jarvis.db') -Label 'jarvis.db (память и история)'
+    $null = Remove-ItemSafe -Path (Join-Path $Prefix 'zere.db') -Label 'zere.db (память и история)'
     $null = Remove-ItemSafe -Path (Join-Path $Prefix 'logs') -Label 'logs\'
     $null = Remove-ItemSafe -Path (Join-Path $Prefix 'backups') -Label 'backups\'
     $null = Remove-ItemSafe -Path (Join-Path $Prefix 'config\panel.token') -Label 'config\panel.token'

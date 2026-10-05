@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-    Установщик JARVIS — подготовка окружения на Windows.
+    Установщик ZERE — подготовка окружения на Windows.
 
 .DESCRIPTION
     Выполняет полный цикл установки:
@@ -12,7 +12,7 @@
          (все скачивания проверяются по SHA-256)
       5. Опционально: .NET SDK 10 + dotnet publish C#-версии (-Edition dotnet|both)
       6. Сборка web-панели (npm), если отсутствует panel/dist
-      7. Генерация недостающих config/*.json, лаунчера JARVIS.bat, ярлыков, манифеста
+      7. Генерация недостающих config/*.json, лаунчера ZERE.bat, ярлыков, манифеста
       8. Финальный smoke-тест (compileall)
 
 .PARAMETER Prefix
@@ -32,7 +32,7 @@
     Не запрашивать подтверждений (для Inno Setup и автоматизации).
 
 .PARAMETER NoLaunch
-    Не предлагать запуск JARVIS в конце установки.
+    Не предлагать запуск ZERE в конце установки.
 
 .PARAMETER SkipOllama
     Не устанавливать/проверять Ollama и модель.
@@ -103,7 +103,7 @@ $Artifacts = @{
 $DefaultConfigJson = @'
 {
   "version": "1.8.0",
-  "assistantName": "JARVIS",
+  "assistantName": "ZERE",
   "language": "ru",
   "model": "qwen3.5:2b",
   "voiceEnabled": true,
@@ -522,8 +522,8 @@ function Install-OllamaModel {
 
 function Install-VoiceAssets {
     param([string]$Root)
-    $modelsDir = Join-Path $Root 'JARVIS.Voice\Models'
-    $piperDir = Join-Path $Root 'JARVIS.Voice\Piper'
+    $modelsDir = Join-Path $Root 'ZERE.Voice\Models'
+    $piperDir = Join-Path $Root 'ZERE.Voice\Piper'
     $ok = $true
 
     # 1. Whisper
@@ -548,7 +548,7 @@ function Install-VoiceAssets {
         Write-Info 'модель GigaAM уже на месте'
     } else {
         Write-Info $Artifacts.GigaAm.Label
-        $gzPath = Join-Path $env:TEMP 'jarvis-installer\gigaam.tar.bz2'
+        $gzPath = Join-Path $env:TEMP 'zere-installer\gigaam.tar.bz2'
         if (-not (Get-Artifact -Url $Artifacts.GigaAm.Url -Dest $gzPath -Sha256 $Artifacts.GigaAm.Sha256 -Size $Artifacts.GigaAm.Size)) {
             Write-Fail2 'не удалось скачать модель GigaAM (голос уйдёт на Whisper)'
             $ok = $false
@@ -559,7 +559,7 @@ function Install-VoiceAssets {
                 if ($null -eq $tar) { throw 'tar не найден (нужен Windows 10 1803+)' }
                 & $tar.Source -xjf $gzPath -C $modelsDir
                 if ($LASTEXITCODE -ne 0) { throw ('tar: код ' + $LASTEXITCODE) }
-                Write-Ok 'модель GigaAM распакована в JARVIS.Voice\Models'
+                Write-Ok 'модель GigaAM распакована в ZERE.Voice\Models'
             } catch {
                 Write-Fail2 ('ошибка распаковки GigaAM: ' + $_.Exception.Message)
                 $ok = $false
@@ -576,12 +576,12 @@ function Install-VoiceAssets {
         Write-Info 'движок Piper уже установлен'
     } else {
         Write-Info $Artifacts.Piper.Label
-        $zipPath = Join-Path $env:TEMP 'jarvis-installer\piper_windows_amd64.zip'
+        $zipPath = Join-Path $env:TEMP 'zere-installer\piper_windows_amd64.zip'
         if (-not (Get-Artifact -Url $Artifacts.Piper.Url -Dest $zipPath -Sha256 $Artifacts.Piper.Sha256 -Size $Artifacts.Piper.Size)) {
             Write-Fail2 'не удалось скачать/проверить архив Piper'
             $ok = $false
         } else {
-            $stage = Join-Path $env:TEMP 'jarvis-installer\piper-extract'
+            $stage = Join-Path $env:TEMP 'zere-installer\piper-extract'
             if (Test-Path $stage) { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
             try {
                 Expand-Archive -LiteralPath $zipPath -DestinationPath $stage -Force
@@ -589,7 +589,7 @@ function Install-VoiceAssets {
                 if (-not (Test-Path $src)) { $src = $stage }
                 if (-not (Test-Path $piperDir)) { New-Item -ItemType Directory -Path $piperDir -Force | Out-Null }
                 Copy-Item -Path (Join-Path $src '*') -Destination $piperDir -Recurse -Force
-                Write-Info 'Piper распакован в JARVIS.Voice\Piper'
+                Write-Info 'Piper распакован в ZERE.Voice\Piper'
             } catch {
                 Write-Fail2 ('ошибка распаковки Piper: ' + $_.Exception.Message)
                 $ok = $false
@@ -617,7 +617,7 @@ function Install-VoiceAssets {
 
 function Publish-DotnetEdition {
     param([string]$Root, [string]$DotnetExe)
-    $proj = Join-Path $Root 'JARVIS.App\JARVIS.App.csproj'
+    $proj = Join-Path $Root 'ZERE.App\ZERE.App.csproj'
     if (-not (Test-Path $proj)) {
         Write-Fail2 ('проект не найден: ' + $proj)
         return $false
@@ -633,12 +633,12 @@ function Publish-DotnetEdition {
     }
     if ($null -eq $code) { $code = -1 }
     if ($code -ne 0) { return $false }
-    return (Test-Path (Join-Path $out 'JARVIS.App.exe'))
+    return (Test-Path (Join-Path $out 'ZERE.App.exe'))
 }
 
 function Publish-Speaker {
     param([string]$Root, [string]$DotnetExe)
-    $proj = Join-Path $Root 'JARVIS.Speaker\JARVIS.Speaker.csproj'
+    $proj = Join-Path $Root 'ZERE.Speaker\ZERE.Speaker.csproj'
     if (-not (Test-Path $proj)) {
         Write-Fail2 ('проект не найден: ' + $proj)
         return $false
@@ -654,7 +654,7 @@ function Publish-Speaker {
     }
     if ($null -eq $code) { $code = -1 }
     if ($code -ne 0) { return $false }
-    return (Test-Path (Join-Path $out 'JARVIS.Speaker.exe'))
+    return (Test-Path (Join-Path $out 'ZERE.Speaker.exe'))
 }
 
 function Build-Panel {
@@ -700,8 +700,8 @@ function Ensure-Config {
 
 function Install-Launcher {
     param([string]$Root)
-    $src = Join-Path $PSScriptRoot 'JarvisLauncher.bat'
-    $dst = Join-Path $Root 'JARVIS.bat'
+    $src = Join-Path $PSScriptRoot 'ZereLauncher.bat'
+    $dst = Join-Path $Root 'ZERE.bat'
     if (-not (Test-Path $src)) {
         Write-Fail2 ('не найден шаблон лаунчера: ' + $src)
         return $false
@@ -712,26 +712,26 @@ function Install-Launcher {
 
 function New-Shortcuts {
     param([string]$Root)
-    $bat = Join-Path $Root 'JARVIS.bat'
+    $bat = Join-Path $Root 'ZERE.bat'
     if (-not (Test-Path $bat)) { return $false }
     $shell = New-Object -ComObject WScript.Shell
     $desktop = [Environment]::GetFolderPath('Desktop')
     $startMenu = [Environment]::GetFolderPath('StartMenu')
-    $smDir = Join-Path $startMenu 'Programs\JARVIS'
+    $smDir = Join-Path $startMenu 'Programs\ZERE'
     New-Item -ItemType Directory -Path $smDir -Force | Out-Null
 
     foreach ($dir in @($desktop, $smDir)) {
-        $lnk = $shell.CreateShortcut((Join-Path $dir 'JARVIS.lnk'))
+        $lnk = $shell.CreateShortcut((Join-Path $dir 'ZERE.lnk'))
         $lnk.TargetPath = $bat
         $lnk.WorkingDirectory = $Root
-        $lnk.Description = 'Персональный AI-ассистент JARVIS'
+        $lnk.Description = 'Персональный AI-ассистент ZERE'
         $lnk.Save()
     }
 
     $panelUrl = 'http://127.0.0.1:8080'
     $urlText = "[InternetShortcut]`r`nURL=$panelUrl`r`n"
-    [System.IO.File]::WriteAllText((Join-Path $desktop 'JARVIS - panel.url'), $urlText, $Utf8NoBom)
-    [System.IO.File]::WriteAllText((Join-Path $smDir 'JARVIS - panel.url'), $urlText, $Utf8NoBom)
+    [System.IO.File]::WriteAllText((Join-Path $desktop 'ZERE - panel.url'), $urlText, $Utf8NoBom)
+    [System.IO.File]::WriteAllText((Join-Path $smDir 'ZERE - panel.url'), $urlText, $Utf8NoBom)
     return $true
 }
 
@@ -744,10 +744,10 @@ function Write-InstallManifest {
         model       = $Model
         python      = $PythonExe
         venv        = (Test-Path (Join-Path $Root '.venv\Scripts\python.exe'))
-        launcher    = (Test-Path (Join-Path $Root 'JARVIS.bat'))
+        launcher    = (Test-Path (Join-Path $Root 'ZERE.bat'))
         shortcuts   = @(
-            (Join-Path ([Environment]::GetFolderPath('Desktop')) 'JARVIS.lnk'),
-            (Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\JARVIS')
+            (Join-Path ([Environment]::GetFolderPath('Desktop')) 'ZERE.lnk'),
+            (Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\ZERE')
         )
     }
     $json = $manifest | ConvertTo-Json -Depth 4
@@ -758,10 +758,10 @@ function Write-InstallManifest {
 function Invoke-SmokeTest {
     param([string]$VenvPy, [string]$Root)
     if (-not (Test-Path $VenvPy)) { return $false }
-    Write-Info 'python -m compileall main.py jarvis'
+    Write-Info 'python -m compileall main.py zere'
     Push-Location $Root
     try {
-        $r = Invoke-Native -FilePath $VenvPy -Arguments @('-m', 'compileall', '-q', 'main.py', 'jarvis')
+        $r = Invoke-Native -FilePath $VenvPy -Arguments @('-m', 'compileall', '-q', 'main.py', 'zere')
     } finally {
         Pop-Location
     }
@@ -808,7 +808,7 @@ try {
     exit 2
 }
 if (-not (Test-Path (Join-Path $Prefix 'main.py'))) {
-    Write-Fail2 ('В папке нет main.py — это не корень JARVIS: ' + $Prefix)
+    Write-Fail2 ('В папке нет main.py — это не корень ZERE: ' + $Prefix)
     exit 2
 }
 
@@ -829,7 +829,7 @@ if ($Model -eq '') { $Model = 'qwen3.5:2b' }
 
 Write-Host ''
 Write-Host '=================================================' -ForegroundColor Cyan
-Write-Host '   JARVIS — установщик (Windows)' -ForegroundColor Cyan
+Write-Host '   ZERE — установщик (Windows)' -ForegroundColor Cyan
 Write-Host ('   Корень:    ' + $Prefix) -ForegroundColor Gray
 Write-Host ('   Редакция:  ' + $Edition) -ForegroundColor Gray
 Write-Host ('   Модель:    ' + $Model) -ForegroundColor Gray
@@ -841,23 +841,23 @@ $pyState = Get-PythonState
 $venvState = Get-VenvState -VenvPy $venvPy
 $ollamaState = Get-OllamaState -WantedModel $Model
 
-$whisperPath = Join-Path $Prefix 'JARVIS.Voice\Models\ggml-base.bin'
-$piperExePath = Join-Path $Prefix 'JARVIS.Voice\Piper\piper.exe'
-$voicePath = Join-Path $Prefix 'JARVIS.Voice\Piper\ru_RU-ruslan-medium.onnx'
+$whisperPath = Join-Path $Prefix 'ZERE.Voice\Models\ggml-base.bin'
+$piperExePath = Join-Path $Prefix 'ZERE.Voice\Piper\piper.exe'
+$voicePath = Join-Path $Prefix 'ZERE.Voice\Piper\ru_RU-ruslan-medium.onnx'
 $whisperOk = Test-FileIntegrity -Path $whisperPath -Size $Artifacts.Whisper.Size -Sha256 $Artifacts.Whisper.Sha256
 $piperOk = (Test-Path $piperExePath) -and (Test-Path (Join-Path (Split-Path $piperExePath) 'espeak-ng-data'))
 $voiceOk = Test-FileIntegrity -Path $voicePath -Size $Artifacts.PiperVoice.Size -Sha256 $Artifacts.PiperVoice.Sha256
 
 $dotnetExe = Get-DotnetExe
 $dotnetOk = ($null -ne $dotnetExe) -and (Test-DotnetSdk10 -Exe $dotnetExe)
-$publishExe = Join-Path $Prefix 'publish\app\JARVIS.App.exe'
+$publishExe = Join-Path $Prefix 'publish\app\ZERE.App.exe'
 $publishOk = Test-Path $publishExe
 
-$speakerExe = Join-Path $Prefix 'publish\speaker\JARVIS.Speaker.exe'
+$speakerExe = Join-Path $Prefix 'publish\speaker\ZERE.Speaker.exe'
 $speakerOk = Test-Path $speakerExe
 
 $panelDistOk = Test-Path (Join-Path $Prefix 'panel\dist\index.html')
-$launcherOk = Test-Path (Join-Path $Prefix 'JARVIS.bat')
+$launcherOk = Test-Path (Join-Path $Prefix 'ZERE.bat')
 
 $needPython = -not $pyState.Ok
 $needVenv = -not ($venvState.Venv -and $venvState.Deps)
@@ -904,11 +904,11 @@ if ($CheckOnly) {
     }
     if (($Edition -eq 'dotnet') -or ($Edition -eq 'both')) {
         _line $dotnetOk ('.NET SDK 10: ' + $(if ($dotnetOk) { 'найден' } else { 'не найден' }))
-        _line $publishOk ('C#-сборка publish\app\JARVIS.App.exe: ' + $(if ($publishOk) { 'есть' } else { 'нет' }))
+        _line $publishOk ('C#-сборка publish\app\ZERE.App.exe: ' + $(if ($publishOk) { 'есть' } else { 'нет' }))
     }
-    _line $speakerOk ('C#-озвучка publish\speaker\JARVIS.Speaker.exe: ' + $(if ($speakerOk) { 'есть' } else { 'нет (озвучка на Python)' }))
+    _line $speakerOk ('C#-озвучка publish\speaker\ZERE.Speaker.exe: ' + $(if ($speakerOk) { 'есть' } else { 'нет (озвучка на Python)' }))
     _line $panelDistOk ('Web-панель panel\dist: ' + $(if ($panelDistOk) { 'собрана' } else { 'не собрана' }))
-    _line $launcherOk ('Лаунчер JARVIS.bat: ' + $(if ($launcherOk) { 'есть' } else { 'нет' }))
+    _line $launcherOk ('Лаунчер ZERE.bat: ' + $(if ($launcherOk) { 'есть' } else { 'нет' }))
 
     $problems = @()
     if ($needPython) { $problems += 'Python' }
@@ -940,15 +940,15 @@ if ($needPiper)    { $plan += ('Скачать ' + $Artifacts.Piper.Label) }
 if ($needVoice)    { $plan += ('Скачать ' + $Artifacts.PiperVoice.Label) }
 if ($needDotnetSdk) { $plan += 'Установить .NET SDK 10 (winget)' }
 if ($needPublish)  { $plan += 'Опубликовать C#-версию (dotnet publish)' }
-if ($needSpeaker)  { $plan += 'Опубликовать C#-озвучку (dotnet publish JARVIS.Speaker)' }
+if ($needSpeaker)  { $plan += 'Опубликовать C#-озвучку (dotnet publish ZERE.Speaker)' }
 if ($needPanel)    { $plan += 'Собрать web-панель (npm)' }
 
 if ($plan.Count -eq 0) {
     Write-Info 'Все компоненты уже установлены.'
-    Write-Info 'Выполняется перепроверка целостности, настройка (config, JARVIS.bat, ярлыки, манифест) и smoke-тест.'
+    Write-Info 'Выполняется перепроверка целостности, настройка (config, ZERE.bat, ярлыки, манифест) и smoke-тест.'
 } else {
     foreach ($p in $plan) { Write-Host ('   - ' + $p) -ForegroundColor White }
-    Write-Host ('   - Настройка: config/*.json, JARVIS.bat, ярлыки, манифест, smoke-тест') -ForegroundColor White
+    Write-Host ('   - Настройка: config/*.json, ZERE.bat, ярлыки, манифест, smoke-тест') -ForegroundColor White
     if (-not $Yes) {
         $answer = Read-Host 'Продолжить установку? [Y/n]'
         $answer = $answer.Trim()
@@ -1069,17 +1069,17 @@ if (($Edition -eq 'dotnet') -or ($Edition -eq 'both')) {
     }
     if (-not $failedCritical -and $needPublish) {
         $pOk = Publish-DotnetEdition -Root $Prefix -DotnetExe $dExe
-        Finish -Ok $pOk -Name 'C#-сборка' -OkDetail 'publish\app\JARVIS.App.exe собран' -FailDetail 'dotnet publish завершился с ошибкой' -Critical:(-not $pOk)
+        Finish -Ok $pOk -Name 'C#-сборка' -OkDetail 'publish\app\ZERE.App.exe собран' -FailDetail 'dotnet publish завершился с ошибкой' -Critical:(-not $pOk)
         if (-not $pOk) { $failedCritical = $true }
     } elseif (-not $needPublish) {
-        Skip-Result -Name 'C#-сборка' -Detail 'publish\app\JARVIS.App.exe уже собран'
+        Skip-Result -Name 'C#-сборка' -Detail 'publish\app\ZERE.App.exe уже собран'
     }
     # Хелпер озвучки: с ним Python-редакция отдаёт DSP и вывод звука коду на C#
     if (-not $failedCritical -and $needSpeaker) {
         $spOk = Publish-Speaker -Root $Prefix -DotnetExe $dExe
-        Finish -Ok $spOk -Name 'C#-озвучка' -OkDetail 'publish\speaker\JARVIS.Speaker.exe собран' -FailDetail 'хелпер озвучки не собран — озвучка останется на Python'
+        Finish -Ok $spOk -Name 'C#-озвучка' -OkDetail 'publish\speaker\ZERE.Speaker.exe собран' -FailDetail 'хелпер озвучки не собран — озвучка останется на Python'
     } elseif ($speakerOk) {
-        Skip-Result -Name 'C#-озвучка' -Detail 'publish\speaker\JARVIS.Speaker.exe уже собран'
+        Skip-Result -Name 'C#-озвучка' -Detail 'publish\speaker\ZERE.Speaker.exe уже собран'
     }
 } else {
     Add-Result -Name '.NET-редакция' -Status skip -Detail 'редакция не выбрана'
@@ -1091,12 +1091,12 @@ if (($Edition -eq 'dotnet') -or ($Edition -eq 'both')) {
         if ($needSpeaker) {
             $spOk = Publish-Speaker -Root $Prefix -DotnetExe $spExe
             if ($spOk) {
-                Finish -Ok $true -Name 'C#-озвучка' -OkDetail 'publish\speaker\JARVIS.Speaker.exe собран'
+                Finish -Ok $true -Name 'C#-озвучка' -OkDetail 'publish\speaker\ZERE.Speaker.exe собран'
             } else {
                 Skip-Result -Name 'C#-озвучка' -Detail 'не собралась — озвучка останется на Python'
             }
         } else {
-            Skip-Result -Name 'C#-озвучка' -Detail 'publish\speaker\JARVIS.Speaker.exe уже собран'
+            Skip-Result -Name 'C#-озвучка' -Detail 'publish\speaker\ZERE.Speaker.exe уже собран'
         }
     } else {
         Add-Result -Name 'C#-озвучка' -Status skip -Detail 'нет .NET SDK — озвучка на Python (работает)'
@@ -1128,7 +1128,7 @@ if ($cfgMade) {
 # --- 8. Лаунчер и ярлыки ---
 Write-Step 'Лаунчер и ярлыки'
 $lnOk = Install-Launcher -Root $Prefix
-Finish -Ok $lnOk -Name 'Лаунчер JARVIS.bat' -OkDetail 'создан JARVIS.bat в корне' -FailDetail 'шаблон JarvisLauncher.bat не найден'
+Finish -Ok $lnOk -Name 'Лаунчер ZERE.bat' -OkDetail 'создан ZERE.bat в корне' -FailDetail 'шаблон ZereLauncher.bat не найден'
 if ($needShortcuts) {
     if ($lnOk) {
         try {
@@ -1156,7 +1156,7 @@ try {
 Write-Step 'Smoke-тест'
 if (Test-Path $venvPy) {
     $smokeOk = Invoke-SmokeTest -VenvPy $venvPy -Root $Prefix
-    Finish -Ok $smokeOk -Name 'Smoke-тест (compileall)' -OkDetail 'main.py + jarvis компилируются' -FailDetail 'ошибки компиляции в main.py/jarvis'
+    Finish -Ok $smokeOk -Name 'Smoke-тест (compileall)' -OkDetail 'main.py + zere компилируются' -FailDetail 'ошибки компиляции в main.py/zere'
 } else {
     Add-Result -Name 'Smoke-тест (compileall)' -Status fail -Detail 'нет .venv' -Critical
 }
@@ -1173,18 +1173,18 @@ if ($critFails.Count -gt 0) {
     exit 1
 }
 if ($fails.Count -gt 0) {
-    Write-Host ('Установка завершена, есть некритичные проблемы (' + $fails.Count + '). JARVIS должен запускаться.') -ForegroundColor Yellow
+    Write-Host ('Установка завершена, есть некритичные проблемы (' + $fails.Count + '). ZERE должен запускаться.') -ForegroundColor Yellow
 } else {
-    Write-Host 'Установка JARVIS завершена успешно.' -ForegroundColor Green
+    Write-Host 'Установка ZERE завершена успешно.' -ForegroundColor Green
 }
 Write-Host ('Время: ' + [int]$elapsed.TotalSeconds + ' с') -ForegroundColor Gray
 
 # --- Запуск ---
-$batPath = Join-Path $Prefix 'JARVIS.bat'
+$batPath = Join-Path $Prefix 'ZERE.bat'
 if (-not $NoLaunch -and (Test-Path $batPath)) {
     $answer = 'y'
     if (-not $Yes) {
-        $answer = Read-Host 'Запустить JARVIS сейчас? [Y/n]'
+        $answer = Read-Host 'Запустить ZERE сейчас? [Y/n]'
         $answer = $answer.Trim()
     }
     if ($answer -eq '' -or $answer -match '(?i)^(y|д|да|yes)$') {
