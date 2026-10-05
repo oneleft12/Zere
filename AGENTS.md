@@ -54,6 +54,14 @@
 - **ProcessManager** — менеджер процессов
 - **PowerController** — управление питанием (выключение, перезагрузка)
 
+### Drawing (`jarvis/tools/drawing/`, только Python-редакция)
+- **DrawingService** — рисование в Krita/Paint эмуляцией мыши Win32: поиск и фокус окна, канвас, штрихи, очистка холста (Ctrl+A, Del)
+- **DrawingCommandRouter** — разбор команд: фигуры, текст, смена цели, очистка
+- **DrawingGeometry** — чистые функции: фигуры в нормализованных координатах, канвас, растр → штрихи
+- **DrawingFont** — текст через растеризацию шрифта Pillow в горизонтальные штрихи (любой язык, включая кириллицу)
+- **DrawingTarget** — описания Krita и Paint: имена процессов (`krita.exe`, `mspaint.exe`/`PaintApp.exe`), заголовки окон, пути запуска, отступы холста
+- Подробности: `docs/DRAWING.md`
+
 ### Voice (`JARVIS.Voice/`)
 - **VoiceManager** — оркестратор STT (роутинг `sttEngine`: `gigaam` — GigaAM-v3 основной, автоматический откат на `whisper`) + TTS (движок выбирается: PocketTTS с клонированием, откат на Piper)
 - **ISttService** — общий контракт STT-движков (`IsInstalled`/`Preload`/`TranscribeAsync`), за ним скрыт выбор активного движка
@@ -85,7 +93,8 @@ Pipeline обработки команд (порядок важен):
 6. **FileHandler** — «создай папку/файл», «найди файл», «удали файл»
 7. **GameHandler** — игровые команды
 8. **VolumeHandler** — «громкость», «сделай громче/тише», «выключи звук»
-9. **AIHandler** — fallback → генерация ответа через Ollama
+9. **DrawingHandler** — рисование в Krita/Paint: «нарисуй круг», «напиши на холсте привет», «рисуй в крите» *(только Python-редакция)*
+10. **AIHandler** — fallback → генерация ответа через Ollama
 
 ---
 
@@ -282,6 +291,7 @@ Jarvis/
 │   ├── test_installer.py       # Тесты установщика (BOM, CRLF, SHA-256, связность)
 │   ├── test_stt_engine.py      # Тесты STT GigaAM (константы, роутинг, живое распознавание)
 │   ├── test_system_prompt.py   # Тесты P1-2
+│   ├── test_drawing.py         # Тесты рисования (31: роутер, геометрия, текст, обработчик)
 │   └── e2e_server.py           # Раннер панели с фейками для E2E
 │
 ├── docs/                       # Планы, отчёты, openapi.yaml

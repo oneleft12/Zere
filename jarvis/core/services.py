@@ -18,6 +18,7 @@ from jarvis.core.dependencies.dependency_checker import DependencyChecker
 from jarvis.core.engine import JarvisEngine
 from jarvis.core.handlers.ai_handler import AIHandler
 from jarvis.core.handlers.conversation_handler import ConversationHandler
+from jarvis.core.handlers.drawing_handler import DrawingHandler
 from jarvis.core.handlers.file_handler import FileHandler
 from jarvis.core.handlers.game_handler import GameHandler
 from jarvis.core.handlers.handler_pipeline import HandlerPipeline
@@ -35,6 +36,7 @@ from jarvis.memory.database.conversation_repository import ConversationRepositor
 from jarvis.memory.database.memory_database import MemoryDatabase
 from jarvis.memory.database.memory_repository import MemoryRepository
 from jarvis.tools.applications.application_launcher import ApplicationLauncher
+from jarvis.tools.drawing.drawing_service import DrawingService
 from jarvis.tools.files.file_manager import FileManager
 from jarvis.tools.gaming.game_guardian import GameGuardian
 from jarvis.tools.gaming.game_tracker import GameTracker
@@ -227,6 +229,9 @@ def create_services(config: JarvisConfig) -> ServiceContainer:
     # services.AddSingleton<FileManager>();
     services.add_singleton_factory(lambda sp: FileManager(), FileManager)
 
+    # services.AddSingleton<DrawingService>();
+    services.add_singleton_factory(lambda sp: DrawingService(), DrawingService)
+
     # services.AddSingleton<SafeActionManager>();
     services.add_singleton_factory(
         lambda sp: SafeActionManager(sp.get(ProcessService), sp.get(FileManager)),
@@ -276,6 +281,11 @@ def create_services(config: JarvisConfig) -> ServiceContainer:
         lambda sp: VolumeHandler(sp.get(VolumeService)), VolumeHandler
     )
 
+    # services.AddSingleton<DrawingHandler>();
+    services.add_singleton_factory(
+        lambda sp: DrawingHandler(sp.get(DrawingService)), DrawingHandler
+    )
+
     # services.AddSingleton<AIHandler>();
     services.add_singleton_factory(
         lambda sp: AIHandler(
@@ -288,7 +298,7 @@ def create_services(config: JarvisConfig) -> ServiceContainer:
         AIHandler,
     )
 
-    # services.AddSingleton<HandlerPipeline>(sp => new HandlerPipeline(9 хэндлеров));
+    # services.AddSingleton<HandlerPipeline>(sp => new HandlerPipeline(10 хэндлеров));
     def _create_handler_pipeline(sp: ServiceContainer) -> HandlerPipeline:
         handlers = [
             sp.get(MemoryHandler),
@@ -299,6 +309,8 @@ def create_services(config: JarvisConfig) -> ServiceContainer:
             sp.get(FileHandler),
             sp.get(GameHandler),
             sp.get(VolumeHandler),
+            # Рисование — перед AIHandler: «нарисуй круг» не должно уходить в LLM.
+            sp.get(DrawingHandler),
             sp.get(AIHandler),
         ]  # type: List[IJarvisHandler]
 

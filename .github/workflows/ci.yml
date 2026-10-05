@@ -104,6 +104,9 @@ jobs:
       - name: Тесты P1-2 (system-промпт один раз)
         run: python tests/test_system_prompt.py
 
+      - name: Тесты рисования (Krita/Paint)
+        run: python tests/test_drawing.py
+
   csharp:
     name: C# (сборка + контракт панели)
     runs-on: windows-latest
