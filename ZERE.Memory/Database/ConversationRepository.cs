@@ -11,6 +11,9 @@ public class ConversationRepository
         _database = database;
     }
 
+    /// <summary>Колонка ответа: ZereResponse, либо JarvisResponse в старой базе.</summary>
+    private string ResponseColumn => _database.ResponseColumn;
+
     public void Save(string userMessage, string zereResponse)
     {
         using var connection = _database.CreateConnection();
@@ -20,9 +23,9 @@ public class ConversationRepository
         var command = connection.CreateCommand();
 
         command.CommandText =
-        """
+        $"""
         INSERT INTO Conversations
-        (UserMessage, ZereResponse, Timestamp)
+        (UserMessage, {ResponseColumn}, Timestamp)
         VALUES ($user, $zere, $time)
         """;
 
@@ -55,8 +58,8 @@ public class ConversationRepository
         var command = connection.CreateCommand();
 
         command.CommandText =
-        """
-        SELECT Id, UserMessage, ZereResponse, Timestamp
+        $"""
+        SELECT Id, UserMessage, {ResponseColumn}, Timestamp
         FROM Conversations
         ORDER BY Id DESC
         LIMIT $count
@@ -99,9 +102,9 @@ public class ConversationRepository
         else
         {
             command.CommandText =
-            """
+            $"""
             SELECT COUNT(*) FROM Conversations
-            WHERE lower(UserMessage) LIKE $q OR lower(ZereResponse) LIKE $q
+            WHERE lower(UserMessage) LIKE $q OR lower({ResponseColumn}) LIKE $q
             """;
             command.Parameters.AddWithValue("$q", $"%{search.ToLower()}%");
         }
@@ -122,8 +125,8 @@ public class ConversationRepository
         if (string.IsNullOrEmpty(search))
         {
             command.CommandText =
-            """
-            SELECT Id, UserMessage, ZereResponse, Timestamp
+            $"""
+            SELECT Id, UserMessage, {ResponseColumn}, Timestamp
             FROM Conversations
             ORDER BY Id DESC
             LIMIT $limit OFFSET $offset
@@ -132,10 +135,10 @@ public class ConversationRepository
         else
         {
             command.CommandText =
-            """
-            SELECT Id, UserMessage, ZereResponse, Timestamp
+            $"""
+            SELECT Id, UserMessage, {ResponseColumn}, Timestamp
             FROM Conversations
-            WHERE lower(UserMessage) LIKE $q OR lower(ZereResponse) LIKE $q
+            WHERE lower(UserMessage) LIKE $q OR lower({ResponseColumn}) LIKE $q
             ORDER BY Id DESC
             LIMIT $limit OFFSET $offset
             """;

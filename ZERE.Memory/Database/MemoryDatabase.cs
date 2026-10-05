@@ -6,6 +6,13 @@ public class MemoryDatabase : IDisposable
 {
     private readonly string _databasePath;
 
+    /// <summary>
+    /// Колонка ответа ассистента в таблице Conversations. До ребрендинга
+    /// называлась JarvisResponse — старую базу не мигрируем, а работаем с
+    /// той схемой, которая уже есть (история прошлых версий не теряется).
+    /// </summary>
+    public string ResponseColumn { get; private set; } = "ZereResponse";
+
     public MemoryDatabase()
     {
         var folder = Path.Combine(
@@ -29,6 +36,8 @@ public class MemoryDatabase : IDisposable
         using var connection = CreateConnection();
 
         connection.Open();
+
+        DetectResponseColumn(connection);
 
         var command = connection.CreateCommand();
 
@@ -59,6 +68,37 @@ public class MemoryDatabase : IDisposable
         """;
 
         command.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Определяет имя колонки ответа в существующей базе. PRAGMA table_info
+    /// возвращает пустой набор, если таблицы ещё нет — тогда остаётся новое
+    /// имя, и CREATE TABLE ниже создаёт схему с нуля.
+    /// </summary>
+    private void DetectResponseColumn(SqliteConnection connection)
+    {
+        var command = connection.CreateCommand();
+
+        command.CommandText = "PRAGMA table_info(Conversations)";
+
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                columns.Add(reader.GetString(1));
+            }
+        }
+
+        if (columns.Contains("ZereResponse"))
+        {
+            ResponseColumn = "ZereResponse";
+        }
+        else if (columns.Contains("JarvisResponse"))
+        {
+            ResponseColumn = "JarvisResponse";
+        }
     }
 
     public void Dispose()
