@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""JARVIS: HTTP-сервер TTS с клонированием голоса (xVibePocketTTS, CPU).
+"""ZERE: HTTP-сервер TTS с клонированием голоса (xVibePocketTTS, CPU).
 
-Запускается из корня JARVIS (C#-клиент делает это автоматически):
+Запускается из корня ZERE (C#-клиент делает это автоматически):
 
     tools/uv.exe run --project tools/xVibePocketTTS --with num2words \
-        python tools/jarvis_tts_server.py --port 8471 --voice <имя|путь/к/референсу.wav>
+        python tools/zere_tts_server.py --port 8471 --voice <имя|путь/к/референсу.wav>
 
 Эндпоинты:
     GET  /health   -> {"status": "ready"|"loading", "sample_rate": int, "voice": str}
@@ -38,7 +38,7 @@ SYNTH_LOCK = threading.Lock()   # один экземпляр RussianTTS обс�
 
 
 def log(msg: str) -> None:
-    print(f"[jarvis-tts] {msg}", flush=True)
+    print(f"[zere-tts] {msg}", flush=True)
 
 
 # ── Текст ───────────────────────────────────────────────────────────
@@ -209,7 +209,7 @@ class Handler(BaseHTTPRequestHandler):
 def main() -> int:
     global TTS, VOICE_KEY, SAMPLE_RATE, STATUS
 
-    parser = argparse.ArgumentParser(description="JARVIS TTS server (xVibePocketTTS)")
+    parser = argparse.ArgumentParser(description="ZERE TTS server (xVibePocketTTS)")
     parser.add_argument("--port", type=int, default=8471)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--voice", default="",
