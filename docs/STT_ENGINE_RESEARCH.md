@@ -1,7 +1,7 @@
-# Ресерч: самый лучший бесплатный распознаватель речи (STT) для JARVIS
+# Ресерч: самый лучший бесплатный распознаватель речи (STT) для ZERE
 
 **Дата:** 2026  
-**Цель:** найти самый крутой бесплатный (open-source, локальный) распознаватель речи, сравнить его с текущим стеком и спланировать применение в проекте JARVIS (Windows, .NET 10 (C#) + Python-порт, полностью офлайн, язык — русский).  
+**Цель:** найти самый крутой бесплатный (open-source, локальный) распознаватель речи, сравнить его с текущим стеком и спланировать применение в проекте ZERE (Windows, .NET 10 (C#) + Python-порт, полностью офлайн, язык — русский).  
 **Метод:** обзор рынка (лидерборды, независимые бенчмарки), сравнение кандидатов по критериям проекта, **живой замер** победителя на этом ПК против текущего движка.
 
 ---
@@ -27,7 +27,7 @@
 
 ---
 
-## 1. Критерии (что «крутость» означает именно для JARVIS)
+## 1. Критерии (что «крутость» означает именно для ZERE)
 
 Из AGENTS.md, `config/config.json` и кода:
 
@@ -35,7 +35,7 @@
 |---|---|
 | Язык | **русский** (`config.language = "ru"`, `WithLanguage("ru")`) |
 | Режим | полностью локально, без облачных API (цель проекта) |
-| Платформа | Windows, .NET 10 (C#) + параллельный Python-порт (`main.py` через `JARVIS.bat`) |
+| Платформа | Windows, .NET 10 (C#) + параллельный Python-порт (`main.py` через `ZERE.bat`) |
 | Железо | CPU (GPU не предполагается), но параллельно работает LLM Ollama |
 | Сценарий | **короткие голосовые команды** после wake-word (2–8 с), а не транскрибация подкастов |
 | Точность | приоритет — распознавание команд и имён приложений; галлюцинации и «вода» недопустимы |
@@ -45,15 +45,15 @@
 
 Текущий стек (с чем сравниваем):
 
-- **C#**: `JARVIS.Voice/Whisper/WhisperService.cs` — Whisper.net **1.9.1** (whisper.cpp), модели `ggml-medium.bin` / `ggml-base.bin`, таймаут 30 с, `AudioPreprocessor`, вызовы в `VoiceManager.cs:151, 478, 553`, прогрев `PreloadWhisper()` (`VoiceManager.cs:103`).
-- **Python**: `jarvis/voice/whisper/whisper_service.py` — **faster-whisper ≥ 1.0** (CTranslate2), `whisper_model: "medium"` из `jarvis/voice/voice_config.py`, таймауты 30 с (команда) / 15 с (wake-сегмент).
+- **C#**: `ZERE.Voice/Whisper/WhisperService.cs` — Whisper.net **1.9.1** (whisper.cpp), модели `ggml-medium.bin` / `ggml-base.bin`, таймаут 30 с, `AudioPreprocessor`, вызовы в `VoiceManager.cs:151, 478, 553`, прогрев `PreloadWhisper()` (`VoiceManager.cs:103`).
+- **Python**: `zere/voice/whisper/whisper_service.py` — **faster-whisper ≥ 1.0** (CTranslate2), `whisper_model: "medium"` из `zere/voice/voice_config.py`, таймауты 30 с (команда) / 15 с (wake-сегмент).
 
 ---
 
 ## 2. Что смотрел в интернете
 
 1. **[The Top Open Source STT Models in 2025](https://modal.com/blog/open-source-stt)** (Modal, 05.08.2025) + [Open ASR Leaderboard](https://huggingface.co/spaces/hf-audio/open_asr_leaderboard) — общий рейтинг (там доминируют английские бенчмарки: Canary Qwen 2.5B, Parakeet TDT, Whisper Large V3 Turbo).
-2. **Независимый русский бенчмарк от авторов Vosk** — [«Открытые модели для распознавания русской речи 2025»](https://alphacephei.com/nsh/2025/04/18/russian-models.html) (Nickolay Shmyrev, обновлён 14.09.2025): 13 моделей × 11 датасетов, включая **«Команды Яндекса»** — прямой аналог сценария JARVIS.
+2. **Независимый русский бенчмарк от авторов Vosk** — [«Открытые модели для распознавания русской речи 2025»](https://alphacephei.com/nsh/2025/04/18/russian-models.html) (Nickolay Shmyrev, обновлён 14.09.2025): 13 моделей × 11 датасетов, включая **«Команды Яндекса»** — прямой аналог сценария ZERE.
 3. **[GigaAM](https://github.com/salute-developers/GigaAM)** (SaluteDevices/Sber) + [evaluation.md](https://github.com/salute-developers/GigaAM/blob/main/evaluation.md) — v1/v2/v3, лицензия MIT, ONNX-экспорт.
 4. **Qwen3-ASR** — [блог Qwen](https://qwen.ai/blog?id=qwen3asr) (28.01.2026, open source), [технический отчёт](https://arxiv.org/html/2601.21337v1), [HF Qwen/Qwen3-ASR-0.6B](https://huggingface.co/Qwen/Qwen3-ASR-0.6B) (Apache-2.0).
 5. **sherpa-onnx** — [документация](https://k2-fsa.github.io/sherpa/onnx/index.html), [C# API](https://k2-fsa.github.io/sherpa/onnx/csharp-api/index.html), страницы предобученных моделей, релизы `asr-models` (проверял лично — скачал и прогнал модель, см. §4.3).
@@ -63,7 +63,7 @@
 
 ## 3. Сводная таблица кандидатов
 
-| Движок / модель | Русский | Точность на русском (WER ↓) | Лицензия | Размер | Интеграция в JARVIS | Вердикт |
+| Движок / модель | Русский | Точность на русском (WER ↓) | Лицензия | Размер | Интеграция в ZERE | Вердикт |
 |---|---|---|---|---|---|---|
 | **GigaAM-v3 RNNT (punct)** + sherpa-onnx | ✅ только русский | **8.3** в среднем по 10 сетам (против **21.0** у Whisper-large-v3); Golos Crowd **2.4** vs 19.0; CommonVoice19 **0.9** vs 5.5 ([evaluation.md](https://github.com/salute-developers/GigaAM/blob/main/evaluation.md)) | **MIT** (GigaChat Team) | **232 МБ** (архив 163 МБ) | C#: NuGet `org.k2fsa.sherpa.onnx` (есть `lib/net10.0`); Python: `pip install sherpa-onnx` — **обе проверены** | ⭐ **рекомендация** |
 | GigaAM2 в русском бенчмарке Vosk | ✅ | среднее **8.64** (RNNT); **«Команды Яндекса» 1.9** (лучший результат всего бенчмарка) | MIT | ~230 МБ | там же | лучший на командной речи |
@@ -77,7 +77,7 @@
 | Moonshine | ❌ только англ. | — | MIT | — | — | не подходит |
 | Kyutai STT / Granite Speech / Canary Qwen | преимущественно en | топ лидерборда, но не русский | разные | 2.5–8B | тяжело | не подходит |
 
-Ключевой вывод по бенчмарку авторов Vosk: **для коротких голосовых команд GigaAM выигрывает с огромным отрывом** (1.9 против 18.6 у Whisper-large-v3 и 21.8 у Parakeet), а это ровно сценарий JARVIS («открой дискорд», «сделай громче», «закрой процесс»).
+Ключевой вывод по бенчмарку авторов Vosk: **для коротких голосовых команд GigaAM выигрывает с огромным отрывом** (1.9 против 18.6 у Whisper-large-v3 и 21.8 у Parakeet), а это ровно сценарий ZERE («открой дискорд», «сделай громче», «закрой процесс»).
 
 ---
 
@@ -135,7 +135,7 @@ text: "… На песни грешные мои. У Лукомория дуб �
 
 ---
 
-## 5. Применение в JARVIS: план внедрения
+## 5. Применение в ZERE: план внедрения
 
 ### 5.1 Целевая архитектура
 
@@ -153,11 +153,11 @@ VoiceManager
          └─ WhisperService  — Whisper.net (C#) / faster-whisper (Python) ← фолбэк
 ```
 
-### 5.2 Изменения в C# (`JARVIS.Voice`)
+### 5.2 Изменения в C# (`ZERE.Voice`)
 
-1. **Пакет**: `JARVIS.Voice.csproj` → `<PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.13.8" />` (нативные рантаймы подтянутся зависимостями, включая win-x64; для net10.0 пакет уже скомпилирован).  
-2. **Новый сервис** `JARVIS.Voice/Sherpa/GigaAmService.cs` — контракт зеркалит `WhisperService`:
-   - путь модели: `JARVIS.Voice/Models/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16/` (резолв от `AppContext.BaseDirectory`, как сейчас);
+1. **Пакет**: `ZERE.Voice.csproj` → `<PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.13.8" />` (нативные рантаймы подтянутся зависимостями, включая win-x64; для net10.0 пакет уже скомпилирован).  
+2. **Новый сервис** `ZERE.Voice/Sherpa/GigaAmService.cs` — контракт зеркалит `WhisperService`:
+   - путь модели: `ZERE.Voice/Models/sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16/` (резолв от `AppContext.BaseDirectory`, как сейчас);
    - `OfflineRecognizerConfig`: `ModelConfig.ModelType = "nemo_transducer"`, `Transducer.Encoder/Decoder/Joiner`, `Tokens`, `NumThreads = min(4, Environment.ProcessorCount)`;
    - `Preload()` — создать recognizer на старте (паттерн `PreloadWhisper`, `VoiceManager.cs:103`); init занимает ~1.5 с, поэтому прогрев обязателен;
    - таймаут 30 с и метрика `[Perf] STT=… мс` — переиспользовать как в `WhisperService.TranscribeAsync`;
@@ -166,10 +166,10 @@ VoiceManager
 4. **Конфиг**: `VoiceConfig` → `public string SttEngine { get; set; } = "gigaam";`.  
 5. **Не трогаем**: `AudioRecorder`, `AudioPreprocessor`, `SpeechText`, `WakeWordDetector`, TTS-часть.
 
-### 5.3 Изменения в Python-порте (`jarvis/voice`)
+### 5.3 Изменения в Python-порте (`zere/voice`)
 
 1. `requirements.txt`: `sherpa-onnx` (и, при желании, убрать из дефолта `faster-whisper`, оставив как фолбэк).  
-2. Новый `jarvis/voice/sherpa/gigaam_service.py` — обёртка с тем же `transcribe()`/`preload()`/`is_installed()` API, что у `WhisperService` (проверенный вызов: `sherpa_onnx.OfflineRecognizer.from_transducer(tokens=…, encoder=…, decoder=…, joiner=…, model_type='nemo_transducer', num_threads=…)`, затем `create_stream()/accept_waveform()/decode_stream()`).  
+2. Новый `zere/voice/sherpa/gigaam_service.py` — обёртка с тем же `transcribe()`/`preload()`/`is_installed()` API, что у `WhisperService` (проверенный вызов: `sherpa_onnx.OfflineRecognizer.from_transducer(tokens=…, encoder=…, decoder=…, joiner=…, model_type='nemo_transducer', num_threads=…)`, затем `create_stream()/accept_waveform()/decode_stream()`).  
 3. `voice_manager.py` — тот же роутинг по ключу `sttEngine` из `config/config.json`.  
 4. Wake-детектор оставить на текущей логике (отдельная задача — замена на silero-VAD/keyword-spotter, см. S2 в `VOICE_PERF_STABILITY_ANALYSIS.md`).
 

@@ -1,14 +1,14 @@
-# Анализ: как сделать голосового ИИ-ассистента JARVIS быстрее и стабильнее
+# Анализ: как сделать голосового ИИ-ассистента ZERE быстрее и стабильнее
 
 **Дата:** 2026-09-28
 **Область:** голосовой конвейер (wake word → STT → LLM → TTS), AI-клиент, старт приложения.
-**Обе реализации:** C# (`JARVIS.*`, .NET 10) и Python (`jarvis/`, `main.py` — дефолтный запуск через `JARVIS.bat`). Большинство находок симметричны; расхождения отмечены явно.
+**Обе реализации:** C# (`ZERE.*`, .NET 10) и Python (`zere/`, `main.py` — дефолтный запуск через `ZERE.bat`). Большинство находок симметричны; расхождения отмечены явно.
 
 ---
 
 ## 0. Методика и ограничения
 
-**Сделано:** чтение всего голосового стека (`JARVIS.Voice/**`, `jarvis/voice/**`), AI-клиентов (`OllamaClient.cs`, `jarvis/ai/ollama_client.py`), ядра (`JarvisEngine`, `HandlerPipeline`, `AIHandler`, `ContextBuilder`), точки входа (`Program.cs`, `main.py`), TTS-сервера (`tools/jarvis_tts_server.py`), сверка с `docs/PROJECT_ANALYSIS_REPORT.md`, `docs/PROJECT_AUDIT_REPORT.md`, `docs/ROADMAP.md`, `docs/TTS_VOICE_CONTROL_RESEARCH.md`.
+**Сделано:** чтение всего голосового стека (`ZERE.Voice/**`, `zere/voice/**`), AI-клиентов (`OllamaClient.cs`, `zere/ai/ollama_client.py`), ядра (`ZereEngine`, `HandlerPipeline`, `AIHandler`, `ContextBuilder`), точки входа (`Program.cs`, `main.py`), TTS-сервера (`tools/zere_tts_server.py`), сверка с `docs/PROJECT_ANALYSIS_REPORT.md`, `docs/PROJECT_AUDIT_REPORT.md`, `docs/ROADMAP.md`, `docs/TTS_VOICE_CONTROL_RESEARCH.md`.
 
 **Ограничения:** среда — Linux, живой рантайм (Windows API, микрофон, Ollama, Whisper/Piper/PocketTTS) не запускался. **Все числа задержек ниже — экспертные оценки**, а не замеры; этап 0 плана — именно ради того, чтобы замерить фактические цифры на Windows.
 
@@ -34,7 +34,7 @@
 Режим с wake word (дефолт):
   непр. запись (VAD по энергии) → речь → тишина 1.2 с → WAV → AudioPreprocessor (полный DSP-проход)
   → Whisper medium (транскрибация сегмента ≤9 с) → "Джарвис?" → запись команды
-  → тишина 1.5 с → WAV → AudioPreprocessor → Whisper medium → JarvisEngine
+  → тишина 1.5 с → WAV → AudioPreprocessor → Whisper medium → ZereEngine
       → HandlerPipeline (9 хендлеров, регулярки) → AIHandler (промпт: вся память + 5 последних диалогов)
       → Ollama /api/generate (стрим читается ДО конца) → ПОЛНЫЙ ответ
   → SpeakAsync(полный текст) → Piper (попредложенное: WAV-файлы + DSP-файл на диск) или PocketTTS (PCM-поток)
@@ -62,12 +62,12 @@
 
 ### S1. Нет параллелизма LLM и озвучки (главный выигрыш)
 
-**Симптом:** `jarvis.ProcessAsync()` возвращает **полностью** сгенерированный ответ, и только потом вызывается `SpeakAsync` (`Program.cs:274-282`, `main.py:410-417`). LLM генерирует 3–10 с, всё это время тишина.
+**Симптом:** `zere.ProcessAsync()` возвращает **полностью** сгенерированный ответ, и только потом вызывается `SpeakAsync` (`Program.cs:274-282`, `main.py:410-417`). LLM генерирует 3–10 с, всё это время тишина.
 
 **Решение — стриминг токенов в речь:**
 1. `OllamaClient`: добавить `GenerateStreamAsync(...) → IAsyncEnumerable<string>` (C#) / генератор (Python) — сейчас `stream: true` объявлен, но поток читается до конца внутри клиента (`OllamaClient.cs:65,103-137`).
 2. Новый оркестратор `StreamingSpeaker`: буферизует токены, отдаёт в TTS **первое предложение**, как только оно закончено (границы уже есть — `SpeechText.SplitSentences`, `SpeechText.cs:59`), дальше — попредложенное.
-   - **PocketTTS:** проще всего — каждый следующий sentence уходит отдельным POST `/tts` в тот же `StreamPlayer` (сервер кэширует состояние голоса, `jarvis_tts_server.py:82-97`).
+   - **PocketTTS:** проще всего — каждый следующий sentence уходит отдельным POST `/tts` в тот же `StreamPlayer` (сервер кэширует состояние голоса, `zere_tts_server.py:82-97`).
    - **Piper:** держать один `SynthesizeStreamAsync` на всю реплику; для стриминга LLM → Piper нужен API «добавь предложение в текущую сессию» (переписать гейт `PiperService.cs:155-228` на очередь строк).
 3. Пока TTS играет первое предложение, LLM дописывает остальное — «первый звук» = первый токен + первое предложение + TTFB синтеза.
 
@@ -153,7 +153,7 @@
 
 ### S8. Бардж-ин (перебивание) отсутствует
 
-Пока JARVIS говорит, микрофон не слушает: wake-цикл запускается только после полного `SpeakAsync` (`Program.cs:282→191`). Пользователь вынужден ждать конца реплики.
+Пока ZERE говорит, микрофон не слушает: wake-цикл запускается только после полного `SpeakAsync` (`Program.cs:282→191`). Пользователь вынужден ждать конца реплики.
 
 **Решение (по сложности):** (1) хотя бы останавливать озвучку по нажатию Enter/кнопке в панели (API `StopSpeaking` уже есть, `VoiceManager.cs:262-267`); (2) полноценный бардж-ин — слушать во время playback и обрывать TTS, но нужно подавление эха (AEC) — NAudio умеет через WASAPI AEC; это этап 3, не раньше стабилизации S1–S7.
 
@@ -200,7 +200,7 @@
 - мусор `output_*.wav` при падении чистится только при старте (`CleanupOldOutputs`, `:606`) — чистить и после каждой реплики (в новой схеме S6 файлов не будет вовсе).
 
 ### F8. TTS-сервер (Python): ненадёжности
-- `ProbeReady` примется за **любой** процесс, занявший порт 8471 с валидным `/health` (`PocketTtsService.cs:65-72,223-242`) — аудит P2-9; добавить проверку поля (`"server":"jarvis-tts"` в `/health`).
+- `ProbeReady` примется за **любой** процесс, занявший порт 8471 с валидным `/health` (`PocketTtsService.cs:65-72,223-242`) — аудит P2-9; добавить проверку поля (`"server":"zere-tts"` в `/health`).
 - `ThreadingHTTPServer` без лимита потоков и без таймаута чтения сокета; `SYNTH_LOCK` сериализует всё — два конкурентных `/tts` (панель + консоль) встают в очередь (OK), но сломанный клиент может держать замок. Добавить `socket.settimeout`, лимит длины текста (например, 2000 символов), `daemon_threads`.
 - Рестарт сервера после падения — см. F2.
 
@@ -302,17 +302,17 @@
 | `llmMaxTokens` | `96` | лимит ответа LLM в токенах в голосовом режиме (0 не используется; диапазон 16…4096) |
 | `llmTimeoutSeconds` | `60` | таймаут запроса к Ollama (5…600) |
 
-Ключи согласованы во всём стеке: `JarvisConfig` (C#/Python), валидация
+Ключи согласованы во всём стеке: `ZereConfig` (C#/Python), валидация
 `POST /api/config` (C# `PanelServer` + Python `_validate_config_payload`),
 `docs/api/openapi.yaml` (schema `Config`), `installer/install.ps1`,
 `panel/src/api.ts`. Панель переносит их GET→POST автоматически.
 
 ### Проверки
-- `dotnet build JARVIS.slnx` (`-p:EnableWindowsTargeting=true`): **0 ошибок**.
+- `dotnet build ZERE.slnx` (`-p:EnableWindowsTargeting=true`): **0 ошибок**.
 - `python3 tests/test_panel_api.py`: **83/83**.
 - `python3 tests/test_system_prompt.py`: **3/3** (обновлено под `num_ctx`/`keep_alive`).
 - `python3 tests/test_installer.py`: **9/9**.
-- `python3 -m compileall jarvis main.py`: OK.
+- `python3 -m compileall zere main.py`: OK.
 
 ### Не сделано (осознанно — этапы 2–3)
 Стриминг LLM→TTS, отдельная tiny-модель wake word, Piper без файлов,
@@ -354,12 +354,12 @@
    (`audioProcessing`), и в схеме `Config`; значение читается на каждое
    предложение, поэтому переключается без перезапуска (`appliedOnRestart`
    на него не реагирует). Реализовано в обеих версиях: C# (`AudioProcessor`,
-   `PanelServer`) и Python (`jarvis/voice/audio/audio_processor.py`,
-   `jarvis/api/server.py`).
+   `PanelServer`) и Python (`zere/voice/audio/audio_processor.py`,
+   `zere/api/server.py`).
 
 ### Проверки (C#-сборка + контракт + Python)
 
-- `dotnet build JARVIS.slnx`: **0 ошибок**.
+- `dotnet build ZERE.slnx`: **0 ошибок**.
 - `python3 tests/test_panel_api.py`: **91/91** (схема `VoiceSettings`
   расширена обязательным `audioProcessing` — обе реализации его отдают).
 - `python3 tests/test_stt_engine.py`: 7/7, `tests/test_installer.py`: 9/9,
@@ -375,7 +375,7 @@
 
 ### Ключевой факт: панель играет мимо микшера
 
-`jarvis/voice/audio/audio_player.py` играет через **sounddevice → PortAudio →
+`zere/voice/audio/audio_player.py` играет через **sounddevice → PortAudio →
 WASAPI напрямую**, минуя системный микшер с его качественным ресемплером.
 Устройство по умолчанию у пользователя — **Sennheiser USB headset, 44100 Гц**.
 
@@ -448,7 +448,7 @@ Windows. Whisper/GigaAM требуют 16 кГц, микрофон Sennheiser US
 заявляет 48 кГц, а микшер живёт на 44.1 кГц (48000 без `auto_convert` тоже
 падал). Поэтому «взять частоту устройства» — не решение.
 
-Решение (`jarvis/voice/audio/audio_device.py`):
+Решение (`zere/voice/audio/audio_device.py`):
 
 - `input_options`/`output_options` отдают готовые аргументы открытия потока:
   WASAPI-устройство + `sd.WasapiSettings(auto_convert=True)` (флаг
@@ -460,10 +460,10 @@ Windows. Whisper/GigaAM требуют 16 кГц, микрофон Sennheiser US
   `AudioPlayer.play`);
 - сбой захвата больше не убивает голосовой режим навсегда: `VoiceModeRunner`
   пишет `lastError`, делает паузу и слушает дальше (раньше состояние
-  залипало в `error` до перезапуска JARVIS);
-- при перенаправленном выводе (`JARVIS.bat > log.txt`, cp866/cp1251) эмодзи
+  залипало в `error` до перезапуска ZERE);
+- при перенаправленном выводе (`ZERE.bat > log.txt`, cp866/cp1251) эмодзи
   в принтах падали `UnicodeEncodeError` — в аудио-пути это выглядело как
-  «сбой микрофона»; `configure_console_encoding()` (`jarvis/core/console.py`)
+  «сбой микрофона»; `configure_console_encoding()` (`zere/core/console.py`)
   заменяет непредставимые символы на «?».
 
 Тесты: `tests/test_audio_device.py` (12: регрессия -9997 на фейковом тракте +
@@ -501,13 +501,13 @@ Windows. Whisper/GigaAM требуют 16 кГц, микрофон Sennheiser US
   подтягиваются вверх (иначе это снова выравнивание громкости);
 - мягкий лимитер −0.5 dBFS (срабатывает только на пиках).
 
-Изменение внесено в обе редакции: `jarvis/voice/audio/audio_processor.py` и
-`JARVIS.Voice/Audio/AudioProcessor.cs` (метод `ApplyCompressor` заменён на
+Изменение внесено в обе редакции: `zere/voice/audio/audio_processor.py` и
+`ZERE.Voice/Audio/AudioProcessor.cs` (метод `ApplyCompressor` заменён на
 `AttenuatePeak`). Сравнить «до/после» на слух можно тумблером «DSP-обработка»
 на экране «Голос»: выключенный — сырой Piper без обработки.
 
 Живые тесты, трогающие звуковые устройства (микрофон/наушники), теперь
-запускаются только по `JARVIS_LIVE_AUDIO=1` — по умолчанию тесты работают на
+запускаются только по `ZERE_LIVE_AUDIO=1` — по умолчанию тесты работают на
 фейковом тракте и устройств не касаются.
 ## 14. Шипение и «металл»: мягкий ФНЧ 8 кГц
 
@@ -531,10 +531,10 @@ Windows. Whisper/GigaAM требуют 16 кГц, микрофон Sennheiser US
 (`ru_RU-ruslan-medium`, 22050 Гц); альтернативы — другой голос, PocketTTS или
 тумблер «DSP-обработка» для сравнения с сырым синтезом.
 
-## 15. Озвучка на C#: хелпер JARVIS.Speaker
+## 15. Озвучка на C#: хелпер ZERE.Speaker
 
 По запросу «озвучка на C#, а не на Python» DSP и вывод звука вынесены в
-отдельный C#-процесс `JARVIS.Speaker` (NAudio: `WasapiOut`, откат на WinMM).
+отдельный C#-процесс `ZERE.Speaker` (NAudio: `WasapiOut`, откат на WinMM).
 Ядро, панель и распознавание остаются на Python.
 
 Как это работает:
@@ -543,14 +543,14 @@ Windows. Whisper/GigaAM требуют 16 кГц, микрофон Sennheiser US
   (запрос на строку, ответ на строку): `speak` (DSP + вывод), `stop`
   (обрыв фразы), `ping`, `quit`. Диагностика хелпера идёт в stderr, поэтому
   stdout остаётся чистым протоколом;
-- Python-мост — `jarvis/voice/audio/csharp_speaker.py`; `VoiceManager.speak`
+- Python-мост — `zere/voice/audio/csharp_speaker.py`; `VoiceManager.speak`
   сначала пробует C#, а при отсутствии сборки/крахе/таймауте озвучивает сам
-  через sounddevice (`JARVIS_SPEAKER=python` — принудительный Python);
-- DSP один и тот же код: `JARVIS.Voice/Audio/AudioProcessor.cs` подключён в
+  через sounddevice (`ZERE_SPEAKER=python` — принудительный Python);
+- DSP один и тот же код: `ZERE.Voice/Audio/AudioProcessor.cs` подключён в
   хелпер ссылкой на исходник, поэтому расхождение между редакциями
   невозможно. Паритет проверен замером: на одном входном файле Python и C#
   дают одинаковые пик (−1.00 dBFS) и полосы энергии (2.70 / 0.89 / 0.243 %);
-- сборка: `dotnet publish JARVIS.Speaker -c Release -o publish\speaker`
+- сборка: `dotnet publish ZERE.Speaker -c Release -o publish\speaker`
   (это делает `install.ps1`; для Python-редакции — необязательный шаг, при
   отсутствии .NET SDK озвучка просто остаётся на Python);
 - тесты `tests/test_csharp_speaker.py` (9) работают без звуковых устройств:

@@ -1,8 +1,8 @@
-# Контекст для архитектора — JARVIS
+# Контекст для архитектора — ZERE
 
 ## Обзор
 
-**JARVIS** — персональный AI-ассистент для Windows на C# (.NET 10).  
+**ZERE** — персональный AI-ассистент для Windows на C# (.NET 10).  
 Консольное приложение, работает с локальной LLM (Ollama), управляет компьютером через текстовые команды.
 
 ---
@@ -43,21 +43,21 @@ SQLite база через репозитории:
 ## Межпроектные зависимости
 
 ```
-JARVIS.App
-  └── JARVIS.Core
-        ├── JARVIS.AI
-        ├── JARVIS.Memory
-        ├── JARVIS.Tools
+ZERE.App
+  └── ZERE.Core
+        ├── ZERE.AI
+        ├── ZERE.Memory
+        ├── ZERE.Tools
         │     ├── Applications
         │     ├── Files
         │     ├── Gaming
         │     ├── Windows
         │     └── System
-        └── JARVIS.Voice
+        └── ZERE.Voice
               ├── Whisper (STT)
               └── Piper (TTS)
 
-JARVIS.Core/Plugins/
+ZERE.Core/Plugins/
   ├── Interfaces/
   │   ├── IPlugin.cs
   │   ├── IPersonalityPlugin.cs
@@ -80,9 +80,9 @@ JARVIS.Core/Plugins/
 ## Точки расширения
 
 ### Добавить новый обработчик:
-1. Создать класс в `JARVIS.Core/Handlers/`
-2. Реализовать `IJarvisHandler`
-3. Зарегистрировать в `JarvisEngine.cs` (pipeline)
+1. Создать класс в `ZERE.Core/Handlers/`
+2. Реализовать `IZereHandler`
+3. Зарегистрировать в `ZereEngine.cs` (pipeline)
 
 ### Добавить новый тип команды:
 1. Добавить значение в enum `*CommandType`
@@ -90,7 +90,7 @@ JARVIS.Core/Plugins/
 3. Обработать в switch-case обработчика
 
 ### Добавить новый инструмент:
-1. Создать класс в `JARVIS.Tools/`
+1. Создать класс в `ZERE.Tools/`
 2. Вызвать из соответствующего обработчика
 
 ### Добавить плагин личности:
@@ -111,7 +111,7 @@ JARVIS.Core/Plugins/
 
 ```csharp
 // Интерфейс обработчика
-public interface IJarvisHandler
+public interface IZereHandler
 {
     bool CanHandle(string message);
     Task<string> HandleAsync(string message);
@@ -184,7 +184,7 @@ public interface ICommandHandlerPlugin : IPlugin
 
 ### Conversation (история)
 ```json
-{ "userMessage": "привет", "jarvisResponse": "Здравствуйте!", "timestamp": "..." }
+{ "userMessage": "привет", "zereResponse": "Здравствуйте!", "timestamp": "..." }
 ```
 
 ---

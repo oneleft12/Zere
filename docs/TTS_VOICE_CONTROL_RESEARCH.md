@@ -1,7 +1,7 @@
 # Ресерч: лучший TTS с максимальными регулировками голоса
 
 **Дата:** 2026  
-**Цель:** подобрать локальный движок синтеза речи с максимальным набором регулировок голоса для проекта JARVIS (Windows, .NET 10, полностью офлайн, язык — русский, низкая латентность, текущий стек: Piper + PocketTTS с клонированием).
+**Цель:** подобрать локальный движок синтеза речи с максимальным набором регулировок голоса для проекта ZERE (Windows, .NET 10, полностью офлайн, язык — русский, низкая латентность, текущий стек: Piper + PocketTTS с клонированием).
 
 ---
 
@@ -56,7 +56,7 @@
 ## 3. Детальные регулировки по ключевым движкам
 
 ### 3.1 Piper (текущий fallback) — максимум из того, что уже есть
-В `PiperService`/`jarvis_tts_server.py` стоит передавать и обнавлять в конфиге:
+В `PiperService`/`zere_tts_server.py` стоит передавать и обнавлять в конфиге:
 - **`length_scale`** — темп (1.0 = норма; 0.8 = быстрее; 1.2 = медленнее) ([gh-issue #714](https://github.com/rhasspy/piper/issues/714), [piper-plus](https://github.com/ayutaz/piper-plus/blob/dev/README_EN.md))
 - **`noise_scale`** — выразительность интонации (по умолчанию ~0.667; выше → живее, ниже → ровнее)
 - **`noise_scale_w`** — вариативность длины фонем (default 0.8; влияет на «суетливость»)
@@ -68,7 +68,7 @@
 - 17 языков, **русский входит** ([HF](https://huggingface.co/coqui/XTTS-v2)).
 - `tts.tts_to_file(..., emotion="Happy", speed=1.5)` — emotion реально работает не на всех языках (обсуждение: [HF discussion](https://huggingface.co/coqui/XTTS-v2/discussions/19)).
 - Проект Coqui брошен, форк поддерживается пакетом **`coqui-tts`** ([semenov.work](https://semenov.work/posts/voice-cloning)).
-- Минус: ~600 мс до первого звука, 4.5 ГБ — для живого диалога JARVIS тяжело; годится как «медленный премиум-режим».
+- Минус: ~600 мс до первого звука, 4.5 ГБ — для живого диалога ZERE тяжело; годится как «медленный премиум-режим».
 
 ### 3.3 CosyVoice — лучшее соотношение «инструкции + русский»
 - **Instruct-режим**: управление **эмоцией, темпом, громкостью, диалектом** текстовой инструкцией («говори мягко и медленно, с лёгкой грустью») ([GitHub](https://github.com/FunAudioLLM/CosyVoice)).
@@ -77,11 +77,11 @@
 
 ### 3.4 Parler-TTS — эталон «максимальных регулировок», но только EN
 - Управление текстовым описанием: пол, **высота голоса (pitch)**, **темп (speaking rate)**, фоновый шум, реверберация, акцент ([HF mini](https://huggingface.co/parler-tts/parler-tts-mini-v1.1), [large](https://huggingface.co/parler-tts/parler-tts-large-v1)).
-- Для JARVIS важен как **референс архитектуры**: описательный промпт-слой. Русский не поддерживает — как отдельный движок не подходит.
+- Для ZERE важен как **референс архитектуры**: описательный промпт-слой. Русский не поддерживает — как отдельный движок не подходит.
 
 ### 3.5 IndexTTS-2 — эталон эмоциональных слайдеров, но только zh/en/ja/es/ar
 - Клонирование + **8 независимых слайдеров эмоций** (happy, angry, sad, afraid, disgusted, melancholic, surprised, calm), плюс эмоция из второго аудио-референса и текстовое описание эмоции ([localaimaster](https://localaimaster.com/blog/indextts-2-setup-guide), [DEV-review](https://dev.to/czmilo/indextts2-comprehensive-review-in-depth-analysis-of-2025s-most-powerful-emotional-speech-synthesis-model-1m9e)).
-- Нет русского → для JARVIS применимо только к клонированным коротким фразам/EN-контенту.
+- Нет русского → для ZERE применимо только к клонированным коротким фразам/EN-контенту.
 
 ### 3.6 ChatTTS — тонкие разговорные регуляторы (без русского)
 - Control-токены в тексте: `[laugh]`, `[break]` + параметры `oral` (степень разговорности), `laugh`, `break`, `seed` ([GitHub](https://github.com/2Noise/ChatTTS)).
@@ -92,7 +92,7 @@
 - Минус: медленный и недетерминированный — для ассистента в реальном времени не годится, годится для «красивых» редких фраз.
 
 ### 3.8 Kokoro-82M — лучшее качество/скорость, но **русского нет**
-- 82M, Apache 2.0, 54 голоса, ~90 мс до звука ([HF](https://huggingface.co/hexgrad/Kokoro-82M)). Полезен только для EN-стриминга; для JARVIS (ru) — не вариант.
+- 82M, Apache 2.0, 54 голоса, ~90 мс до звука ([HF](https://huggingface.co/hexgrad/Kokoro-82M)). Полезен только для EN-стриминга; для ZERE (ru) — не вариант.
 
 ### 3.9 dots.tts — новый игрок
 - 2B, fully-continuous AR, клонирование, live-стриминг, 100+ языков, WER 0.94/1.30% (zh/en), SIM 81+ ([GitHub](https://github.com/rednote-hilab/dots.tts), [демо](https://rednote-hilab.github.io/dots.tts-demo/)). Есть готовая портативная Windows-сборка. Проверить наличие русского и лицензию.
@@ -104,7 +104,7 @@
 
 ## 4. Слой постобработки — где берутся «недостающие» регулировки
 
-Ни один движок не даёт прямого control над питчем в Hz. Единый DSP-слой (в `StreamPlayer`/`AudioPlayer` или в `jarvis_tts_server.py`) даёт **максимальный** набор поверх любого TTS:
+Ни один движок не даёт прямого control над питчем в Hz. Единый DSP-слой (в `StreamPlayer`/`AudioPlayer` или в `zere_tts_server.py`) даёт **максимальный** набор поверх любого TTS:
 
 | Регулировка | Реализация |
 |---|---|
@@ -116,7 +116,7 @@
 
 ---
 
-## 5. Рекомендации для JARVIS
+## 5. Рекомендации для ZERE
 
 ### Архитектура: 3 уровня регулировок
 1. **Уровень движка** — экспозировать в `config.json`/`VoiceConfig` все нативные параметры:
@@ -139,9 +139,9 @@
 ### Практические выводы
 1. **Абсолютный максимум регулировок** даёт связка: *выразительный движок с клонированием и эмоциями (Fish Speech S2 / CosyVoice-подобный instruct) + DSP-слой (питч/темп/EQ) + структурные разметки пауз*. По отдельности ни один движок полного набора не даёт.
 2. Для **русского** в первую очередь смотреть на: CosyVoice (9 яз., instruct), XTTS v2 (ru, emotion/speed), Fish Speech (ru tier-2), Bark (ru, медленный), Piper (ru, 4 голоса), Silero (ru, быстрый).
-3. **Latency-бюджет JARVIS**: первый звук должен быть <300 мс → Piper (~40 мс) и Kokoro-класс (~90 мс) укладываются; XTTS/Fish/IndexTTS требуют либо GPU, либо «стриминг попредложенно» (уже реализовано в `StreamPlayer`).
+3. **Latency-бюджет ZERE**: первый звук должен быть <300 мс → Piper (~40 мс) и Kokoro-класс (~90 мс) укладываются; XTTS/Fish/IndexTTS требуют либо GPU, либо «стриминг попредложенно» (уже реализовано в `StreamPlayer`).
 4. Параллельно с выбором движка — **зашить в `VoiceConfig` универсальную модель параметров**: `speed`, `pitchSemis`, `volumeDb`, `expressiveness`, `emotion`, `sentencePause`, `eqPreset` — и маппить их на конкретный движок (+ DSP-фоллбэк для недостающих). Тогда переключение движка не ломает настройки пользователя.
-5. Лицензии: Piper/Kokoro/CosyVoice — свободные; **XTTS v2 — CPML (некоммерч.)**, Parler/IndexTTS/ChatTTS — некоммерческие веса — для некоммерческого JARVIS ок, но проверить перед распространением.
+5. Лицензии: Piper/Kokoro/CosyVoice — свободные; **XTTS v2 — CPML (некоммерч.)**, Parler/IndexTTS/ChatTTS — некоммерческие веса — для некоммерческого ZERE ок, но проверить перед распространением.
 
 ---
 
@@ -169,9 +169,9 @@ Pipeline в .NET:
 - Итог: **Fish S2 — основной кандидат**, CosyVoice2 — запасной (instruct-инструкции).
 
 ### 6.4 Альтернатива Python-микросервису: ONNX Runtime in-process
-Вместо «зоопарка» `jarvis_tts_server.py` (Python + FastAPI + PyTorch) для **fallback-движков**:
+Вместо «зоопарка» `zere_tts_server.py` (Python + FastAPI + PyTorch) для **fallback-движков**:
 - **Piper** и **Silero TTS v5** конвертируются в `.onnx`;
-- в .NET 10 — нативный пакет **`Microsoft.ML.OnnxRuntime`**: запуск прямо в C#-процессе JARVIS, **без IPC-оверхеда** (HTTP/gRPC), выигрыш **20–50 мс**, деплой без Python-окружения и гигабайт весов PyTorch;
+- в .NET 10 — нативный пакет **`Microsoft.ML.OnnxRuntime`**: запуск прямо в C#-процессе ZERE, **без IPC-оверхеда** (HTTP/gRPC), выигрыш **20–50 мс**, деплой без Python-окружения и гигабайт весов PyTorch;
 - тяжёлые выразительные движки (Fish/CosyVoice/XTTS) остаются на Python-сервисе — ONNX-путь только для лёгких/фоллбэков.
 
 ### 6.5 Universal VoiceProfile: паттерн Strategy + Adapter
@@ -209,7 +209,7 @@ public interface ITtsEngineAdapter
 | **2** | DSP-слой в `StreamPlayer`: SoundTouch + NAudio, OLA/cross-fade 50–100 мс, live-переключение параметров | **питч/темп/громкость для любого движка — мгновенный UX-вин** ещё до интеграции новых движков | шаг 1 |
 | **3** | Расширить `VoiceConfig`/конфиг: `pitchSemis`, `volumeDb`, `expressiveness`, `emotion`, `sentencePause`; команда «настройки голоса» в консоли | пользователь настраивает голос «под себя» | шаг 1 |
 | **4** | Mini-SSML: regex-парсер `SpeechChunk[]` + системный промпт для LLM (`[emotion=..] [pause=..] [speed=..]`) | эмоции/паузы прямо из ответа LLM | шаг 1 |
-| **5** | Экспозировать Piper-регуляторы (`lengthScale`, `noiseScale`, `noiseScaleW`, `sentenceSilence`) в `jarvis_tts_server.py` | больше контроля на текущем fallback | — |
+| **5** | Экспозировать Piper-регуляторы (`lengthScale`, `noiseScale`, `noiseScaleW`, `sentenceSilence`) в `zere_tts_server.py` | больше контроля на текущем fallback | — |
 | **6** | Интеграция Fish Speech S2 (основной выразительный, Python-сервис) | клонирование + стриминг + ru | шаги 1–4 |
 | **7** | (опц.) ONNX Runtime: Piper/Silero in-process через `Microsoft.ML.OnnxRuntime` | фоллбэк без Python, −20–50 мс | шаг 1 |
 | **8** | (опц.) IndexTTS-2 / dots.tts как экспериментальный «эмоциональный» режим | максимум эмоций | отдельный флаг |

@@ -1,14 +1,14 @@
-# Отчёт: анализ проекта JARVIS
+# Отчёт: анализ проекта ZERE
 
 **Дата:** 2026-09-27
 **Ветка:** `python-port` (HEAD `9faa8a5`, синхронизирована с `origin/python-port`)
-**Метод:** три параллельных код-ревью (ядро, инструменты/безопасность, голос/память/гигиена) с проверкой каждого факта чтением файлов, плюс собственные проверки: `python3 -m compileall`, `scripts/check_port.py`, интроспекция `jarvis.db`, `git ls-files`, grep-сканы. Окружение — Linux; `dotnet` недоступен, сборка C# в этот раз не выполнялась.
+**Метод:** три параллельных код-ревью (ядро, инструменты/безопасность, голос/память/гигиена) с проверкой каждого факта чтением файлов, плюс собственные проверки: `python3 -m compileall`, `scripts/check_port.py`, интроспекция `zere.db`, `git ls-files`, grep-сканы. Окружение — Linux; `dotnet` недоступен, сборка C# в этот раз не выполнялась.
 
 ---
 
 ## 1. Резюме
 
-**JARVIS** — локальный AI-ассистент для Windows с двумя параллельными реализациями: C#-решение (.NET 10, 6 проектов) и Python-порт (`jarvis/`, 125 модулей), зеркальный по структуре. Проект архитектурно дисциплинирован: слойность, DI, единый конвейер из 9 обработчиков, параметризованный SQL, продуманные фолбэки голосового стека, богатая документация. Python-порт местами устойчивее исходника (откат конфига к дефолтам, `paths.py` не зависит от CWD, LRU-кэш Ollama, таймауты).
+**ZERE** — локальный AI-ассистент для Windows с двумя параллельными реализациями: C#-решение (.NET 10, 6 проектов) и Python-порт (`zere/`, 125 модулей), зеркальный по структуре. Проект архитектурно дисциплинирован: слойность, DI, единый конвейер из 9 обработчиков, параметризованный SQL, продуманные фолбэки голосового стека, богатая документация. Python-порт местами устойчивее исходника (откат конфига к дефолтам, `paths.py` не зависит от CWD, LRU-кэш Ollama, таймауты).
 
 Однако **системные проблемы предыдущего аудита (2026-09-23) не исправлены — ни один пункт P0 не закрыт**:
 
@@ -28,26 +28,26 @@
 |---|---|
 | Отслеживаемых файлов | 415 (~5.1 МБ) |
 | Активный C# | 94 файла, 9 186 строк |
-| Активный Python | 128 файлов, 8 969 строк (пакет `jarvis/` — 125 модулей / 8 260 строк) |
+| Активный Python | 128 файлов, 8 969 строк (пакет `zere/` — 125 модулей / 8 260 строк) |
 | Документация | 8 `.md`, ~1 470 строк |
 | `python3 -m compileall` | ✅ exit 0 |
 | `scripts/check_port.py` | ✅ 126 файлов / 125 модулей |
-| `jarvis.db` | схема валидна, **0 строк** во всех таблицах |
+| `zere.db` | схема валидна, **0 строк** во всех таблицах |
 | Тесты | ❌ 0 тестовых файлов |
 | CI | ❌ нет `.github/workflows` |
 | LICENSE | ❌ отсутствует при заявленном MIT (`README.md:77`) |
 | ROADMAP | 12 пунктов закрыто / 99 открыто (~10%) |
 | Ветки | `python-port` — 11 коммитов впереди `main`; `origin/HEAD → main` (дефолтная ветка не содержит Python-порт) |
-| Рантайм-артефакты в git | `jarvis.db`, 3× `processed_output_*.wav` (≈3.7 МБ), `sample_pocket.wav`, `reference_output.mp3` |
+| Рантайм-артефакты в git | `zere.db`, 3× `processed_output_*.wav` (≈3.7 МБ), `sample_pocket.wav`, `reference_output.mp3` |
 | Зависимости Python | `numpy` импортируется в 5 файлах, но не объявлен; `comtypes` объявлен, но не используется; lock-файла нет |
 
 ---
 
 ## 3. Архитектура (кратко)
 
-**C#:** `JARVIS.App` (консольный цикл) → `JarvisEngine.ProcessAsync` → `HandlerPipeline` (фиксированный массив 9 обработчиков, `ServiceRegistration.cs:75-91`) → `AIHandler` → `OllamaClient` (`/api/generate`). Память — SQLite (`JARVIS.Memory`), инструменты — `JARVIS.Tools`, голос — `JARVIS.Voice` (Whisper STT, Piper/PocketTTS TTS, wake word с VAD).
+**C#:** `ZERE.App` (консольный цикл) → `ZereEngine.ProcessAsync` → `HandlerPipeline` (фиксированный массив 9 обработчиков, `ServiceRegistration.cs:75-91`) → `AIHandler` → `OllamaClient` (`/api/generate`). Память — SQLite (`ZERE.Memory`), инструменты — `ZERE.Tools`, голос — `ZERE.Voice` (Whisper STT, Piper/PocketTTS TTS, wake word с VAD).
 
-**Python-порт:** полное зеркало (`jarvis/ai`, `core`, `memory`, `tools`, `voice`), порядок конвейера идентичен (`jarvis/core/services.py:269-284`), соответствие отслеживается `scripts/check_port.py`.
+**Python-порт:** полное зеркало (`zere/ai`, `core`, `memory`, `tools`, `voice`), порядок конвейера идентичен (`zere/core/services.py:269-284`), соответствие отслеживается `scripts/check_port.py`.
 
 **Замечания:**
 - Порядок конвейера создаёт конфликты перехвата (см. P1-1): `WindowsHandler` (5-й) раньше `FileHandler` (6-й), `MemoryQueryHandler` (2-й) перехватывает все «что такое …» до LLM.
@@ -71,13 +71,13 @@
 ## 5. Критические находки (P0) — не исправлены с аудита 2026-09-23
 
 ### P0-1. История диалогов никогда не сохраняется (обе реализации)
-- `ConversationRepository.Save` / `conversation_repository.save` **не вызывается нигде** в активном коде (проверено grep: только `backups/v1.3–v1.5/JarvisEngine.cs`); engine выполняет только извлечение фактов и прогон конвейера (`JARVIS.Core/JarvisEngine.cs:21-36`, `jarvis/core/engine.py:26-37`).
-- Следствия: «покажи историю» всегда отвечает «История пуста»; `ContextBuilder.BuildHistory` читает пустую таблицу → многоходового контекста нет; `jarvis.db` подтверждён пустым (0 строк).
+- `ConversationRepository.Save` / `conversation_repository.save` **не вызывается нигде** в активном коде (проверено grep: только `backups/v1.3–v1.5/ZereEngine.cs`); engine выполняет только извлечение фактов и прогон конвейера (`ZERE.Core/ZereEngine.cs:21-36`, `zere/core/engine.py:26-37`).
+- Следствия: «покажи историю» всегда отвечает «История пуста»; `ContextBuilder.BuildHistory` читает пустую таблицу → многоходового контекста нет; `zere.db` подтверждён пустым (0 строк).
 - **Латентный баг после исправления:** `GetLast` сортирует `ORDER BY Id DESC`, `ContextBuilder` не разворачивает список (`ConversationRepository.cs:60-62` + `ContextBuilder.cs:41-46`) → контекст уйдёт в обратной хронологии.
 - **Рекомендация:** `Save(request, answer)` в оба engine + `.Reverse()` в `BuildHistory` + тест на round-trip.
 
 ### P0-2. Path traversal в файловых операциях
-- `FileManager.CreateFolder/CreateFile` (`JARVIS.Tools/Files/FileManager.cs:21,33`, `jarvis/tools/files/file_manager.py:21,31`) склеивают имя из реплики пользователя с рабочим столом без нормализации: `..` и абсолютный путь полностью обходят ограничение; `create_file` дополнительно не перезаписывает существующие (проверка `is_file`), но C#-вариант перезаписывает.
+- `FileManager.CreateFolder/CreateFile` (`ZERE.Tools/Files/FileManager.cs:21,33`, `zere/tools/files/file_manager.py:21,31`) склеивают имя из реплики пользователя с рабочим столом без нормализации: `..` и абсолютный путь полностью обходят ограничение; `create_file` дополнительно не перезаписывает существующие (проверка `is_file`), но C#-вариант перезаписывает.
 - `DeleteFile` удаляет первое совпадение имени без подтверждения, permanent (не в корзину).
 - **Рекомендация:** `Path.GetFullPath`/`resolve()` + проверка, что результат внутри desktop; запрет абсолютных путей и `..`; подтверждение удаления.
 
@@ -107,11 +107,11 @@
 - Смена стиля личности не персистится: `SettingsMenu` пишет только `ActivePersonalityId`, `ActivePersonalityStyle` не сохраняется (`SettingsMenu.cs:104-107`) → после рестарта стиль сбрасывается.
 
 ### P1-4. Конфигурационный дрейф между реализациями
-- C# **не читает `voiceVolume`** (`JarvisConfig.cs` — поля нет, `VoiceConfig.cs:24` — всегда 1.0); Python **не читает `ttsEngine`/`voiceReferencePath`** и не имеет PocketTTS/«записать голос» вовсе (grep: 0 совпадений) — при `ttsEngine: pocket` в `config/config.json` Python-ветка молча работает на Piper.
+- C# **не читает `voiceVolume`** (`ZereConfig.cs` — поля нет, `VoiceConfig.cs:24` — всегда 1.0); Python **не читает `ttsEngine`/`voiceReferencePath`** и не имеет PocketTTS/«записать голос» вовсе (grep: 0 совпадений) — при `ttsEngine: pocket` в `config/config.json` Python-ветка молча работает на Piper.
 - Мёртвые ключи в обеих: `autoMemory`, `debugMode`, `logLevel` объявлены, не читаются; `MemoryExtractor` игнорирует `AutoMemory`.
 - C#: `Load()` вызывается дважды (`Program.cs:12` + `ServiceRegistration.cs:25`) → два разных инстанса конфига; путь через `Directory.GetCurrentDirectory()` — запуск вне корня создаёт пустой конфиг; битый JSON валит старт (Python откатывается к дефолтам).
 - Python `piper_service.py:116-123` хардкодит `length_scale 1.15`/`sentence_silence 0.4` вместо конфига (C#: 0.2, настраиваемо).
-- Разные пути БД: C# — `%LOCALAPPDATA%\JARVIS`, Python — корень репо → реализации не делят память.
+- Разные пути БД: C# — `%LOCALAPPDATA%\ZERE`, Python — корень репо → реализации не делят память.
 
 ### P1-5. Надёжность голосового ввода
 - Ошибка микрофона **вне** try/catch: `Program.cs:156,211`, `AudioRecorder.cs:59`, `voice_manager.py:97` + `audio_recorder.py:56` → необработанное исключение завершает приложение (в Python та же дыра несмотря на порт).
@@ -127,8 +127,8 @@
 ### P1-7. Инженерная гигиена
 - **0 тестов, 0 CI** — любые исправления P0 нечем подстраховать; ROADMAP 5.4 не закрыт.
 - **Нет LICENSE** при заявленном MIT (`README.md:77`).
-- **`requirements.txt`:** `numpy` (импортируется в 5 файлах `jarvis/voice/audio/*`) не объявлен, `comtypes` объявлен, но нигде не используется; только нижние границы, lock-файла нет.
-- **Рантайм-артефакты в git:** `jarvis.db`, `processed_output_*.wav` (3 шт., ≈3.7 МБ), `voice/*.wav|mp3` — биометрия голоса и БД в истории; `.gitignore` покрывает только `voice/reference.wav`.
+- **`requirements.txt`:** `numpy` (импортируется в 5 файлах `zere/voice/audio/*`) не объявлен, `comtypes` объявлен, но нигде не используется; только нижние границы, lock-файла нет.
+- **Рантайм-артефакты в git:** `zere.db`, `processed_output_*.wav` (3 шт., ≈3.7 МБ), `voice/*.wav|mp3` — биометрия голоса и БД в истории; `.gitignore` покрывает только `voice/reference.wav`.
 - **Дрейф веток:** дефолтная `origin/HEAD → main` отстаёт на 11 коммитов и не содержит Python-порт — посетитель репозитория видит устаревшую C#-версию.
 - **README/AGENTS-дрейф:** заявлено 6 стилей личности, фактически доступно 5 (Custom исключён из `GetAvailableStyles()`); `AGENTS.md` перечисляет `System/`-сервисы как активные, хотя они не в DI; `AGENTS.md` описывает Python-плагины как рабочие (см. P1-3).
 
@@ -138,20 +138,20 @@
 
 | # | Находка | Где |
 |---|---|---|
-| 1 | `ex.Message` утекает пользователю (локальные пути, HTTP-ошибки); `debugMode` на это не влияет | `JarvisEngine.cs:33-34`, `engine.py:33-37` |
+| 1 | `ex.Message` утекает пользователю (локальные пути, HTTP-ошибки); `debugMode` на это не влияет | `ZereEngine.cs:33-34`, `engine.py:33-37` |
 | 2 | Логирование ядра через `Console.WriteLine` вместо `LogService` | `HandlerPipeline.cs:25`, `PluginManager.cs:47` |
 | 3 | Наружу утекают raw-исключения; исключение обработчика не останавливает конвейер — деструктивную команду может «дописать» AIHandler | `HandlerPipeline.cs:14-27` |
 | 4 | Срез значений по исходной строке при матчинге по `Trim().ToLower()` → ведущие пробелы искажают разбор («открой discord» → «ой discord») | `ProcessCommandRouter.cs:35+`, `MemoryHandler.cs:119` |
 | 5 | Дублирующие списки ключевых слов (handler vs router) дрейфуют: «hybernate» только в роутере, недостижим | `WindowsHandler.cs:27-69` vs `WindowsCommandRouter.cs:16-60` |
 | 6 | Prompt injection через память: `BuildMemory` вставляет все факты без лимита, без санитизации границ | `ContextBuilder.cs:17-30`, `PromptBuilder.cs:17-47` |
 | 7 | `Assembly.LoadFrom ./plugins/*.dll` исполняет произвольный код без allowlist/подписи (Python-аналог см. P1-3) | `PluginManager.cs:90-119` |
-| 8 | TTS-сервер: без аутентификации, лимита тела/текста и socket-timeout (`ThreadingHTTPServer` плодит потоки); спасает `--host 127.0.0.1` по умолчанию | `jarvis_tts_server.py:142-215` |
+| 8 | TTS-сервер: без аутентификации, лимита тела/текста и socket-timeout (`ThreadingHTTPServer` плодит потоки); спасает `--host 127.0.0.1` по умолчанию | `zere_tts_server.py:142-215` |
 | 9 | `PocketTtsService.ProbeReady` примется к любому процессу, занявшему порт 8471 с валидным `/health` → утечка диалога постороннему | `PocketTtsService.cs:64-72,223-242` |
 | 10 | Sync-over-async + `Thread.Sleep(500)` в `WaitUntilReady` (до 6 мин блокировки); путь модели Whisper — 4 уровня вверх от `BaseDirectory`, сломается при publish | `PocketTtsService.cs:229+`, `WhisperService.cs:19-20` |
 | 11 | Реального стриминга Ollama в C# нет (нет `ResponseHeadersRead`, не dispose-ятся `HttpResponseMessage`); в C# нет кэша ответов, который есть в Python | `OllamaClient.cs:57-65,110` |
-| 12 | Мёртвый код: `System/*` (ProcessManager, PowerController, SystemInfoService), `ScreenCaptureService` (с инъекцией, не зарегистрирован), `Context*` (4 файла), `AppIndex`, дубль `ProcessCommandRouter` — в обеих реализациях; `UniversalAppIndexer.Save()` пишет `app_index.json`, который никто не читает | `JARVIS.Tools/System/*`, `jarvis/tools/system/*` |
+| 12 | Мёртвый код: `System/*` (ProcessManager, PowerController, SystemInfoService), `ScreenCaptureService` (с инъекцией, не зарегистрирован), `Context*` (4 файла), `AppIndex`, дубль `ProcessCommandRouter` — в обеих реализациях; `UniversalAppIndexer.Save()` пишет `app_index.json`, который никто не читает | `ZERE.Tools/System/*`, `zere/tools/system/*` |
 | 13 | `GameTracker` в DI — in-memory, статистика игр теряется между сессиями (GameStatsDatabase не подключён) | `ServiceRegistration.cs:61` |
-| 14 | Повреждённый `config.json` валит запуск C# (нет `catch JsonException`); `Program.cs:91` — неиспользуемый `wakeDetector`; в спящем режиме текст кроме «выход» съедается молча | `JarvisConfig.cs:57-64`, `Program.cs:91,122-127` |
+| 14 | Повреждённый `config.json` валит запуск C# (нет `catch JsonException`); `Program.cs:91` — неиспользуемый `wakeDetector`; в спящем режиме текст кроме «выход» съедается молча | `ZereConfig.cs:57-64`, `Program.cs:91,122-127` |
 | 15 | `logs/errors.log` содержит реальную ошибку: `'NoneType' object has no attribute 'try_extract'` (2026-09-23) — вероятно, `MemoryExtractor` оказался None; стоит разобраться | `logs/errors.log` |
 | 16 | `backups/v1.1–v1.5` (~200 файлов) в дереве вместо git-тегов; `docs/CHAGELOG.md` — опечатка в имени, содержит только v1.1 | `backups/`, `docs/` |
 
@@ -181,8 +181,8 @@
 
 **Выполнено:**
 - Три параллельных ревью (ядро, инструменты/безопасность, голос/память/гигиена); каждая находка в них проверена чтением файла с указанием `файл:строка`.
-- `python3 -m compileall jarvis main.py scripts` → exit 0; `python3 scripts/check_port.py` → 126/125, все проверки пройдены.
-- Интроспекция `jarvis.db` (все таблицы — 0 строк), `git ls-files` (артефакты), сравнение веток, grep-сканы (`Save`, `CommandHandlers`, `numpy`/`comtypes`, плагины, подтверждения).
+- `python3 -m compileall zere main.py scripts` → exit 0; `python3 scripts/check_port.py` → 126/125, все проверки пройдены.
+- Интроспекция `zere.db` (все таблицы — 0 строк), `git ls-files` (артефакты), сравнение веток, grep-сканы (`Save`, `CommandHandlers`, `numpy`/`comtypes`, плагины, подтверждения).
 - Сверка с `docs/PROJECT_AUDIT_REPORT.md` (2026-09-23): подтверждено, что **ни одна P0-находка не исправлена**; новые находки этого отчёта отмечены явно.
 
 **Ограничения:**

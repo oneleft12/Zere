@@ -11,7 +11,7 @@
 Что уже есть и не меняется:
 
 - **SPA-панель** (11 экранов, Vite + vanilla TS) — работает в браузере,
-  раздаётся `PanelServer`/`jarvis.api.server` по `127.0.0.1` с токеном;
+  раздаётся `PanelServer`/`zere.api.server` по `127.0.0.1` с токеном;
 - **один API-контракт** (`docs/api/openapi.yaml`) на две реализации
   (C# и Python) — десктоп-оболочка обязана работать поверх того же API;
 - продукт — **Windows-first** (.NET 10, `UseWindowsForms=true` уже подключён);

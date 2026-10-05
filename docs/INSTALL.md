@@ -1,4 +1,4 @@
-# Установка JARVIS на Windows
+# Установка ZERE на Windows
 
 Установщик полностью готовит окружение: Python-зависимости, Ollama с моделью,
 голосовые компоненты (GigaAM/Whisper/Piper), ярлыки и лаунчер. Все скачиваемые
@@ -8,7 +8,7 @@
 
 ### 1. Быстрый (из репозитория)
 
-Двойной клик по **`installer\Install-Jarvis.bat`** — или из консоли:
+Двойной клик по **`installer\Install-Zere.bat`** — или из консоли:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File installer\install.ps1
@@ -31,13 +31,13 @@ powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1 -Edition pyth
 powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1 -WorkingTree # с некоммиченными изменениями
 ```
 
-Результат: `installer\Output\JarvisInstaller.exe` — стандартный мастер
-установки Windows (установка в `%LOCALAPPDATA%\Programs\JARVIS`, без прав
+Результат: `installer\Output\ZereInstaller.exe` — стандартный мастер
+установки Windows (установка в `%LOCALAPPDATA%\Programs\ZERE`, без прав
 администратора, с деинсталлятором в «Установка и удаление программ»).
 
 Требования для сборки Setup: [Inno Setup 6](https://jrsoftware.org/isdl.php)
 и git. По умолчанию staged-дистрибутив формируется из `git archive HEAD`
-(только отслеживаемые файлы — без `.git`, `.venv`, `bin/obj`, `jarvis.db`,
+(только отслеживаемые файлы — без `.git`, `.venv`, `bin/obj`, `zere.db`,
 `logs`), а редакция — `both`: дистрибутив несёт и Python-, и C#-версию.
 Облегчённая сборка только с Python — `-Edition python`.
 
@@ -53,8 +53,8 @@ ProductVersion 1.8.0
 ```
 
 Версия дублируется ещё в пяти местах (значения по умолчанию): `build-setup.ps1`,
-`DefaultConfigJson` в `install.ps1`, `Jarvis.iss`, `jarvis_config.py`,
-`JarvisConfig.cs`. Их совпадение проверяет `tests/test_installer.py`
+`DefaultConfigJson` в `install.ps1`, `Zere.iss`, `zere_config.py`,
+`ZereConfig.cs`. Их совпадение проверяет `tests/test_installer.py`
 (`test_version_sources_agree`) — при смене версии правьте все шесть.
 
 ## Что устанавливает установщик
@@ -70,7 +70,7 @@ ProductVersion 1.8.0
 | Движок Piper (~21 МБ) | GitHub `rhasspy/piper` release 2023.11.14-2 | SHA-256 + размер |
 | Голос `ru_RU-ruslan-medium` (~60 МБ) | HuggingFace `rhasspy/piper-voices` | SHA-256 + размер |
 | Web-панель | `panel/dist` (сборка npm, если dist отсутствует) | наличие `dist/index.html` |
-| .NET SDK 10 + C#-сборка | winget + `dotnet publish` (только `-Edition dotnet/both`) | `publish\app\JARVIS.App.exe` |
+| .NET SDK 10 + C#-сборка | winget + `dotnet publish` (только `-Edition dotnet/both`) | `publish\app\ZERE.App.exe` |
 | Лаунчер, ярлыки, манифест | генерируются | — |
 
 Контрольные суммы (`SHA-256`):
@@ -104,9 +104,9 @@ ru_RU-ruslan-medium.onnx.json 706a4fb17bc304abd07809b552deae615e64dcbffbfbd09854
 ## Что создаётся
 
 - `.venv\` — виртуальное окружение Python
-- `JARVIS.bat` в корне — лаунчер (Python-редакция → `.venv`, иначе
-  `publish\app\JARVIS.App.exe`, иначе системный `python`)
-- Ярлыки `JARVIS.lnk` на рабочем столе и в меню «Пуск», `JARVIS - panel.url`
+- `ZERE.bat` в корне — лаунчер (Python-редакция → `.venv`, иначе
+  `publish\app\ZERE.App.exe`, иначе системный `python`)
+- Ярлыки `ZERE.lnk` на рабочем столе и в меню «Пуск», `ZERE - panel.url`
   (web-панель `http://127.0.0.1:8080`)
 - `installer\install-manifest.json` — манифест установки (читается
   деинсталлятором)
@@ -120,10 +120,10 @@ ru_RU-ruslan-medium.onnx.json 706a4fb17bc304abd07809b552deae615e64dcbffbfbd09854
 ```powershell
 powershell -ExecutionPolicy Bypass -File installer\uninstall.ps1             # ярлыки, .venv, publish, манифест
 powershell -ExecutionPolicy Bypass -File installer\uninstall.ps1 -RemoveAssets # + голосовые артефакты
-powershell -ExecutionPolicy Bypass -File installer\uninstall.ps1 -PurgeData    # + данные: jarvis.db, logs, backups, voice
+powershell -ExecutionPolicy Bypass -File installer\uninstall.ps1 -PurgeData    # + данные: zere.db, logs, backups, voice
 ```
 
-Или двойным кликом по `installer\Uninstall-Jarvis.bat`.
+Или двойным кликом по `installer\Uninstall-Zere.bat`.
 Деинсталлятор **не трогает исходный код и git-репозиторий**. Python, Ollama и
 модель Ollama удаляются только вручную (`ollama rm <модель>`).
 
@@ -133,13 +133,13 @@ powershell -ExecutionPolicy Bypass -File installer\uninstall.ps1 -PurgeData    #
 installer/
 ├── install.ps1          # основная логика установки
 ├── uninstall.ps1        # деинсталлятор
-├── JarvisLauncher.bat   # шаблон лаунчера JARVIS.bat (ASCII/CRLF)
-├── Install-Jarvis.bat   # двойной клик → install.ps1
-├── Uninstall-Jarvis.bat # двойной клик → uninstall.ps1
-├── Jarvis.iss           # Inno Setup: готовый Setup.exe
+├── ZereLauncher.bat   # шаблон лаунчера ZERE.bat (ASCII/CRLF)
+├── Install-Zere.bat   # двойной клик → install.ps1
+├── Uninstall-Zere.bat # двойной клик → uninstall.ps1
+├── Zere.iss           # Inno Setup: готовый Setup.exe
 ├── build-setup.ps1      # сборка Setup.exe (stage из git + ISCC)
 ├── install-manifest.json# (генерируется) манифест установки
-└── Output/              # (генерируется) JarvisInstaller.exe
+└── Output/              # (генерируется) ZereInstaller.exe
 ```
 
 ## Диагностика
@@ -151,8 +151,8 @@ installer/
 | `сервер Ollama не запустился` | Запустите `ollama serve` вручную; проверьте, не занят ли порт 11434 |
 | Модель/артефакты не скачались | Нет интернета или блокировка сети; скачайте вручную по ссылкам из таблицы и повторите запуск — установщик проверит SHA-256 |
 | `файл не прошёл проверку SHA-256` | Повреждённая загрузка или изменился апстрим-файл — сообщите, обновим контрольную сумму |
-| Голос не работает | `python -m compileall main.py jarvis`, наличие `JARVIS.Voice\Piper\piper.exe`, `espeak-ng-data\`, `*.onnx` |
-| Панель не отвечает | Она запускается вместе с JARVIS на `http://127.0.0.1:8080` |
+| Голос не работает | `python -m compileall main.py zere`, наличие `ZERE.Voice\Piper\piper.exe`, `espeak-ng-data\`, `*.onnx` |
+| Панель не отвечает | Она запускается вместе с ZERE на `http://127.0.0.1:8080` |
 
-Логи самого JARVIS: `logs\`. Логи панели и контрактные тесты — см.
+Логи самого ZERE: `logs\`. Логи панели и контрактные тесты — см.
 `docs/WEB_PANEL_PLAN.md`.

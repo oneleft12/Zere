@@ -1,4 +1,4 @@
-# Web-панель JARVIS
+# Web-панель ZERE
 
 ## Статус: РЕАЛИЗОВАНО (этапы 1–5 плана разработки GUI)
 
@@ -17,9 +17,9 @@
 
 **Защита** (урок TTS-сервера из отчёта-анализа):
 - слушает только `127.0.0.1` (loopback-only);
-- каждый API-запрос требует заголовок `X-JARVIS-Token`
+- каждый API-запрос требует заголовок `X-ZERE-Token`
   (токен генерируется при старте, лежит в `config/panel.token`,
-  UI читает его из `<meta name="jarvis-token">` при загрузке HTML);
+  UI читает его из `<meta name="zere-token">` при загрузке HTML);
 - проверка заголовков `Origin` / `Host`;
 - необратимые действия (kill, питание, очистка истории) — двойная защита:
   ConfirmDialog в UI **и** серверная проверка TTL-токена;
@@ -29,10 +29,10 @@
 
 | Слой | C# | Python |
 |---|---|---|
-| HTTP-сервер панели | `JARVIS.App/Api/PanelServer.cs` | `jarvis/api/server.py` |
-| Окно панели (этап 6) | `JARVIS.App/Api/PanelWindow.cs` (WebView2 + трей) | pywebview (опционально), иначе браузер |
-| Токен | `JARVIS.App/Api/PanelToken.cs` | `jarvis/api/token.py` |
-| Точка входа | `JARVIS.App/Program.cs` (`--panel` — режим CI) | `main.py` |
+| HTTP-сервер панели | `ZERE.App/Api/PanelServer.cs` | `zere/api/server.py` |
+| Окно панели (этап 6) | `ZERE.App/Api/PanelWindow.cs` (WebView2 + трей) | pywebview (опционально), иначе браузер |
+| Токен | `ZERE.App/Api/PanelToken.cs` | `zere/api/token.py` |
+| Точка входа | `ZERE.App/Program.cs` (`--panel` — режим CI) | `main.py` |
 | Статика SPA | `panel/dist` (общая для обеих) | та же |
 
 Фронтенд **один** на обе реализации, поэтому контракт один на обе:
@@ -61,14 +61,14 @@
 
 ```bash
 # C#: консоль + панель (открывается окном приложения)
-dotnet run --project JARVIS.App
+dotnet run --project ZERE.App
 
 # Python
 python main.py
 
 # Режим CI (только API-ядро, без голоса/зависимостей)
-dotnet run --project JARVIS.App -- --panel     # C#
-JARVIS_PANEL_EXTERNAL=1 python tests/test_panel_api.py
+dotnet run --project ZERE.App -- --panel     # C#
+ZERE_PANEL_EXTERNAL=1 python tests/test_panel_api.py
 
 # Фронтенд
 cd panel
@@ -85,7 +85,7 @@ npm run test:e2e   # Playwright-смок (сервер стартует сам)
 | **panel** | `npm run build` (typecheck + сборка) + проверка, что `dist` в git свежий |
 | **e2e** | Playwright-смок: дашборд → чат → настройки → i18n (5 тестов), сервер — `tests/e2e_server.py` (фейки, без Ollama/сети) |
 | **python** | компиляция, AST-контракт порта (`scripts/check_port.py`), контрактные тесты (91), тесты P1-2 |
-| **csharp** | `dotnet build JARVIS.slnx` + те же 91 контрактный тест против C#-панели (`--panel`) |
+| **csharp** | `dotnet build ZERE.slnx` + те же 91 контрактный тест против C#-панели (`--panel`) |
 
 Локальный прогон контрактных тестов: `python3 tests/test_panel_api.py`
 (нужен только `pyyaml`).
@@ -94,7 +94,7 @@ npm run test:e2e   # Playwright-смок (сервер стартует сам)
 
 ```
 panel/
-├── index.html            # meta jarvis-token → подставляется сервером
+├── index.html            # meta zere-token → подставляется сервером
 ├── vite.config.ts        # dev-прокси /api → 127.0.0.1:8080 + токен
 ├── playwright.config.ts  # E2E (webServer: tests/e2e_server.py)
 ├── e2e/smoke.spec.ts     # смоук-сценарий приёмки

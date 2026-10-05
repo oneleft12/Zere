@@ -1,16 +1,18 @@
-# JARVIS
+# ZERE
 
 Персональный AI-ассистент для Windows, работающий полностью локально.
 
 ## Возможности
 
-- **Голосовой ввод/вывод** — Whisper (STT) + Piper (TTS)
+- **Голосовой ввод/вывод** — GigaAM-v3 (STT, откат на Whisper) + Piper/PocketTTS (TTS)
 - **Локальная LLM** — Ollama с моделью qwen3.5:2b
 - **Управление компьютером** — запуск приложений, процессы, файлы, громкость
 - **Память** — SQLite-хранилище фактов о пользователе
 - **История диалогов** — сохранение и просмотр
 - **Плагины** — загрузка внешних плагинов (.dll в C#-версии, .py в Python-версии)
 - **Личности** — 6 стилей общения (Friendly, Formal, Sarcastic, Professional, Casual, Custom)
+- **Слово-триггер** — «Зере»: ассистент ждёт имя, затем слушает команду
+- **Совместимость данных** — база прошлой версии (`jarvis.db`) подхватывается автоматически
 
 ## Требования
 
@@ -30,9 +32,9 @@ powershell -ExecutionPolicy Bypass -File installer\install.ps1
 powershell -ExecutionPolicy Bypass -File installer\install.ps1 -CheckOnly
 ```
 
-- Двойной клик: `installer\Install-Jarvis.bat`
+- Двойной клик: `installer\Install-Zere.bat`
 - Готовый Setup.exe (Inno Setup 6): `installer\build-setup.ps1`
-- Удаление: `installer\Uninstall-Jarvis.bat`
+- Удаление: `installer\Uninstall-Zere.bat`
 - Подробности, параметры и диагностика — [docs/INSTALL.md](docs/INSTALL.md)
 
 ## Запуск
@@ -44,15 +46,15 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Требуется Python 3.12+. Структура: пакет `jarvis/` (ai, core, memory, tools, voice), точка входа `main.py`. Спецификация порта: `docs/PYTHON_PORT_SPEC.md`.
+Требуется Python 3.12+. Структура: пакет `zere/` (ai, core, memory, tools, voice), точка входа `main.py`. Спецификация порта: `docs/PYTHON_PORT_SPEC.md`.
 
 ### C#-версия (.NET 10)
 
 ```bash
-dotnet run --project JARVIS.App
+dotnet run --project ZERE.App
 ```
 
-При первом запуске JARVIS проверит зависимости и предложит установить недостающие.
+При первом запуске ZERE проверит зависимости и предложит установить недостающие.
 
 ## Команды
 
@@ -69,20 +71,23 @@ dotnet run --project JARVIS.App
 | `рисуй в крите` | Переключить рисование на Krita |
 | `выключи компьютер` | Выключение (с подтверждением) |
 | `настройки` | Панель настроек |
-| `голос` / `voice` | Голосовой режим |
+| `голос` / `voice` | Голосовой режим (слово-триггер «Зере») |
 | `exit` | Выход |
 
 ## Структура
 
 ```
-main.py            — точка входа (Python)
-jarvis/            — Python-порт: ai, core, memory, tools, voice
-JARVIS.App         — точка входа (C#)
-JARVIS.Core        — ядро: engine, обработчики, плагины
-JARVIS.AI          — клиент Ollama
-JARVIS.Memory      — SQLite-память
-JARVIS.Tools       — инструменты: приложения, файлы, процессы
-JARVIS.Voice       — голос: Whisper + Piper
+main.py              — точка входа (Python)
+zere/                — Python-порт: ai, core, memory, tools, voice
+ZERE.App             — точка входа (C#)
+ZERE.Core            — ядро: engine, обработчики, плагины
+ZERE.AI              — клиент Ollama
+ZERE.Memory          — SQLite-память
+ZERE.Tools           — инструменты: приложения, файлы, процессы
+ZERE.Voice           — голос: GigaAM + Piper
+ZERE.Speaker         — C#-хелпер озвучки (DSP + вывод звука)
+panel/               — web-панель (Vite + TypeScript)
+installer/           — установщик Windows (PowerShell + Inno Setup)
 ```
 
 ## Конфигурация
