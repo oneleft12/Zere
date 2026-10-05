@@ -5,10 +5,10 @@ using System.Text.RegularExpressions;
 namespace ZERE.Voice.WakeWord;
 
 /// <summary>
-/// Детектор ключевого слова "Джарвис".
+/// Детектор ключевого слова "Зере".
 /// Использует непрерывную запись с круговым буфером и энергетический VAD.
 /// Отправляет аудио в Whisper ТОЛЬКО при обнаружении речи — без лишних вызовов.
-/// Сопоставление нечёткое (Levenshtein) — ловит «джерви», «джервес», «чарви».
+/// Сопоставление нечёткое (Levenshtein) — ловит «зера», «зерэ», «зире».
 /// </summary>
 public class WakeWordDetector : IDisposable
 {
@@ -20,10 +20,13 @@ public class WakeWordDetector : IDisposable
     // Точные варианты (проверка подстрокой)
     private readonly string[] _wakeWordVariants;
 
-    // Ядра для нечёткого сравнения (расстояние Левенштейна)
+    // Ядра для нечёткого сравнения (расстояние Левенштейна).
+    // Имя короткое, поэтому «зере/зера/зире» перекрывают искажения Whisper,
+    // а порог по длине слова (см. IsWakeWord) держит ложные срабатывания
+    // низкими: слово короче 4 букв в сравнение не попадает.
     private static readonly string[] FuzzyCores =
     {
-        "джарвис", "джервис", "джервес", "джервис", "чарвис", "zere"
+        "зере", "зера", "зерэ", "зире", "zere"
     };
 
     // Настройки
@@ -51,9 +54,10 @@ public class WakeWordDetector : IDisposable
         _wakeWordVariants = new[]
         {
             config.WakeWord.ToLower(),
-            "джарвис",
-            "джервис",
-            "джервес",
+            "зере",
+            "зера",
+            "зерэ",
+            "зире",
             "zere"
         };
     }
@@ -192,7 +196,7 @@ public class WakeWordDetector : IDisposable
                 return true;
         }
 
-        // 2) Нечёткое сравнение по словам (ловит «джерви», «джервес», «чарви»)
+        // 2) Нечёткое сравнение по словам (ловит «зера», «зерэ», «зире»)
         var words = Regex.Split(norm, @"[^\p{L}]+");
 
         foreach (var word in words)

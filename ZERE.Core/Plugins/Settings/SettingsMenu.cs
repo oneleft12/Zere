@@ -20,7 +20,7 @@ public class SettingsMenu
         {
             Console.Clear();
             Console.WriteLine("╔══════════════════════════════════════╗");
-            Console.WriteLine($"║       НАСТРОЙКИ ZERE v{ZereConfig.Load().Version}        ║");
+            Console.WriteLine($"║       НАСТРОЙКИ ZERE v{ZereConfig.Load().Version}          ║");
             Console.WriteLine("╠══════════════════════════════════════╣");
             Console.WriteLine("║  1. Личность ассистента            ║");
             Console.WriteLine("║  2. Плагины                        ║");

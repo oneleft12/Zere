@@ -28,7 +28,7 @@ public class VoiceConfig
 
     public bool WakeWordEnabled { get; set; } = true;
 
-    public string WakeWord { get; set; } = "джарвис";
+    public string WakeWord { get; set; } = "зере";
 
     /// <summary>
     /// Включить DSP-обработку голоса (EQ, мягкая компрессия, нормализация).

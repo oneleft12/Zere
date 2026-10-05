@@ -34,7 +34,7 @@ class VoiceConfig:
 
     wake_word_enabled: bool = True
 
-    wake_word: str = "джарвис"
+    wake_word: str = "зере"
 
     # Включить DSP-обработку голоса (EQ, компрессия, нормализация).
     # Делает звук более «кинематографичным».

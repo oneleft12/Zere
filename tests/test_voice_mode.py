@@ -59,7 +59,7 @@ class FlakyVoice:
     ) -> None:
         self.config = SimpleNamespace(
             wake_word_enabled=wake_word_enabled,
-            wake_word="джарвис",
+            wake_word="зере",
         )
         self.is_voice_available = True
 
@@ -181,7 +181,7 @@ def test_wake_word_failure_keeps_mode_alive() -> None:
 def test_speak_failure_keeps_mode_alive() -> None:
     """Сбой озвучки тоже не убивает цикл (ошибка видна, режим работает)."""
     voice = FlakyVoice(["привет", "выход"], speak_fail_times=1)
-    runner = VoiceModeRunner(voice, lambda command: "ответ джарвиса")
+    runner = VoiceModeRunner(voice, lambda command: "ответ зере")
 
     assert runner.start() is True
 
@@ -192,7 +192,7 @@ def test_speak_failure_keeps_mode_alive() -> None:
 
     status = runner.status()
     assert status["lastError"] is not None and "озвучки" in status["lastError"]
-    assert status["lastAnswer"] == "ответ джарвиса"
+    assert status["lastAnswer"] == "ответ зере"
     assert status["state"] == STATE_IDLE
 
 

@@ -1,6 +1,6 @@
 {
   "version": "1.8.0",
-  "assistantName": "JARVIS",
+  "assistantName": "ZERE",
   "language": "ru",
   "model": "qwen3.5:2b",
   "voiceEnabled": true,

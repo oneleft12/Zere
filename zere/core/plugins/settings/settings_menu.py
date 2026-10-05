@@ -56,7 +56,7 @@ class SettingsMenu:
         while True:
             _console_clear()
             print("╔══════════════════════════════════════╗")
-            print(f"║       НАСТРОЙКИ ZERE v{ZereConfig.load().Version}        ║")
+            print(f"║       НАСТРОЙКИ ZERE v{ZereConfig.load().Version}          ║")
             print("╠══════════════════════════════════════╣")
             print("║  1. Личность ассистента            ║")
             print("║  2. Плагины                        ║")

@@ -401,9 +401,9 @@ class FakeVoiceConfig:
 
     def __init__(self) -> None:
         self.volume = 1.0
-        # Дефолты реального VoiceConfig: wake word включён, слово «джарвис».
+        # Дефолты реального VoiceConfig: wake word включён, слово «зере».
         self.wake_word_enabled = True
-        self.wake_word = "джарвис"
+        self.wake_word = "зере"
         self.command_silence_ms = 1500
 
 
@@ -2137,7 +2137,7 @@ def test_voice_mode_get_matches_spec() -> None:
         # значения wake word фиксированы дефолтами VoiceConfig в обеих реализациях:
         assert isinstance(data["available"], bool)
         assert isinstance(data["wakeWordEnabled"], bool)
-        assert data["wakeWord"] == "джарвис"
+        assert data["wakeWord"] == "зере"
         assert data["lastUtterance"] == ""
         assert data["lastAnswer"] == ""
         assert data["lastError"] is None
