@@ -22,6 +22,7 @@
 | **JARVIS.Memory** | SQLite-память: воспоминания + история разговоров |
 | **JARVIS.Tools** | Инструменты: приложения, файлы, игры, Windows, система |
 | **JARVIS.Voice** | Голосовой ввод (GigaAM-v3, откат на Whisper) и вывод (Piper / PocketTTS-клонирование) |
+| **JARVIS.Speaker** | C#-хелпер озвучки: DSP + вывод звука (NAudio/WASAPI) для Python-редакции |
 
 ---
 
@@ -69,6 +70,7 @@
 - **AudioRecorder** — запись с микрофона (и запись референса голоса для клонирования)
 - **ContinuousAudioRecorder** — непрерывная запись с круговым буфером и адаптивным VAD (wake word)
 - **AudioDevice (Python, `audio_device.py`)** — выбор устройства: WASAPI-аналог устройства по умолчанию (низкая задержка) + системный ресемплер (`auto_convert`), иначе откат на MME; `input_options`/`output_options` отдают готовые аргументы открытия потока и лечат `Invalid sample rate [PaErrorCode -9997]` (16 кГц против микшера 44.1/48 кГц)
+- **CSharpSpeaker (Python, `csharp_speaker.py`)** — мост к C#-хелперу «JARVIS.Speaker»: озвучка (DSP + вывод звука) идёт на C#, при отсутствии сборки/крахе — автоматический откат на Python (sounddevice); `JARVIS_SPEAKER=python` — принудительный Python
 - **AudioPlayer** — воспроизведение WAV
 - **StreamPlayer** — потоковое воспроизведение PCM (играет, пока TTS ещё синтезирует)
 - **WhisperService** — распознавание речи (откатный STT + wake word — детектор просыпания намеренно остаётся на Whisper)
@@ -148,7 +150,7 @@ Pipeline обработки команд (порядок важен):
 
 ### Установщик (`installer/`)
 
-- `install.ps1` — полная установка на Windows: Python 3.12+ (winget), `.venv` + `requirements.txt`, Ollama + модель из конфига, голосовые артефакты (GigaAM/Whisper/Piper/голос — все скачивания проверяются по SHA-256), веб-панель, ярлыки, лаунчер `JARVIS.bat`, манифест, smoke-тест
+- `install.ps1` — полная установка на Windows: Python 3.12+ (winget), `.venv` + `requirements.txt`, Ollama + модель из конфига, голосовые артефакты (GigaAM/Whisper/Piper/голос — все скачивания проверяются по SHA-256), веб-панель, ярлыки, лаунчер `JARVIS.bat`, манифест, smoke-тест; C#-озвучка (`publish\speaker\JARVIS.Speaker.exe`) публикуется при наличии .NET SDK — и для C#-редакции, и для Python (необязательный шаг: без него Python озвучивает сам)
 - `install.ps1 -CheckOnly` — dry-run (ничего не меняет; коды возврата: 0 — готово, 1 — требуются действия)
 - Параметры: `-Edition python|dotnet|both`, `-Yes`, `-NoLaunch`, `-SkipOllama`, `-SkipVoice`, `-SkipShortcuts`, `-Model`, `-Prefix`
 - `uninstall.ps1` — удаление (ярлыки, `.venv`, `publish`, манифест; `-RemoveAssets` — голосовые артефакты; `-PurgeData` — `jarvis.db`, логи, референс голоса); исходный код не трогает
@@ -272,6 +274,10 @@ Jarvis/
 │   │   └── StreamPlayer.cs    # Потоковое воспроизведение PCM
 │   └── Models/                # Модели STT (gitignored): ggml-base.bin + пакет GigaAM
 │
+├── JARVIS.Speaker/             # C#-хелпер озвучки (DSP + вывод звука)
+│   ├── JARVIS.Speaker.csproj   # NAudio + исходники DSP/плеера ссылкой из JARVIS.Voice
+│   └── Program.cs              # режим host (JSON-строки): speak/stop/ping/quit
+│
 ├── tools/                      # TTS-инструментарий
 │   └── jarvis_tts_server.py    # HTTP-сервер клонирования (uv.exe, xVibePocketTTS — gitignored)
 │
@@ -295,6 +301,8 @@ Jarvis/
 │   ├── test_stt_engine.py      # Тесты STT GigaAM (константы, роутинг, живое распознавание)
 │   ├── test_audio_device.py    # Тесты звуковых устройств (WASAPI+auto_convert, откат, регрессия -9997, живой микрофон)
 │   ├── test_voice_mode.py      # Тесты голосового режима (сбой записи/озвучки не убивает цикл)
+│   ├── test_csharp_speaker.py  # Тесты C#-озвучки (протокол хелпера, stop, откат на Python; без устройств)
+│   ├── fake_speaker.py         # Фейковый C#-хелпер для тестов озвучки (звук не играет)
 │   ├── test_system_prompt.py   # Тесты P1-2
 │   ├── test_drawing.py         # Тесты рисования (31: роутер, геометрия, текст, обработчик)
 │   └── e2e_server.py           # Раннер панели с фейками для E2E

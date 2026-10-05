@@ -636,6 +636,27 @@ function Publish-DotnetEdition {
     return (Test-Path (Join-Path $out 'JARVIS.App.exe'))
 }
 
+function Publish-Speaker {
+    param([string]$Root, [string]$DotnetExe)
+    $proj = Join-Path $Root 'JARVIS.Speaker\JARVIS.Speaker.csproj'
+    if (-not (Test-Path $proj)) {
+        Write-Fail2 ('проект не найден: ' + $proj)
+        return $false
+    }
+    $out = Join-Path $Root 'publish\speaker'
+    Write-Info ('dotnet publish хелпера озвучки -> ' + $out)
+    Push-Location $Root
+    try {
+        & $DotnetExe publish $proj -c Release -o $out --nologo | Out-Host
+        $code = $LASTEXITCODE
+    } finally {
+        Pop-Location
+    }
+    if ($null -eq $code) { $code = -1 }
+    if ($code -ne 0) { return $false }
+    return (Test-Path (Join-Path $out 'JARVIS.Speaker.exe'))
+}
+
 function Build-Panel {
     param([string]$Root)
     $dist = Join-Path $Root 'panel\dist\index.html'
@@ -832,6 +853,9 @@ $dotnetOk = ($null -ne $dotnetExe) -and (Test-DotnetSdk10 -Exe $dotnetExe)
 $publishExe = Join-Path $Prefix 'publish\app\JARVIS.App.exe'
 $publishOk = Test-Path $publishExe
 
+$speakerExe = Join-Path $Prefix 'publish\speaker\JARVIS.Speaker.exe'
+$speakerOk = Test-Path $speakerExe
+
 $panelDistOk = Test-Path (Join-Path $Prefix 'panel\dist\index.html')
 $launcherOk = Test-Path (Join-Path $Prefix 'JARVIS.bat')
 
@@ -845,6 +869,7 @@ $needPiper = (-not $SkipVoice) -and (-not $piperOk)
 $needVoice = (-not $SkipVoice) -and (-not $voiceOk)
 $needDotnetSdk = (($Edition -eq 'dotnet') -or ($Edition -eq 'both')) -and (-not $dotnetOk)
 $needPublish = (($Edition -eq 'dotnet') -or ($Edition -eq 'both')) -and (-not $publishOk)
+$needSpeaker = $dotnetOk -and (-not $speakerOk)
 $needPanel = -not $panelDistOk
 $needLauncher = -not $launcherOk
 $needShortcuts = (-not $SkipShortcuts)
@@ -881,6 +906,7 @@ if ($CheckOnly) {
         _line $dotnetOk ('.NET SDK 10: ' + $(if ($dotnetOk) { 'найден' } else { 'не найден' }))
         _line $publishOk ('C#-сборка publish\app\JARVIS.App.exe: ' + $(if ($publishOk) { 'есть' } else { 'нет' }))
     }
+    _line $speakerOk ('C#-озвучка publish\speaker\JARVIS.Speaker.exe: ' + $(if ($speakerOk) { 'есть' } else { 'нет (озвучка на Python)' }))
     _line $panelDistOk ('Web-панель panel\dist: ' + $(if ($panelDistOk) { 'собрана' } else { 'не собрана' }))
     _line $launcherOk ('Лаунчер JARVIS.bat: ' + $(if ($launcherOk) { 'есть' } else { 'нет' }))
 
@@ -914,6 +940,7 @@ if ($needPiper)    { $plan += ('Скачать ' + $Artifacts.Piper.Label) }
 if ($needVoice)    { $plan += ('Скачать ' + $Artifacts.PiperVoice.Label) }
 if ($needDotnetSdk) { $plan += 'Установить .NET SDK 10 (winget)' }
 if ($needPublish)  { $plan += 'Опубликовать C#-версию (dotnet publish)' }
+if ($needSpeaker)  { $plan += 'Опубликовать C#-озвучку (dotnet publish JARVIS.Speaker)' }
 if ($needPanel)    { $plan += 'Собрать web-панель (npm)' }
 
 if ($plan.Count -eq 0) {
@@ -1047,8 +1074,33 @@ if (($Edition -eq 'dotnet') -or ($Edition -eq 'both')) {
     } elseif (-not $needPublish) {
         Skip-Result -Name 'C#-сборка' -Detail 'publish\app\JARVIS.App.exe уже собран'
     }
+    # Хелпер озвучки: с ним Python-редакция отдаёт DSP и вывод звука коду на C#
+    if (-not $failedCritical -and $needSpeaker) {
+        $spOk = Publish-Speaker -Root $Prefix -DotnetExe $dExe
+        Finish -Ok $spOk -Name 'C#-озвучка' -OkDetail 'publish\speaker\JARVIS.Speaker.exe собран' -FailDetail 'хелпер озвучки не собран — озвучка останется на Python'
+    } elseif ($speakerOk) {
+        Skip-Result -Name 'C#-озвучка' -Detail 'publish\speaker\JARVIS.Speaker.exe уже собран'
+    }
 } else {
     Add-Result -Name '.NET-редакция' -Status skip -Detail 'редакция не выбрана'
+
+    # Python-редакция тоже может озвучивать через C# — если есть .NET SDK.
+    $spExe = Get-DotnetExe
+    if ($null -ne $spExe) {
+        Write-Step 'C#-озвучка (необязательно)'
+        if ($needSpeaker) {
+            $spOk = Publish-Speaker -Root $Prefix -DotnetExe $spExe
+            if ($spOk) {
+                Finish -Ok $true -Name 'C#-озвучка' -OkDetail 'publish\speaker\JARVIS.Speaker.exe собран'
+            } else {
+                Skip-Result -Name 'C#-озвучка' -Detail 'не собралась — озвучка останется на Python'
+            }
+        } else {
+            Skip-Result -Name 'C#-озвучка' -Detail 'publish\speaker\JARVIS.Speaker.exe уже собран'
+        }
+    } else {
+        Add-Result -Name 'C#-озвучка' -Status skip -Detail 'нет .NET SDK — озвучка на Python (работает)'
+    }
 }
 
 # --- 6. Панель ---

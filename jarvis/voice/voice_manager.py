@@ -17,6 +17,7 @@ from jarvis.core.logging.log_service import log_error
 from jarvis.voice.audio.audio_player import AudioPlayer
 from jarvis.voice.audio.audio_processor import DEFAULT_SAMPLE_RATE, AudioProcessor
 from jarvis.voice.audio.audio_recorder import AudioRecorder
+from jarvis.voice.audio.csharp_speaker import CSharpSpeaker
 from jarvis.voice.piper.piper_service import PiperService
 from jarvis.voice.sherpa.gigaam_service import GigaamService
 from jarvis.voice.voice_config import VoiceConfig
@@ -48,12 +49,27 @@ def output_sample_rate() -> int:
         return DEFAULT_SAMPLE_RATE
 
 
+def _remove_quietly(path: str) -> None:
+    """Удаляет временный WAV, молча глотая «нет файла»."""
+    if not path:
+        return
+
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
 class VoiceManager:
     """Оркестратор голосового ввода/вывода (порт VoiceManager.cs, IDisposable → close())."""
 
     def __init__(self) -> None:
         self._recorder = AudioRecorder()
         self._player = AudioPlayer()
+        # Озвучка на C#: DSP + вывод звука делает JARVIS.Speaker (NAudio/WASAPI),
+        # Python остаётся фолбэком (sounddevice).
+        self._speaker = CSharpSpeaker()
+        self._speaker_fallback_logged = False
         self._whisper = WhisperService()
         self._gigaam = GigaamService()
         self._piper = PiperService()
@@ -225,13 +241,38 @@ class VoiceManager:
         synth_ms = int((time.monotonic() - started) * 1000)
         print(f"[Perf] TTS synth={synth_ms} мс (piper)")
 
+        # Озвучка на C# (JARVIS.Speaker): DSP и вывод звука — NAudio/WASAPI.
+        # Если хелпер не собран или упал — озвучиваем сами (sounddevice).
+        if self._speaker.available():
+            speak_ms = int((time.monotonic() - started) * 1000)
+
+            if self._speaker.speak(
+                wav_file,
+                volume=self.config.volume,
+                process=self.config.audio_processing,
+                rate=output_sample_rate(),
+            ):
+                print(
+                    f"[Perf] озвучка C# (JARVIS.Speaker)="
+                    f"{int((time.monotonic() - started) * 1000) - speak_ms} мс"
+                )
+                _remove_quietly(wav_file)
+                return
+
+            if not self._speaker_fallback_logged:
+                log_error(
+                    "VoiceManager",
+                    "C#-озвучка не сработала — озвучиваю через Python (sounddevice)",
+                )
+                self._speaker_fallback_logged = True
+
         file_to_play = wav_file
 
         try:
             # Профессиональная DSP-обработка: ресемплинг под устройство, EQ,
-            # компрессия, нормализация. Ресемплинг здесь обязателен: piper
-            # отдаёт 22050 Гц, и если отдать их как есть, sounddevice/PortAudio
-            # будет конвертировать сам — своим слабым ресемплером, что и даёт
+            # страховка по пикам. Ресемплинг здесь обязателен: piper отдаёт
+            # 22050 Гц, и если отдать их как есть, sounddevice/PortAudio будет
+            # конвертировать сам — своим слабым ресемплером, что и даёт
             # «металлический» призвук на выходе.
             if self.config.audio_processing:
                 file_to_play = AudioProcessor.process(wav_file, output_sample_rate())
@@ -242,18 +283,15 @@ class VoiceManager:
             print(f"[JARVIS] {text}")
         finally:
             # Удаляем обработанный файл (если он отличается от оригинального)
-            try:
-                if file_to_play != wav_file:
-                    os.remove(file_to_play)
-            except OSError:
-                pass
-            try:
-                os.remove(wav_file)
-            except OSError:
-                pass
+            _remove_quietly(file_to_play if file_to_play != wav_file else "")
+            _remove_quietly(wav_file)
 
     def stop_speaking(self) -> None:
-        """Останавливает воспроизведение (порт StopSpeaking)."""
+        """Останавливает воспроизведение (порт StopSpeaking).
+
+        Гасим оба тракта: C#-хелпер (если озвучивал он) и Python-плеер.
+        """
+        self._speaker.stop()
         self._player.stop()
 
     # ─── Wake Word ──────────────────────────────────────────
@@ -419,6 +457,7 @@ class VoiceManager:
         """Освобождение ресурсов (порт Dispose)."""
         self._recorder.close()
         self._player.close()
+        self._speaker.close()
         if self._wake_word_detector is not None:
             self._wake_word_detector.close()
 
