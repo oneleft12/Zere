@@ -457,6 +457,107 @@ def test_window_title_matching_is_precise() -> None:
     assert _title_matches("Безымянный — Krita", ("paint",)) is False
 
 
+def test_plan_moves_caps_points_and_covers_ends() -> None:
+    """Потолок перемещений на штрих и доходимость до конца ломаной.
+
+    Без потолка длинная окружность при паузе 10 мс рисовалась бы секундами.
+    """
+    from jarvis.tools.drawing import drawing_service
+
+    canvas = geometry.DrawingCanvas(left=0, top=0, width=800, height=600)
+    circle_points = [canvas.to_screen(x, y) for (x, y) in geometry.circle()[0]]
+
+    moves = drawing_service.DrawingService._plan_moves(circle_points)
+
+    assert moves, "круг не дал ни одного перемещения"
+    assert moves[-1] == circle_points[-1], "штрих не дошёл до конца"
+
+    # Длинный отрезок упирается в потолок, а не распухает до сотен точек.
+    long_line = [(0, 0), (4000, 0)]
+    assert len(drawing_service.DrawingService._plan_moves(long_line)) <= (
+        drawing_service.MAX_POINTS_PER_STROKE + 1
+    )
+
+    assert drawing_service.DrawingService._plan_moves([(5, 5)]) == []
+    assert drawing_service.DrawingService._plan_moves([]) == []
+
+
+def test_canvas_guard_rejects_degenerate_area() -> None:
+    """Вырожденный холст — отказ, а не молчаливая точка вместо фигуры."""
+    from jarvis.tools.drawing.drawing_service import is_canvas_usable
+
+    assert is_canvas_usable(geometry.DrawingCanvas(0, 0, 800, 600)) is True
+    assert is_canvas_usable(geometry.DrawingCanvas(0, 0, 80, 80)) is True
+
+    for width, height in ((0, 0), (1, 1), (79, 600), (800, 79)):
+        assert is_canvas_usable(
+            geometry.DrawingCanvas(0, 0, width, height)
+        ) is False, f"{width}x{height} должен быть отвергнут"
+
+
+def test_moves_are_injected_not_just_repositioned() -> None:
+    """Регрессия «рисует только точку».
+
+    Одного SetCursorPos мало: движение должно уходить в очередь ввода окна
+    событием MOUSEEVENTF_MOVE|MOUSEEVENTF_ABSOLUTE — иначе приложение видит
+    нажатие и отпускание в одной точке.
+    """
+    import inspect
+
+    from jarvis.tools.drawing import drawing_service
+
+    source = inspect.getsource(drawing_service._move_to)
+
+    assert "SetCursorPos" in source
+    assert "MOUSEEVENTF_MOVE" in source, "_move_to не отправляет событие MOVE"
+    assert "MOUSEEVENTF_ABSOLUTE" in source, "_move_to не использует абсолютные координаты"
+    assert "_mouse_event(flags" in source or "_mouse_event(" in source
+
+    # Нормировка на виртуальный рабочий стол: иначе мультимонитор уезжает.
+    assert "SM_CXVIRTUALSCREEN" in inspect.getsource(drawing_service._absolute_coords)
+
+    # Пауза между движениями: при 2 мс Windows склеивает WM_MOUSEMOVE.
+    assert drawing_service.MOVE_DELAY >= 0.005, (
+        "слишком маленькая пауза — Windows склеит WM_MOUSEMOVE в одно событие"
+    )
+
+
+def test_dpi_awareness_enabled_before_measuring_window() -> None:
+    """Координаты на масштабированных дисплеях должны быть физическими.
+
+    Иначе GetClientRect отдаёт виртуализированные пиксели, холст схлопывается
+    и фигура превращается в точку.
+    """
+    import inspect
+
+    from jarvis.tools.drawing import drawing_service
+
+    run_source = inspect.getsource(drawing_service.DrawingService._run)
+    awareness_source = inspect.getsource(drawing_service._enable_dpi_awareness)
+
+    assert "_enable_dpi_awareness()" in run_source, "DPI не включается перед рисованием"
+    assert "SetThreadDpiAwarenessContext" in awareness_source
+    assert "SetProcessDPIAware" in awareness_source, "нет отката для старых Windows"
+
+    # Awareness обязан включаться до измерений окна.
+    assert run_source.index("_enable_dpi_awareness()") < run_source.index("_client_rect")
+    assert run_source.index("_enable_dpi_awareness()") < run_source.index("_find_or_launch")
+
+
+def test_run_reports_drawing_diagnostics() -> None:
+    """Строка [Drawing] нужна, чтобы отличить сбой от успеха без отладчика."""
+    import inspect
+
+    from jarvis.tools.drawing import drawing_service
+
+    source = inspect.getsource(drawing_service.DrawingService._run)
+
+    for token in ("[Drawing]", "холст=", "штрихов=", "перемещений="):
+        assert token in source, f"в диагностике нет {token}"
+
+    assert "moves == 0" in source, "нет проверки «ни одного перемещения»"
+
+
 def test_win32_input_struct_matches_windows_layout() -> None:
     """Размер INPUT обязан совпадать с Windows, иначе SendInput не сработает.
 

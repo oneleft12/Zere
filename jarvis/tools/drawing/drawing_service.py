@@ -61,22 +61,41 @@ PREPARE_DELAY = 0.6
 
 # Шаг интерполяции штриха: чаще — плавнее, но дольше.
 STEP_PIXELS = 5.0
-STEP_DELAY = 0.002
+# Пауза между движениями курсора. Меньше ~5 мс Windows склеивает
+# WM_MOUSEMOVE, и приложение видит только точку вместо штриха.
+MOVE_DELAY = 0.010
 # Пауза между штрихами: у текста их сотни, поэтому пауза небольшая.
-STROKE_DELAY = 0.015
+STROKE_DELAY = 0.010
+# Потолок точек на штрих: длинную окружность разбиваем крупнее,
+# иначе рисование растягивается на секунды без выигрыша в качестве.
+MAX_POINTS_PER_STROKE = 120
+# Минимальный холст, при котором рисование вообще имеет смысл.
+MIN_CANVAS_SIZE = 80
 
 # ── Константы Win32 ───────────────────────────────────────────────
 
 INPUT_MOUSE = 0
 INPUT_KEYBOARD = 1
 
+MOUSEEVENTF_MOVE = 0x0001
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_ABSOLUTE = 0x8000
+MOUSEEVENTF_VIRTUALDESK = 0x4000
 
 KEYEVENTF_KEYUP = 0x0002
 
 SW_RESTORE = 9
 GW_OWNER = 4
+
+# GetSystemMetrics: границы виртуального рабочего стола (мультимонитор).
+SM_XVIRTUALSCREEN = 76
+SM_YVIRTUALSCREEN = 77
+SM_CXVIRTUALSCREEN = 78
+SM_CYVIRTUALSCREEN = 79
+
+# DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = (HANDLE)-4
+DPI_AWARENESS_PER_MONITOR_V2 = -4
 
 VK_CONTROL = 0x11
 VK_A = 0x41
@@ -192,10 +211,52 @@ def _get_user32():
     handle.ClientToScreen.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.POINT))
     handle.ClientToScreen.restype = wintypes.BOOL
 
+    handle.GetSystemMetrics.argtypes = (ctypes.c_int,)
+    handle.GetSystemMetrics.restype = ctypes.c_int
+
+    # Эти две есть не во всех Windows: без них координаты на масштабированных
+    # дисплеях виртуализируются и уезжают.
+    for name in ("SetThreadDpiAwarenessContext", "SetProcessDPIAware"):
+        try:
+            function = getattr(handle, name)
+        except AttributeError:
+            continue
+
+        function.restype = wintypes.BOOL
+
     # Прототип EnumWindows задаётся в _find_window: там известен тип колбэка.
 
     _user32 = handle
     return handle
+
+
+def _enable_dpi_awareness() -> None:
+    """Согласованность координат на масштабированных дисплеях (125 %, 150 %).
+
+    Процесс JARVIS может быть DPI-unaware, тогда GetClientRect/ClientToScreen
+    возвращают виртуализированные координаты, а курсор живёт в физических —
+    холст схлопывается и вместо фигуры получается точка. Переключаем
+    awareness для текущего потока: остальной процесс не затрагивается.
+
+    Если не получилось — не беда: на 100 % масштабе координаты совпадают,
+    и рисование работает как раньше.
+    """
+    handle = _get_user32()
+
+    set_thread = getattr(handle, "SetThreadDpiAwarenessContext", None)
+    if set_thread is not None:
+        try:
+            if set_thread(ctypes.c_void_p(DPI_AWARENESS_PER_MONITOR_V2)):
+                return
+        except OSError:
+            pass
+
+    set_process = getattr(handle, "SetProcessDPIAware", None)
+    if set_process is not None:
+        try:
+            set_process()
+        except OSError:
+            pass
 
 
 def _send_inputs(items: Sequence[_INPUT]) -> bool:
@@ -210,13 +271,57 @@ def _send_inputs(items: Sequence[_INPUT]) -> bool:
     return int(sent) == len(items)
 
 
-def _mouse_event(flags: int) -> bool:
-    """Событие мыши без смещения (курсор двигаем через SetCursorPos)."""
+def _mouse_event(flags: int, dx: int = 0, dy: int = 0) -> bool:
+    """Событие мыши через SendInput.
+
+    Для перемещения обязателен MOUSEEVENTF_MOVE|MOUSEEVENTF_ABSOLUTE: одного
+    SetCursorPos недостаточно — движение курсора не попадает в очередь ввода
+    окна как сообщение о перетаскивании, и вместо штриха выходит точка.
+    """
     item = _INPUT(
         type=INPUT_MOUSE,
-        u=_INPUTUNION(mi=_MOUSEINPUT(0, 0, 0, flags, 0, None)),
+        u=_INPUTUNION(mi=_MOUSEINPUT(int(dx), int(dy), 0, flags, 0, None)),
     )
     return _send_inputs([item])
+
+
+def _absolute_coords(dx: int, dy: int) -> Tuple[int, int]:
+    """Экранные пиксели → абсолютные координаты SendInput (0..65535).
+
+    Нормируется на виртуальный рабочий стол: иначе на нескольких мониторах
+    курсор уезжает на основной.
+    """
+    handle = _get_user32()
+
+    left = handle.GetSystemMetrics(SM_XVIRTUALSCREEN)
+    top = handle.GetSystemMetrics(SM_YVIRTUALSCREEN)
+    width = handle.GetSystemMetrics(SM_CXVIRTUALSCREEN)
+    height = handle.GetSystemMetrics(SM_CYVIRTUALSCREEN)
+
+    if width <= 1 or height <= 1:
+        return (0, 0)
+
+    normalized_x = round((dx - left) * 65535 / (width - 1))
+    normalized_y = round((dy - top) * 65535 / (height - 1))
+
+    return (
+        max(0, min(65535, int(normalized_x))),
+        max(0, min(65535, int(normalized_y))),
+    )
+
+
+def _move_to(x: int, y: int) -> None:
+    """Ставит курсор в точку двумя способами: SetCursorPos + абсолютный MOVE.
+
+    Дублирование намеренное: SetCursorPos двигает курсор, а событие MOVE
+    попадает в очередь ввода окна — то, что нужно приложению при перетаскивании.
+    """
+    handle = _get_user32()
+    handle.SetCursorPos(int(x), int(y))
+
+    normalized_x, normalized_y = _absolute_coords(int(x), int(y))
+    flags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK
+    _mouse_event(flags, normalized_x, normalized_y)
 
 
 def _key_event(vk: int, key_up: bool = False) -> bool:
@@ -406,6 +511,16 @@ def _focus(hwnd: int) -> bool:
     return False
 
 
+def is_canvas_usable(canvas: DrawingCanvas) -> bool:
+    """Годится ли холст для рисования.
+
+    Вырожденный холст (окно не измерилось, свёрнуто, отступы съели область)
+    даёт не фигуру, а одну точку — при этом команда отрапортует об успехе.
+    Лучше проверить заранее и сказать пользователю правду.
+    """
+    return canvas.width >= MIN_CANVAS_SIZE and canvas.height >= MIN_CANVAS_SIZE
+
+
 class DrawingService:
     """Рисует фигуры и текст в текущем приложении-цели."""
 
@@ -454,6 +569,10 @@ class DrawingService:
     def _run(self, command: ParsedDrawingCommand) -> str:
         spec = spec_for(self._target)
 
+        # До любых измерений окна: иначе на масштабированных дисплеях
+        # координаты виртуализируются и холст схлопывается в точку.
+        _enable_dpi_awareness()
+
         hwnd = self._find_or_launch(spec)
         if hwnd is None:
             return (
@@ -466,23 +585,55 @@ class DrawingService:
         if not _focus(hwnd):
             return f"Не удалось переключиться на окно {display_name(self._target)}."
 
+        target_name = display_name(self._target)
+
         try:
             # Пауза: пользователь отпускает мышь, окно дорисовывается.
             time.sleep(PREPARE_DELAY)
 
-            canvas = DrawingCanvas.from_client(
-                *_client_rect(hwnd), insets=spec.insets
-            )
+            window_rect = _client_rect(hwnd)
+            canvas = DrawingCanvas.from_client(*window_rect, insets=spec.insets)
 
             if command.type is DrawingCommandType.CLEAR_CANVAS:
                 self._clear_canvas()
-                return f"Очистил холст в {display_name(self._target)}."
+                return f"Очистил холст в {target_name}."
+
+            # Вырожденный холст — молчаливая точка вместо фигуры. Лучше отказать
+            # и показать числа: по ним сразу видно, врёт ли определение окна.
+            if not is_canvas_usable(canvas):
+                log_error(
+                    "DrawingService",
+                    f"вырожденный холст {canvas.width}x{canvas.height} "
+                    f"(окно {window_rect})",
+                )
+                return (
+                    f"Холст {target_name} оказался слишком мал "
+                    f"({canvas.width}×{canvas.height} px). Разверните окно "
+                    f"на весь экран и повторите."
+                )
 
             strokes = self._strokes_for(command, canvas)
             if not strokes:
                 return "Не удалось построить рисунок."
 
-            self._draw_strokes(canvas, strokes)
+            started = time.monotonic()
+            moves = self._draw_strokes(canvas, strokes)
+            elapsed = time.monotonic() - started
+
+            # Диагностика в стиле [Perf]: по этой строке видно, дошло ли
+            # рисование до окна, если фигура снова окажется точкой.
+            print(
+                f"[Drawing] {target_name}: окно={window_rect}, "
+                f"холст={canvas.width}x{canvas.height}, штрихов={len(strokes)}, "
+                f"перемещений={moves}, время={elapsed:.1f} с"
+            )
+
+            if moves == 0:
+                log_error("DrawingService", "ни одного перемещения курсора")
+                return (
+                    f"Не удалось провести штрихи в {target_name}: "
+                    f"курсор не переместился. Подробности — в консоли."
+                )
         finally:
             if previous and previous != hwnd:
                 _get_user32().SetForegroundWindow(previous)
@@ -541,8 +692,9 @@ class DrawingService:
 
         return []
 
-    def _draw_strokes(self, canvas: DrawingCanvas, strokes: Sequence[Stroke]) -> None:
-        handle = _get_user32()
+    def _draw_strokes(self, canvas: DrawingCanvas, strokes: Sequence[Stroke]) -> int:
+        """Проводит все штрихи; возвращает число отправленных перемещений."""
+        moves = 0
 
         for stroke in strokes:
             points = [canvas.to_screen(x, y) for (x, y) in stroke]
@@ -550,28 +702,54 @@ class DrawingService:
             if not points:
                 continue
 
-            handle.SetCursorPos(*points[0])
+            _move_to(*points[0])
             _mouse_event(MOUSEEVENTF_LEFTDOWN)
 
-            for start, end in zip(points, points[1:]):
-                for step in self._interpolate(start, end):
-                    handle.SetCursorPos(*step)
+            for step in self._plan_moves(points):
+                _move_to(*step)
+                moves += 1
 
-                    if STEP_DELAY:
-                        time.sleep(STEP_DELAY)
+                if MOVE_DELAY:
+                    time.sleep(MOVE_DELAY)
 
             _mouse_event(MOUSEEVENTF_LEFTUP)
 
             if STROKE_DELAY:
                 time.sleep(STROKE_DELAY)
 
+        return moves
+
+    @classmethod
+    def _plan_moves(cls, points: Sequence[Tuple[int, int]]) -> List[Tuple[int, int]]:
+        """Точки перемещения по ломаной с потолком на количество.
+
+        Шаг подбирается от длины штриха: длинная окружность разбивается
+        крупнее, чтобы при паузе 10 мс рисование не длилось минуты.
+        """
+        if len(points) < 2:
+            return []
+
+        length = sum(
+            math.hypot(end[0] - start[0], end[1] - start[1])
+            for start, end in zip(points, points[1:])
+        )
+        step_pixels = max(STEP_PIXELS, length / MAX_POINTS_PER_STROKE)
+
+        moves: List[Tuple[int, int]] = []
+
+        for start, end in zip(points, points[1:]):
+            moves.extend(cls._interpolate(start, end, step_pixels))
+
+        return moves
+
     @staticmethod
     def _interpolate(start: Tuple[int, int],
-                     end: Tuple[int, int]) -> List[Tuple[int, int]]:
+                     end: Tuple[int, int],
+                     step_pixels: float = STEP_PIXELS) -> List[Tuple[int, int]]:
         """Промежуточные точки отрезка: без них приложение «срежет» угол."""
         dx = end[0] - start[0]
         dy = end[1] - start[1]
-        steps = max(1, int(math.hypot(dx, dy) / STEP_PIXELS))
+        steps = max(1, int(math.hypot(dx, dy) / step_pixels))
 
         return [
             (round(start[0] + dx * index / steps), round(start[1] + dy * index / steps))
