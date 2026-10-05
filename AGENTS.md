@@ -150,15 +150,16 @@ Pipeline обработки команд (порядок важен):
 - `install.ps1 -CheckOnly` — dry-run (ничего не меняет; коды возврата: 0 — готово, 1 — требуются действия)
 - Параметры: `-Edition python|dotnet|both`, `-Yes`, `-NoLaunch`, `-SkipOllama`, `-SkipVoice`, `-SkipShortcuts`, `-Model`, `-Prefix`
 - `uninstall.ps1` — удаление (ярлыки, `.venv`, `publish`, манифест; `-RemoveAssets` — голосовые артефакты; `-PurgeData` — `jarvis.db`, логи, референс голоса); исходный код не трогает
-- `build-setup.ps1` + `Jarvis.iss` — сборка `installer\Output\JarvisInstaller.exe` (Inno Setup 6; stage из `git archive HEAD`, установка per-user в `%LOCALAPPDATA%\Programs\JARVIS`)
+- `build-setup.ps1` + `Jarvis.iss` — сборка `installer\Output\JarvisInstaller.exe` (Inno Setup 6; stage из `git archive HEAD`, установка per-user в `%LOCALAPPDATA%\Programs\JARVIS`); редакция по умолчанию — **both** (дистрибутив несёт Python- и C#-версию; `-Edition python` — облегчённая сборка без .NET SDK), версия берётся из `config/config.json`, а четвёртое поле `FileVersion` — номер сборки (число коммитов git), чтобы две сборки одной версии были различимы
 - Двойной клик: `Install-Jarvis.bat` / `Uninstall-Jarvis.bat`
-- Тесты: `python3 tests/test_installer.py` (+ парсер PowerShell на Windows)
+- Тесты: `python3 tests/test_installer.py` (13: BOM/CRLF, SHA-256, связность, совпадение версии во всех источниках, редакция по умолчанию)
 - Документация: `docs/INSTALL.md`
 
 ---
 
 ## Конфигурация (`config/config.json`)
 
+- **Версия**: `version` = `1.8.0` — единый источник для установщика (см. `docs/INSTALL.md`, §«Версия дистрибутива»); дублируется в 5 значениях по умолчанию, их совпадение проверяет `tests/test_installer.py`
 - **Модель**: qwen3.5:2b (через Ollama)
 - **Язык**: ru
 - **Голос**: STT `sttEngine` = `gigaam` (GigaAM-v3 punct на sherpa-onnx — основной; при сбоях/отсутствии модели — автоматический откат на `whisper`, wake word всегда на Whisper) + TTS: `ttsEngine` = `pocket` (xVibePocketTTS, клонирование голоса; при сбоях — автоматический откат на `piper`), `voiceReferencePath` — WAV-референс (записывается командой «записать голос»), `audioProcessing` — DSP-обработка озвучки Piper (тумблер на экране «Голос», по умолчанию `true`; применяется без перезапуска)

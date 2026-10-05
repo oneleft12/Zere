@@ -26,8 +26,8 @@ powershell -ExecutionPolicy Bypass -File installer\install.ps1 -CheckOnly
 ### 3. Готовый Setup.exe (Inno Setup)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1            # редакция python
-powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1 -Edition both
+powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1            # обе редакции (по умолчанию)
+powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1 -Edition python
 powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1 -WorkingTree # с некоммиченными изменениями
 ```
 
@@ -38,7 +38,24 @@ powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1 -WorkingTree 
 Требования для сборки Setup: [Inno Setup 6](https://jrsoftware.org/isdl.php)
 и git. По умолчанию staged-дистрибутив формируется из `git archive HEAD`
 (только отслеживаемые файлы — без `.git`, `.venv`, `bin/obj`, `jarvis.db`,
-`logs`).
+`logs`), а редакция — `both`: дистрибутив несёт и Python-, и C#-версию.
+Облегчённая сборка только с Python — `-Edition python`.
+
+### Версия дистрибутива
+
+Версия берётся из `config/config.json` (`"version"`) и передаётся в Inno Setup
+как `MyAppVersion`; четвёртое поле `FileVersion` — **номер сборки** (число
+коммитов git). Поэтому две сборки одной версии различимы в свойствах файла:
+
+```
+FileVersion    1.8.0.118      ← версия из конфига + номер сборки
+ProductVersion 1.8.0
+```
+
+Версия дублируется ещё в пяти местах (значения по умолчанию): `build-setup.ps1`,
+`DefaultConfigJson` в `install.ps1`, `Jarvis.iss`, `jarvis_config.py`,
+`JarvisConfig.cs`. Их совпадение проверяет `tests/test_installer.py`
+(`test_version_sources_agree`) — при смене версии правьте все шесть.
 
 ## Что устанавливает установщик
 

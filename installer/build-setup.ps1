@@ -11,7 +11,9 @@
     Результат: installer\Output\JarvisInstaller.exe
 
 .PARAMETER Edition
-    Редакция для install.ps1: python (по умолчанию) | dotnet | both.
+    Редакция для install.ps1: both (по умолчанию) | python | dotnet.
+    both — дистрибутив несёт обе редакции; python — облегчённая сборка
+    без .NET SDK.
 
 .PARAMETER WorkingTree
     Архивировать не HEAD, а текущее рабочее дерево (учесть некоммиченные
@@ -19,12 +21,13 @@
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1
-    powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1 -Edition both -WorkingTree
+    powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1 -Edition python
+    powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1 -WorkingTree
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('python', 'dotnet', 'both')]
-    [string]$Edition = 'python',
+    [string]$Edition = 'both',
     [switch]$WorkingTree
 )
 
@@ -40,7 +43,7 @@ $stageZip = Join-Path $PSScriptRoot 'stage.zip'
 $outputDir = Join-Path $PSScriptRoot 'Output'
 
 # --- 1. Версия из config/config.json ---
-$version = '1.7.0'
+$version = '1.8.0'
 $cfgPath = Join-Path $root 'config\config.json'
 if (Test-Path $cfgPath) {
     try {
@@ -125,14 +128,27 @@ Write-Info ('файлов в stage: ' + $staged)
 
 # --- 4. Компиляция ---
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir -Force | Out-Null }
-# VersionInfoVersion: только цифры и точки (1.7.0 -> 1.7.0.0)
+# VersionInfoVersion: только цифры и точки. Четвёртое поле — номер сборки
+# (число коммитов): две сборки одной версии различимы в свойствах файла,
+# иначе 1.8.0 от 1.8.0 не отличить.
 $fileVersion = ($version -replace '[^0-9.]', '').Trim('.')
-if ($fileVersion -eq '') { $fileVersion = '1.7.0.0' }
+if ($fileVersion -eq '') { $fileVersion = '1.8.0' }
 $parts = @($fileVersion -split '\.')
-while ($parts.Count -lt 4) { $parts += '0' }
-$fileVersion = ($parts[0..3] -join '.')
+while ($parts.Count -lt 3) { $parts += '0' }
+$buildNumber = 0
+Push-Location $root
+try {
+    $rev = & git rev-list --count HEAD 2>$null
+    if ($LASTEXITCODE -eq 0 -and $rev) { $buildNumber = [int]($rev | Select-Object -First 1) }
+} catch {
+    Write-Info 'номер сборки недоступен (git rev-list) — четвёртое поле 0'
+} finally {
+    Pop-Location
+}
+$fileVersion = (($parts[0..2]) + $buildNumber) -join '.'
+Write-Info ('версия ' + $version + ', сборка ' + $buildNumber + ' -> ' + $fileVersion)
 Write-Info 'компиляция ISCC...'
-& $iscc ("/DStageDir=" + $stageDir) ("/DEdition=" + $Edition) ("/DFileVersion=" + $fileVersion) $issPath
+& $iscc ("/DStageDir=" + $stageDir) ("/DEdition=" + $Edition) ("/DMyAppVersion=" + $version) ("/DFileVersion=" + $fileVersion) $issPath
 $code = $LASTEXITCODE
 if ($null -eq $code) { $code = -1 }
 

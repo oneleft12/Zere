@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -166,6 +167,97 @@ def test_inno_script_wiring() -> None:
         "build-setup.ps1 не формирует stage из git"
     )
     assert "ISCC" in build, "build-setup.ps1 не ищет ISCC.exe"
+
+
+def test_version_sources_agree() -> None:
+    """Версия задана в шести местах — они обязаны совпадать.
+
+    Иначе установщик показывает одну версию, конфиг пишет другую, а сборка
+    берёт третью: «обновил, но не отличить от старого».
+    """
+    config = json.loads((ROOT / "config" / "config.json").read_text(encoding="utf-8"))
+    # Источник истины для сборки — config/config.json.
+    version = config["version"]
+
+    assert re.fullmatch(r"\d+\.\d+\.\d+", version), f"версия не semver: {version}"
+
+    build = _read("build-setup.ps1")
+    match = re.search(r"^\$version = '([^']+)'", build, re.M)
+    assert match, "в build-setup.ps1 не найден $version"
+    assert match.group(1) == version, "build-setup.ps1: $version != config.json"
+
+    default_config = _read("install.ps1")
+    match = re.search(r'\$DefaultConfigJson = @\'\s*\{\s*"version": "([^"]+)"', default_config)
+    assert match, "в install.ps1 не найден DefaultConfigJson с версией"
+    assert match.group(1) == version, "install.ps1: DefaultConfigJson != config.json"
+
+    iss = _read("Jarvis.iss")
+    match = re.search(r'#define MyAppVersion "([^"]+)"', iss)
+    assert match, "в Jarvis.iss не найден MyAppVersion"
+    assert match.group(1) == version, "Jarvis.iss: MyAppVersion != config.json"
+
+    match = re.search(
+        r'#define FileVersion "([\d.]+)"', iss
+    )
+    assert match, "в Jarvis.iss не найден FileVersion"
+    assert match.group(1).startswith(version), "Jarvis.iss: FileVersion != config.json"
+
+    python_config = (
+        ROOT / "jarvis" / "core" / "configuration" / "jarvis_config.py"
+    ).read_text(encoding="utf-8")
+    match = re.search(r'version: str = "([^"]+)"', python_config)
+    assert match, "в jarvis_config.py не найдена версия по умолчанию"
+    assert match.group(1) == version, "jarvis_config.py: версия != config.json"
+
+    csharp_config = (
+        ROOT / "JARVIS.Core" / "Configuration" / "JarvisConfig.cs"
+    ).read_text(encoding="utf-8")
+    match = re.search(r'Version \{ get; set; \} = "([^"]+)"', csharp_config)
+    assert match, "в JarvisConfig.cs не найдена версия по умолчанию"
+    assert match.group(1) == version, "JarvisConfig.cs: версия != config.json"
+
+
+def test_iss_gets_version_from_build() -> None:
+    """Версию в .iss задаёт сборка: иначе она замирает и расходится с конфигом."""
+    iss = _read("Jarvis.iss")
+    assert "#ifndef MyAppVersion" in iss, (
+        "MyAppVersion в Jarvis.iss не переопределяется через /DMyAppVersion"
+    )
+
+    build = _read("build-setup.ps1")
+    assert '"/DMyAppVersion="' in build, (
+        "build-setup.ps1 не передаёт версию в ISCC (/DMyAppVersion)"
+    )
+
+
+def test_build_version_has_build_number() -> None:
+    """Четвёртое поле версии — номер сборки: две сборки одной версии различимы."""
+    build = _read("build-setup.ps1")
+    assert "git rev-list --count HEAD" in build, (
+        "build-setup.ps1 не берёт номер сборки из git"
+    )
+    assert "$buildNumber" in build, "build-setup.ps1 не подставляет номер сборки"
+    # Поле версии обязано собираться из трёх частей + номера сборки.
+    assert "(($parts[0..2]) + $buildNumber) -join '.'" in build, (
+        "FileVersion не собирается как major.minor.patch.build"
+    )
+
+
+def test_build_setup_ships_both_editions() -> None:
+    """Дистрибутив по умолчанию несёт обе редакции, а не только Python."""
+    build = _read("build-setup.ps1")
+    match = re.search(r"\[string\]\$Edition = '(\w+)'", build)
+    assert match, "в build-setup.ps1 не найден параметр -Edition"
+    assert match.group(1) == "both", (
+        f"по умолчанию собирается редакция {match.group(1)}, "
+        "C#-редакция в дистрибутив не попадёт"
+    )
+
+    iss = _read("Jarvis.iss")
+    assert "#ifndef Edition" in iss, "в Jarvis.iss нет переопределяемого Edition"
+    match = re.search(r'#define Edition "(\w+)"', iss)
+    assert match, "в Jarvis.iss не найден запасной Edition"
+    assert match.group(1) == "both", "ручной ISCC соберёт не обе редакции"
 
 
 def test_ps1_parse_powershell() -> None:

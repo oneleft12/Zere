@@ -102,7 +102,7 @@ $Artifacts = @{
 
 $DefaultConfigJson = @'
 {
-  "version": "1.7.0",
+  "version": "1.8.0",
   "assistantName": "JARVIS",
   "language": "ru",
   "model": "qwen3.5:2b",

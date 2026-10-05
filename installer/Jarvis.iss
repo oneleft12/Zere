@@ -16,14 +16,20 @@
   #define StageDir ".\stage"
 #endif
 #ifndef Edition
-  #define Edition "python"
+  ; Редакция по умолчанию для ручного запуска ISCC. build-setup.ps1 всегда
+  ; передаёт -DEdition явно (по умолчанию — both: дистрибутив несёт обе редакции).
+  #define Edition "both"
 #endif
 #ifndef FileVersion
-  #define FileVersion "1.7.0.0"
+  #define FileVersion "1.8.0.0"
+#endif
+; Версию задаёт build-setup.ps1 (/DMyAppVersion из config/config.json) —
+; иначе она расходилась бы с версией в конфиге и в свойствах файла.
+#ifndef MyAppVersion
+  #define MyAppVersion "1.8.0"
 #endif
 
 #define MyAppName "JARVIS"
-#define MyAppVersion "1.7.0"
 #define MyAppPublisher "JARVIS Project"
 #define MyAppURL "https://github.com/oneleft12/Jarvis"
 #define MyAppExeName "JARVIS.bat"

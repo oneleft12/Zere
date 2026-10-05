@@ -32,7 +32,7 @@ def _camel(key: str) -> str:
 
 @dataclass
 class JarvisConfig:
-    version: str = "1.7.0"
+    version: str = "1.8.0"
     assistant_name: str = "JARVIS"
     language: str = "ru"
     model: str = "qwen3.5:2b"
