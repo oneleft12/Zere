@@ -151,7 +151,9 @@ JARVIS.Voice/Piper/processed_*.wav
 
 # Если есть папка с бинарными моделями ML (Whisper, Piper и т.д.)
 JARVIS.Voice/Models/
-JARVIS.AI/Models/voice/input/record.wav
+JARVIS.AI/Models/
+# Записи микрофона (wake word и команды) — рантайм-данные, там голос пользователя
+voice/input/
 
 # Внешний TTS (xVibePocketTTS + uv) — ставится отдельно, в репозиторий не входит
 tools/xVibePocketTTS/
@@ -161,6 +163,8 @@ tools/voice_cache/
 
 # Голосовой референс пользователя (биометрия — не коммитим)
 voice/reference.wav
+# База данных: история диалогов и память пользователя — это данные, не код
+jarvis.db
 # Тестовые WAV для сравнения звучания (генерируются вручную, не коммитим)
 voice/tts_compare/
 tools/uvw.exe
