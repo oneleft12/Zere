@@ -25,7 +25,24 @@ def plugins_config_path() -> Path:
 
 
 def db_path() -> Path:
-    return PROJECT_ROOT / "zere.db"
+    """Путь к базе истории и памяти.
+
+    До ребрендинга база называлась jarvis.db. Файл не удаляем и не копируем:
+    при первом обращении просто переименовываем, чтобы память и история
+    прошлых версий остались доступны (обратной операции не требуется).
+    """
+    db_file = PROJECT_ROOT / "zere.db"
+    legacy_file = PROJECT_ROOT / "jarvis.db"
+
+    if not db_file.exists() and legacy_file.exists():
+        try:
+            legacy_file.replace(db_file)
+        except OSError:
+            # Файл занят (например, параллельно работает старая версия):
+            # отдаём новый путь, база создастся заново — данные не трогаем.
+            return db_file
+
+    return db_file
 
 
 def logs_dir() -> Path:

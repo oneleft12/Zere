@@ -149,6 +149,37 @@ def test_empty_legacy_table_keeps_legacy_column() -> None:
         assert _columns(db_file) == {"Id", "UserMessage", "JarvisResponse", "Timestamp"}
 
 
+def test_legacy_db_file_is_renamed() -> None:
+    """Старый jarvis.db переименовывается в zere.db — данные не теряются."""
+    from zere import paths
+
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+        legacy = tmp / "jarvis.db"
+        legacy.write_bytes(b"SQLite format 3\x00")
+
+        with mock.patch.object(paths, "PROJECT_ROOT", tmp):
+            resolved = paths.db_path()
+
+        assert resolved == tmp / "zere.db", "вернулся не новый путь"
+        assert resolved.exists(), "старая база не переименована"
+        assert not legacy.exists(), "старый файл остался"
+
+
+def test_missing_db_does_not_create_files() -> None:
+    """Если базы нет, db_path ничего не создаёт (создаст MemoryDatabase)."""
+    from zere import paths
+
+    with tempfile.TemporaryDirectory() as raw:
+        tmp = Path(raw)
+
+        with mock.patch.object(paths, "PROJECT_ROOT", tmp):
+            resolved = paths.db_path()
+
+        assert resolved == tmp / "zere.db"
+        assert list(tmp.iterdir()) == [], "db_path не должен создавать файлы"
+
+
 def test_csharp_matches_python_detection() -> None:
     """C#-редакция содержит ту же логику определения колонки."""
     source = (
