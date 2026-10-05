@@ -1,14 +1,14 @@
 openapi: 3.0.3
 
 info:
-  title: JARVIS Local Panel API
+  title: ZERE Local Panel API
   description: >
-    Единый API-контракт локальной панели JARVIS для обеих реализаций
+    Единый API-контракт локальной панели ZERE для обеих реализаций
     (C# и Python). Этап 1 «API-ядро» (docs/GUI_DEVELOPMENT_PLAN.md §6).
 
     Правила контракта:
     - сервер слушает только 127.0.0.1 (loopback);
-    - все запросы требуют заголовок `X-JARVIS-Token`
+    - все запросы требуют заголовок `X-ZERE-Token`
       (токен лежит в `config/panel.token`, создаётся при первом старте);
     - заголовок `Host` должен быть `127.0.0.1` или `localhost`;
     - заголовок `Origin`, если присутствует, должен принадлежать
@@ -576,7 +576,7 @@ paths:
     get:
       operationId: listLogs
       summary: >
-        Журнал: сессионные файлы logs/jarvis_*.log и постоянный errors.log.
+        Журнал: сессионные файлы logs/zere_*.log и постоянный errors.log.
         Источник (source) есть только у строк errors.log — по имени файла,
         а не по разбору строки. Сортировка по времени DESC, пагинация
         как в истории (limit/offset)
@@ -925,14 +925,14 @@ components:
     tokenHeader:
       type: apiKey
       in: header
-      name: X-JARVIS-Token
+      name: X-ZERE-Token
       description: >
         Токен панели, 32 байта в hex, создаётся при первом старте
         и сохраняется в `config/panel.token`.
 
   responses:
     Unauthorized:
-      description: Отсутствует или неверен X-JARVIS-Token
+      description: Отсутствует или неверен X-ZERE-Token
       content:
         application/json:
           schema:
@@ -1127,14 +1127,14 @@ components:
 
     HistoryItem:
       type: object
-      required: [id, userMessage, jarvisResponse, timestamp]
+      required: [id, userMessage, zereResponse, timestamp]
       additionalProperties: false
       properties:
         id:
           type: integer
         userMessage:
           type: string
-        jarvisResponse:
+        zereResponse:
           type: string
         timestamp:
           type: string

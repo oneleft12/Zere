@@ -1,4 +1,4 @@
-"""Тесты C#-озвучки: мост к JARVIS.Speaker и откат на Python.
+"""Тесты C#-озвучки: мост к ZERE.Speaker и откат на Python.
 
 Проверяем, что Python-редакция отдаёт озвучку (DSP + вывод звука) C#-хелперу,
 корректно говорит с ним по протоколу `host`, умеет обрывать фразу и **не
@@ -38,8 +38,8 @@ try:
 except Exception:  # noqa: BLE001 — ImportError или OSError от PortAudio
     sys.modules["sounddevice"] = types.ModuleType("sounddevice")
 
-from jarvis import paths  # noqa: E402
-from jarvis.voice.audio.csharp_speaker import CSharpSpeaker  # noqa: E402
+from zere import paths  # noqa: E402
+from zere.voice.audio.csharp_speaker import CSharpSpeaker  # noqa: E402
 
 FAKE_SPEAKER = ROOT / "tests" / "fake_speaker.py"
 
@@ -171,7 +171,7 @@ def test_helper_crash_falls_back_to_python() -> None:
 
 def test_missing_helper_is_not_available() -> None:
     """Хелпер не собран — C#-озвучка не предлагается (голос остаётся на Python)."""
-    with mock.patch.dict("os.environ", {"JARVIS_SPEAKER_EXE": "/nope/JARVIS.Speaker.exe"}):
+    with mock.patch.dict("os.environ", {"ZERE_SPEAKER_EXE": "/nope/ZERE.Speaker.exe"}):
         speaker = CSharpSpeaker()
 
         assert speaker.executable() is None
@@ -182,8 +182,8 @@ def test_missing_helper_is_not_available() -> None:
 
 
 def test_speaker_can_be_disabled_by_env() -> None:
-    """JARVIS_SPEAKER=python — принудительная озвучка на Python (отладка)."""
-    with mock.patch.dict("os.environ", {"JARVIS_SPEAKER": "python"}):
+    """ZERE_SPEAKER=python — принудительная озвучка на Python (отладка)."""
+    with mock.patch.dict("os.environ", {"ZERE_SPEAKER": "python"}):
         speaker = CSharpSpeaker()
 
         assert speaker.executable() is None
@@ -194,14 +194,14 @@ def test_speaker_can_be_disabled_by_env() -> None:
 
 
 def test_real_helper_dry_run_processes_wav() -> None:
-    """Собранный JARVIS.Speaker: DSP на C# работает (проверка без вывода звука).
+    """Собранный ZERE.Speaker: DSP на C# работает (проверка без вывода звука).
 
     Тест пропускается, если хелпер не собран.
     """
     executable = paths.speaker_executable()
 
     if executable is None:
-        print("\n[пропущено] JARVIS.Speaker не собран (нет exe — только Python-озвучка)")
+        print("\n[пропущено] ZERE.Speaker не собран (нет exe — только Python-озвучка)")
         return
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -289,7 +289,7 @@ class FakeSpeaker:
 
 def _voice_manager_with(speaker: FakeSpeaker, piper_wav: Path):
     """VoiceManager с фейковым Piper и подменённым хелпером (без устройств)."""
-    from jarvis.voice.voice_manager import VoiceManager
+    from zere.voice.voice_manager import VoiceManager
 
     manager = VoiceManager()
     manager._speaker = speaker  # noqa: SLF001 — подмена тракта озвучки в тесте
@@ -332,7 +332,7 @@ def test_voice_manager_falls_back_to_python_player() -> None:
         manager._player = mock.Mock()  # noqa: SLF001
 
         with mock.patch(
-            "jarvis.voice.voice_manager.AudioProcessor.process",
+            "zere.voice.voice_manager.AudioProcessor.process",
             side_effect=lambda path, rate: path,
         ):
             try:

@@ -14,11 +14,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from jarvis.ai.ollama_client import OllamaClient
-from jarvis.ai.system_prompt import SystemPrompt
-from jarvis.core.handlers.ai_handler import AIHandler
+from zere.ai.ollama_client import OllamaClient
+from zere.ai.system_prompt import SystemPrompt
+from zere.core.handlers.ai_handler import AIHandler
 
-SYSTEM_PROMPT = "Ты — JARVIS. Отвечай кратко."
+SYSTEM_PROMPT = "Ты — ZERE. Отвечай кратко."
 USER_MESSAGE = "привет, что такое гравитация"
 
 
@@ -94,9 +94,9 @@ def test_handler_does_not_embed_system_into_prompt() -> None:
 
     # system передан отдельно...
     assert system_prompt is not None
-    assert system_prompt.startswith("Ты — JARVIS.")
+    assert system_prompt.startswith("Ты — ZERE.")
     # ...но НЕ встроен в prompt (иначе двойной system prompt, P1-2)
-    assert "Ты — JARVIS" not in prompt
+    assert "Ты — ZERE" not in prompt
     # контекст и сообщение при этом на месте
     assert "любит пиццу" in prompt
     assert USER_MESSAGE in prompt
@@ -150,7 +150,7 @@ def test_client_falls_back_to_builtin_system_prompt() -> None:
         server.server_close()
 
     body = _CaptureHandler.captured[0]
-    assert body["system"] == SystemPrompt.Jarvis
+    assert body["system"] == SystemPrompt.Zere
     assert body["prompt"] == USER_MESSAGE
 
 

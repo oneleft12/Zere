@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Сквозная проверка Python-порта JARVIS.
+"""Сквозная проверка Python-порта ZERE.
 
-1) py_compile всех файлов пакета jarvis/ и main.py.
-2) AST-проверка: каждый `from jarvis.X import Y` ссылается на существующий
+1) py_compile всех файлов пакета zere/ и main.py.
+2) AST-проверка: каждый `from zere.X import Y` ссылается на существующий
    модуль, и каждый импортируемый символ где-то определён в пакете.
 3) Сверка контрактов main.py: наличие обязательных символов.
 """
@@ -15,12 +15,12 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PKG = ROOT / "jarvis"
+PKG = ROOT / "zere"
 
 errors: list[str] = []
 
 # --- 1. py_compile ---------------------------------------------------------
-py_files = sorted(PKG.rglob("*.py")) + [ROOT / "main.py", ROOT / "jarvis" / "paths.py"]
+py_files = sorted(PKG.rglob("*.py")) + [ROOT / "main.py", ROOT / "zere" / "paths.py"]
 seen: set[Path] = set()
 for f in py_files:
     if f in seen or "__pycache__" in str(f):
@@ -36,7 +36,7 @@ definitions: dict[str, set[str]] = {}  # module dotted -> names defined at top l
 imports: list[tuple[str, str | None, str]] = []  # (module, name|None, file)
 
 for f in sorted(seen):
-    if not f.exists() or f.name == "paths.py" and f.parent.name != "jarvis":
+    if not f.exists() or f.name == "paths.py" and f.parent.name != "zere":
         continue
     try:
         tree = ast.parse(f.read_text(encoding="utf-8"))
@@ -45,9 +45,9 @@ for f in sorted(seen):
         continue
 
     rel = f.relative_to(ROOT)
-    if rel.parts[-1] == "paths.py" and rel.parts[0] == "jarvis" and len(rel.parts) == 2:
-        mod = "jarvis.paths"
-    elif rel.parts[0] == "jarvis":
+    if rel.parts[-1] == "paths.py" and rel.parts[0] == "zere" and len(rel.parts) == 2:
+        mod = "zere.paths"
+    elif rel.parts[0] == "zere":
         mod = ".".join(rel.with_suffix("").parts)
         if mod.endswith(".__init__"):
             mod = mod[: -len(".__init__")]
@@ -57,7 +57,7 @@ for f in sorted(seen):
     defs = definitions.setdefault(mod, set())
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
-            if node.module.startswith("jarvis"):
+            if node.module.startswith("zere"):
                 for alias in node.names:
                     imports.append((node.module, alias.name, str(rel)))
         elif isinstance(node, (ast.Import, ast.ImportFrom)):
@@ -84,7 +84,7 @@ for module, name, src in imports:
         continue
     if name == "*":
         continue
-    # `from jarvis import paths` — импорт подмодуля, а не символа
+    # `from zere import paths` — импорт подмодуля, а не символа
     if f"{module}.{name}" in definitions:
         continue
     if name and name not in definitions[module]:
@@ -104,16 +104,16 @@ main_imports = {
 }
 
 required = [
-    ("jarvis.core.configuration.jarvis_config", "JarvisConfig"),
-    ("jarvis.core.dependencies.dependency_checker", "DependencyChecker"),
-    ("jarvis.core.engine", "JarvisEngine"),
-    ("jarvis.core.logging.log_service", "LogService"),
-    ("jarvis.core.plugins.plugin_config", "PluginConfig"),
-    ("jarvis.core.plugins.plugin_manager", "PluginManager"),
-    ("jarvis.core.plugins.settings.settings_menu", "SettingsMenu"),
-    ("jarvis.core.services", "create_services"),
-    ("jarvis.memory.database.memory_database", "MemoryDatabase"),
-    ("jarvis.voice.voice_manager", "VoiceManager"),
+    ("zere.core.configuration.zere_config", "ZereConfig"),
+    ("zere.core.dependencies.dependency_checker", "DependencyChecker"),
+    ("zere.core.engine", "ZereEngine"),
+    ("zere.core.logging.log_service", "LogService"),
+    ("zere.core.plugins.plugin_config", "PluginConfig"),
+    ("zere.core.plugins.plugin_manager", "PluginManager"),
+    ("zere.core.plugins.settings.settings_menu", "SettingsMenu"),
+    ("zere.core.services", "create_services"),
+    ("zere.memory.database.memory_database", "MemoryDatabase"),
+    ("zere.voice.voice_manager", "VoiceManager"),
 ]
 for mod, name in required:
     if (mod, name) not in main_imports:
@@ -125,7 +125,7 @@ for mod, name in required:
 
 # --- Отчёт -----------------------------------------------------------------
 print(f"Файлов проверено: {len(seen)}")
-print(f"Модулей jarvis: {len([m for m in definitions if m.startswith('jarvis')])}")
+print(f"Модулей zere: {len([m for m in definitions if m.startswith('zere')])}")
 if errors:
     print(f"\nОШИБКИ ({len(errors)}):")
     for e in errors:

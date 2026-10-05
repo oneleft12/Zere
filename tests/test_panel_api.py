@@ -1,4 +1,4 @@
-"""Контрактные тесты локальной панели JARVIS против docs/api/openapi.yaml.
+"""Контрактные тесты локальной панели ZERE против docs/api/openapi.yaml.
 
 Этап 1 «API-ядро» (docs/GUI_DEVELOPMENT_PLAN.md §7): контракт один на обе
 реализации, тесты проверяют ответы именно по спеке (required/enum/type).
@@ -6,8 +6,8 @@
 Запуск:
 - `python3 tests/test_panel_api.py` — без зависимостей (только pyyaml);
 - `pytest tests/ -q` — в CI (функции test_* без аргументов);
-- `JARVIS_PANEL_EXTERNAL=1` — против уже запущенной панели в отдельном
-  процессе (CI-джоба C#: `dotnet run --project JARVIS.App -- --panel`),
+- `ZERE_PANEL_EXTERNAL=1` — против уже запущенной панели в отдельном
+  процессе (CI-джоба C#: `dotnet run --project ZERE.App -- --panel`),
   тогда контракт проверяется на второй реализации тем же набором тестов.
 """
 
@@ -34,17 +34,17 @@ import yaml
 # без установки пакета (pytest это делает сам, но дубликат не вредит).
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from jarvis import paths as paths_module
-from jarvis.ai.ollama_url_resolver import OllamaUrlResolver
-from jarvis.api.server import PanelServer
-from jarvis.core.configuration.jarvis_config import JarvisConfig
-from jarvis.core.plugins.interfaces.plugin import PluginType
-from jarvis.core.plugins.plugin_config import PluginConfig
-from jarvis.memory.models.conversation import Conversation
-from jarvis.memory.models.memory_item import MemoryItem
+from zere import paths as paths_module
+from zere.ai.ollama_url_resolver import OllamaUrlResolver
+from zere.api.server import PanelServer
+from zere.core.configuration.zere_config import ZereConfig
+from zere.core.plugins.interfaces.plugin import PluginType
+from zere.core.plugins.plugin_config import PluginConfig
+from zere.memory.models.conversation import Conversation
+from zere.memory.models.memory_item import MemoryItem
 # app_info — только dataclass: в отличие от ApplicationLauncher, чей импорт
 # тянет winreg (сканеры), этот модуль работает на любой платформе.
-from jarvis.tools.applications.indexing.app_info import AppInfo
+from zere.tools.applications.indexing.app_info import AppInfo
 
 SPEC: dict[str, Any] = yaml.safe_load(
     (Path(__file__).resolve().parents[1] / "docs" / "api" / "openapi.yaml").read_text(
@@ -56,12 +56,12 @@ TOKEN = "b" * 64
 _UNSET = object()
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-EXTERNAL = os.environ.get("JARVIS_PANEL_EXTERNAL") == "1"
-EXTERNAL_PORT = int(os.environ.get("JARVIS_PANEL_PORT", "8080"))
+EXTERNAL = os.environ.get("ZERE_PANEL_EXTERNAL") == "1"
+EXTERNAL_PORT = int(os.environ.get("ZERE_PANEL_PORT", "8080"))
 
 # Необратимые операции (очистка истории) против ВНЕШНЕЙ панели запускаются
-# только по явному флагу: там настоящая jarvis.db, а локальная база — фейк.
-DESTRUCTIVE = os.environ.get("JARVIS_PANEL_DESTRUCTIVE") == "1"
+# только по явному флагу: там настоящая zere.db, а локальная база — фейк.
+DESTRUCTIVE = os.environ.get("ZERE_PANEL_DESTRUCTIVE") == "1"
 
 # Фактические стили встроенной личности (Custom исключён — урок «6 → 5»)
 ACTUAL_STYLES = ["Friendly", "Formal", "Sarcastic", "Professional", "Casual"]
@@ -99,10 +99,10 @@ class FakePlugin:
 
     def __init__(self) -> None:
         self.id = "personality"
-        self.name = "Личность JARVIS"
+        self.name = "Личность ZERE"
         self.description = "Встроенные стили общения ассистента"
         self.version = "1.0.0"
-        self.author = "JARVIS"
+        self.author = "ZERE"
         self.type = PluginType.Personality
 
 
@@ -114,7 +114,7 @@ class FakePluginManager:
 
 
 class FakeEngine:
-    """Подмена JarvisEngine: детерминированный ответ без LLM."""
+    """Подмена ZereEngine: детерминированный ответ без LLM."""
 
     def __init__(self) -> None:
         self.processed: list[str] = []
@@ -194,10 +194,10 @@ class FakeConversationRepository:
         self._rows: list[Conversation] = []
         self._next_id = 1
 
-    def seed(self, user_message: str, jarvis_response: str) -> int:
+    def seed(self, user_message: str, zere_response: str) -> int:
         """Добавляет запись, как сделал бы реальный ConversationHandler."""
         now = datetime.now()
-        row = Conversation(self._next_id, user_message, jarvis_response, now)
+        row = Conversation(self._next_id, user_message, zere_response, now)
         self._rows.append(row)
         self._next_id += 1
         return row.id
@@ -217,7 +217,7 @@ class FakeConversationRepository:
         return [
             row
             for row in self._rows
-            if _sql_like(row.user_message, pattern) or _sql_like(row.jarvis_response, pattern)
+            if _sql_like(row.user_message, pattern) or _sql_like(row.zere_response, pattern)
         ]
 
     def clear_history(self) -> None:
@@ -397,7 +397,7 @@ def _wait_external_panel(timeout: float = 120.0) -> _ExternalPanel:
 
 
 class FakeVoiceConfig:
-    """Как JARVIS.Voice.VoiceConfig: volume читается на каждое воспроизведение."""
+    """Как ZERE.Voice.VoiceConfig: volume читается на каждое воспроизведение."""
 
     def __init__(self) -> None:
         self.volume = 1.0
@@ -434,7 +434,7 @@ class FakeVoiceManager:
     def record_voice_reference(self) -> str:
         # C# пишет <cwd>/voice/reference.wav; файл не создаём — контракт
         # панели проверяет только путь и его сохранение в конфигурации.
-        return str(Path(tempfile.gettempdir()) / "jarvis_fake_reference.wav")
+        return str(Path(tempfile.gettempdir()) / "zere_fake_reference.wav")
 
     def speak(self, text: str) -> None:
         self.spoken.append(text)
@@ -482,7 +482,7 @@ class FakeVoiceManager:
 def running_panel() -> Iterator[tuple[Any, Path]]:
     """Панель на эфемерном порту, config.json — во временной папке.
 
-    В режиме JARVIS_PANEL_EXTERNAL — уже запущенная панель в отдельном
+    В режиме ZERE_PANEL_EXTERNAL — уже запущенная панель в отдельном
     процессе, конфигурация берётся из config/ репозитория.
     """
     if EXTERNAL:
@@ -506,7 +506,7 @@ def running_panel() -> Iterator[tuple[Any, Path]]:
             try:
                 panel = PanelServer(
                     engine=FakeEngine(),
-                    config=JarvisConfig(),
+                    config=ZereConfig(),
                     memory=FakeMemory(),
                     conversation=FakeConversationRepository(),
                     plugin_config=PluginConfig(),
@@ -549,7 +549,7 @@ def call(
     if origin is not None:
         headers["Origin"] = origin
     if token is not None:
-        headers["X-JARVIS-Token"] = token
+        headers["X-ZERE-Token"] = token
 
     data: Optional[bytes] = None
     if body is not _UNSET:
@@ -733,7 +733,7 @@ def test_config_post_persists_atomically() -> None:
         assert written["model"] == "qwen3.5:4b"
         assert "voice_volume" not in written  # формат — camelCase, не snake_case
 
-        reloaded = JarvisConfig.load()
+        reloaded = ZereConfig.load()
         assert reloaded.voice_volume == 0.8
         assert reloaded.model == "qwen3.5:4b"
 
@@ -781,7 +781,7 @@ def test_config_post_rejects_bad_json() -> None:
             "POST",
             "/api/config",
             body=b"{not json",
-            headers={"X-JARVIS-Token": panel.token, "Content-Type": "application/json"},
+            headers={"X-ZERE-Token": panel.token, "Content-Type": "application/json"},
         )
         response = conn.getresponse()
         raw = response.read()
@@ -1092,7 +1092,7 @@ def test_history_delete_clears_all() -> None:
     if EXTERNAL and not DESTRUCTIVE:
         print(
             "\n[пропущено] очистка истории внешней панели требует "
-            "JARVIS_PANEL_DESTRUCTIVE=1"
+            "ZERE_PANEL_DESTRUCTIVE=1"
         )
         return
 
@@ -1234,7 +1234,7 @@ def test_memory_post_rejects_bad_json() -> None:
             "POST",
             "/api/memory",
             body=b"[not json",
-            headers={"X-JARVIS-Token": panel.token, "Content-Type": "application/json"},
+            headers={"X-ZERE-Token": panel.token, "Content-Type": "application/json"},
         )
         response = conn.getresponse()
         raw = response.read()
@@ -1272,7 +1272,7 @@ def test_static_index_injects_token() -> None:
         assert headers.get("content-type", "").startswith("text/html")
 
         html = raw.decode("utf-8")
-        assert "__JARVIS_TOKEN__" not in html  # плейсхолдер заменён
+        assert "__ZERE_TOKEN__" not in html  # плейсхолдер заменён
         assert panel.token in html
 
 
@@ -1471,7 +1471,7 @@ def test_process_kill_two_step_executes() -> None:
     if EXTERNAL and not DESTRUCTIVE:
         print(
             "\n[пропущено] завершение процесса внешней панели требует "
-            "JARVIS_PANEL_DESTRUCTIVE=1"
+            "ZERE_PANEL_DESTRUCTIVE=1"
         )
         return
 
@@ -1726,7 +1726,7 @@ def seeded_logs(
     folder = REPO_ROOT / "logs"
     folder.mkdir(parents=True, exist_ok=True)
 
-    session_file = folder / "jarvis_2099-01-01_00-00-00.log"
+    session_file = folder / "zere_2099-01-01_00-00-00.log"
     errors_file = folder / "errors.log"
     original_errors = errors_file.read_bytes() if errors_file.exists() else None
 
@@ -1881,9 +1881,9 @@ def test_plugins_get_matches_spec() -> None:
         # Встроенный плагин личности есть в обеих реализациях
         found = [item for item in payload["items"] if item["id"] == "personality"]
         assert found, "встроенный плагин личности не найден"
-        assert found[0]["name"] == "Личность JARVIS"
+        assert found[0]["name"] == "Личность ZERE"
         assert found[0]["version"] == "1.0.0"
-        assert found[0]["author"] == "JARVIS"
+        assert found[0]["author"] == "ZERE"
         assert found[0]["type"] == "Personality"
 
         active = payload["activePersonality"]

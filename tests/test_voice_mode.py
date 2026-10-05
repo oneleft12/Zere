@@ -7,7 +7,7 @@
 Сбой записи (панель. PortAudio, микрофон занят/отключён) выбрасывался из
 `_capture`, попадал в общий `except` цикла — и режим умирал в состоянии
 `error` навсегда: повторное включение не помогало, пока не перезапустишь
-JARVIS. Теперь ошибка видна в `lastError`, а цикл продолжает слушать.
+ZERE. Теперь ошибка видна в `lastError`, а цикл продолжает слушать.
 
 Запуск: python3 tests/test_voice_mode.py
 """
@@ -23,8 +23,8 @@ from typing import Any, Callable
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from jarvis.core.console import configure_console_encoding  # noqa: E402
-from jarvis.voice.voice_mode import (  # noqa: E402
+from zere.core.console import configure_console_encoding  # noqa: E402
+from zere.voice.voice_mode import (  # noqa: E402
     STATE_ERROR,
     STATE_IDLE,
     VoiceModeRunner,

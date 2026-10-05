@@ -47,8 +47,8 @@ except Exception:  # noqa: BLE001 — ImportError или OSError от PortAudio
     sys.modules["sounddevice"] = sd
     LIVE = False
 
-from jarvis.core.console import configure_console_encoding  # noqa: E402
-from jarvis.voice.audio import audio_device  # noqa: E402
+from zere.core.console import configure_console_encoding  # noqa: E402
+from zere.voice.audio import audio_device  # noqa: E402
 
 # ── Фейковый звуковой тракт: как на машине пользователя ───────────────
 # MME (индексы 0/1) и те же физические устройства в WASAPI (2/3). Микшерные
@@ -314,7 +314,7 @@ def test_output_options_matching_rate_without_wasapi() -> None:
 
 def test_continuous_recorder_opens_wasapi_with_auto_convert() -> None:
     """Непрерывная запись (wake word) — тот самый поток из ошибки в панели."""
-    from jarvis.voice.audio.continuous_audio_recorder import ContinuousAudioRecorder
+    from zere.voice.audio.continuous_audio_recorder import ContinuousAudioRecorder
 
     FakeStream.created.clear()
 
@@ -335,7 +335,7 @@ def test_continuous_recorder_opens_wasapi_with_auto_convert() -> None:
 
 def test_recorders_open_input_with_auto_convert() -> None:
     """AudioRecorder.record и record_with_vad — тоже 16 кГц на WASAPI."""
-    from jarvis.voice.audio.audio_recorder import AudioRecorder
+    from zere.voice.audio.audio_recorder import AudioRecorder
 
     FakeStream.created.clear()
     recorded: list[dict] = []
@@ -369,7 +369,7 @@ def test_recorders_open_input_with_auto_convert() -> None:
 
 def test_audio_player_plays_through_wasapi_with_auto_convert() -> None:
     """Озвучка: Piper отдаёт 22.05 кГц, микшер вывода — 44.1 кГц."""
-    from jarvis.voice.audio.audio_player import AudioPlayer
+    from zere.voice.audio.audio_player import AudioPlayer
 
     played: list[dict] = []
 
@@ -409,14 +409,14 @@ def test_live_input_options_open_16k() -> None:
     устройство WASAPI без auto_convert не принимает 16 кГц.
 
     Тест трогает **реальную звуковую карту** (микрофон пользователя), поэтому
-    по умолчанию выключен: запускается только с `JARVIS_LIVE_AUDIO=1`.
+    по умолчанию выключен: запускается только с `ZERE_LIVE_AUDIO=1`.
     Все остальные тесты файла работают на фейковом тракте и устройств не
     касаются.
     """
-    if os.environ.get("JARVIS_LIVE_AUDIO") != "1":
+    if os.environ.get("ZERE_LIVE_AUDIO") != "1":
         print(
             "\n[пропущено] живой микрофон не трогаем "
-            "(включить: JARVIS_LIVE_AUDIO=1)"
+            "(включить: ZERE_LIVE_AUDIO=1)"
         )
         return
 

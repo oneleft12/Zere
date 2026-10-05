@@ -1,4 +1,4 @@
-"""E2E-раннер: панель JARVIS на фиксированном порту с фейковыми сервисами.
+"""E2E-раннер: панель ZERE на фиксированном порту с фейковыми сервисами.
 
 Запускается Playwright (panel/e2e/playwright.config.ts) через webServer:
 детерминированные данные из tests/test_panel_api.py, без Ollama, микрофона
@@ -20,11 +20,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from jarvis import paths as paths_module
-from jarvis.ai.ollama_url_resolver import OllamaUrlResolver
-from jarvis.api.server import PanelServer
-from jarvis.core.configuration.jarvis_config import JarvisConfig
-from jarvis.core.plugins.plugin_config import PluginConfig
+from zere import paths as paths_module
+from zere.ai.ollama_url_resolver import OllamaUrlResolver
+from zere.api.server import PanelServer
+from zere.core.configuration.zere_config import ZereConfig
+from zere.core.plugins.plugin_config import PluginConfig
 
 from tests.test_panel_api import (
     TOKEN,
@@ -56,7 +56,7 @@ def main() -> None:
         try:
             panel = PanelServer(
                 engine=FakeEngine(),
-                config=JarvisConfig(),
+                config=ZereConfig(),
                 memory=FakeMemory(),
                 conversation=FakeConversationRepository(),
                 plugin_config=PluginConfig(),

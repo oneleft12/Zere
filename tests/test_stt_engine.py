@@ -31,7 +31,7 @@ GIGAAM_DIR_NAME = "sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-
 
 def test_constants_match_installer_and_csharp() -> None:
     """Один URL/SHA-256/размер в Python-сервисе, install.ps1 и GigaAmService.cs."""
-    from jarvis.voice.sherpa import gigaam_service as gs
+    from zere.voice.sherpa import gigaam_service as gs
 
     assert gs.MODEL_URL == GIGAAM_URL, "MODEL_URL не совпадает с эталоном"
     assert gs.MODEL_SHA256 == GIGAAM_SHA256, "MODEL_SHA256 не совпадает с эталоном"
@@ -48,7 +48,7 @@ def test_constants_match_installer_and_csharp() -> None:
     assert sha_m and sha_m.group(1) == GIGAAM_SHA256, "install.ps1: другой Sha256 GigaAM"
     assert size_m and int(size_m.group(1)) == GIGAAM_SIZE, "install.ps1: другой Size GigaAM"
 
-    cs = (ROOT / "JARVIS.Voice" / "Sherpa" / "GigaAmService.cs").read_text(encoding="utf-8")
+    cs = (ROOT / "ZERE.Voice" / "Sherpa" / "GigaAmService.cs").read_text(encoding="utf-8")
     assert GIGAAM_SHA256 in cs, "GigaAmService.cs: другой Sha256"
     assert GIGAAM_DIR_NAME in cs, "GigaAmService.cs: другое имя папки модели"
     assert re.search(r"ModelSizeBytes\s*=\s*170197019", cs), (
@@ -58,33 +58,33 @@ def test_constants_match_installer_and_csharp() -> None:
 
 def test_config_defaults_gigaam() -> None:
     """stt_engine по умолчанию — gigaam во всех точках конфигурации."""
-    from jarvis.core.configuration.jarvis_config import JarvisConfig
-    from jarvis.voice.voice_config import VoiceConfig
+    from zere.core.configuration.zere_config import ZereConfig
+    from zere.voice.voice_config import VoiceConfig
 
-    assert JarvisConfig().stt_engine == "gigaam"
+    assert ZereConfig().stt_engine == "gigaam"
     assert VoiceConfig().stt_engine == "gigaam"
 
     cfg = json.loads((ROOT / "config" / "config.json").read_text(encoding="utf-8"))
     assert cfg.get("sttEngine") == "gigaam", "config/config.json: нет sttEngine"
 
     # PascalCase-алиас нужен, иначе save() выкинет ключ
-    assert JarvisConfig()._PASCAL_ALIASES.get("SttEngine") == "stt_engine"
+    assert ZereConfig()._PASCAL_ALIASES.get("SttEngine") == "stt_engine"
 
-    cs = (ROOT / "JARVIS.Core" / "Configuration" / "JarvisConfig.cs").read_text(
+    cs = (ROOT / "ZERE.Core" / "Configuration" / "ZereConfig.cs").read_text(
         encoding="utf-8"
     )
     assert re.search(r'SttEngine\s*\{\s*get;\s*set;\s*\}\s*=\s*"gigaam"', cs), (
-        "C# JarvisConfig.SttEngine по умолчанию не gigaam"
+        "C# ZereConfig.SttEngine по умолчанию не gigaam"
     )
 
 
 def test_csharp_routing_wiring() -> None:
     """C#: маршрутизация STT включена (ISttService, ActiveStt, откат, PreloadStt)."""
-    iface = (ROOT / "JARVIS.Voice" / "ISttService.cs").read_text(encoding="utf-8")
+    iface = (ROOT / "ZERE.Voice" / "ISttService.cs").read_text(encoding="utf-8")
     assert "interface ISttService" in iface
     assert "TranscribeAsync" in iface
 
-    vm = (ROOT / "JARVIS.Voice" / "VoiceManager.cs").read_text(encoding="utf-8")
+    vm = (ROOT / "ZERE.Voice" / "VoiceManager.cs").read_text(encoding="utf-8")
     assert "ISttService ActiveStt" in vm, "нет маршрута ActiveStt"
     assert "TranscribeSttAsync" in vm, "нет отката STT (TranscribeSttAsync)"
     assert "void PreloadStt(" in vm, "нет PreloadStt"
@@ -92,10 +92,10 @@ def test_csharp_routing_wiring() -> None:
     # Wake word остаётся на Whisper (§5.3 отчёта)
     assert "WakeWordDetector(" in vm and "_whisper" in vm.split("WakeWordDetector(")[1][:200]
 
-    program = (ROOT / "JARVIS.App" / "Program.cs").read_text(encoding="utf-8")
+    program = (ROOT / "ZERE.App" / "Program.cs").read_text(encoding="utf-8")
     assert "ConfigureStt" in program and "PreloadStt()" in program
 
-    csproj = (ROOT / "JARVIS.Voice" / "JARVIS.Voice.csproj").read_text(encoding="utf-8")
+    csproj = (ROOT / "ZERE.Voice" / "ZERE.Voice.csproj").read_text(encoding="utf-8")
     assert "org.k2fsa.sherpa.onnx" in csproj, "NuGet sherpa-onnx не подключён"
 
 
@@ -108,7 +108,7 @@ def test_python_routing_and_fallback() -> None:
     except Exception:  # noqa: BLE001 — ImportError или OSError от PortAudio
         sys.modules["sounddevice"] = types.ModuleType("sounddevice")
 
-    from jarvis.voice.voice_manager import VoiceManager
+    from zere.voice.voice_manager import VoiceManager
 
     vm = VoiceManager()
     giga, whisper = vm._gigaam, vm._whisper
@@ -170,10 +170,10 @@ def test_panel_contract_stt_engine() -> None:
         "sttEngine не должен быть обязательным"
     )
 
-    from jarvis.api.server import _validate_config_payload
-    from jarvis.core.configuration.jarvis_config import JarvisConfig
+    from zere.api.server import _validate_config_payload
+    from zere.core.configuration.zere_config import ZereConfig
 
-    payload = JarvisConfig().to_camel_dict()
+    payload = ZereConfig().to_camel_dict()
     assert payload.get("sttEngine") == "gigaam"
     assert _validate_config_payload(payload) is None, "валидный payload отклонён"
 
@@ -190,7 +190,7 @@ def test_panel_contract_stt_engine() -> None:
 
 def test_model_files_and_live_decode() -> None:
     """Если модель GigaAM распакована — она полная; живое распознавание работает."""
-    model_dir = ROOT / "JARVIS.Voice" / "Models" / GIGAAM_DIR_NAME
+    model_dir = ROOT / "ZERE.Voice" / "Models" / GIGAAM_DIR_NAME
     if not model_dir.is_dir():
         print("  (модель GigaAM не распакована — скачается при установке/первом старте)")
         return
@@ -203,7 +203,7 @@ def test_model_files_and_live_decode() -> None:
         print("  (test_wavs/example.wav нет — живой прогон пропущен)")
         return
 
-    from jarvis.voice.sherpa.gigaam_service import GigaamService
+    from zere.voice.sherpa.gigaam_service import GigaamService
 
     svc = GigaamService()
     if not svc.is_installed():
@@ -228,7 +228,7 @@ def test_model_download_and_extract() -> None:
     import tarfile
     import tempfile
 
-    from jarvis.voice.sherpa import gigaam_service as gs
+    from zere.voice.sherpa import gigaam_service as gs
 
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)

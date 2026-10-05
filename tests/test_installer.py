@@ -1,4 +1,4 @@
-"""Тесты установщика JARVIS (installer/).
+"""Тесты установщика ZERE (installer/).
 
 Проверяют то, что ломается чаще всего и что невозможно поймать прогоном
 на одной машине:
@@ -7,7 +7,7 @@
   и кириллица в комментариях/строках ломает парсинг);
 - CRLF и чистый ASCII у .bat (кодировка cmd);
 - контрольные SHA-256/размеры скачиваемых артефактов в install.ps1;
-- связность файлов: install.ps1 <-> JarvisLauncher.bat <-> Jarvis.iss
+- связность файлов: install.ps1 <-> ZereLauncher.bat <-> Zere.iss
   <-> build-setup.ps1 <-> uninstall.ps1;
 - синтаксис .ps1 через парсер PowerShell (только если PowerShell доступен,
   на Linux — пропускается);
@@ -58,7 +58,7 @@ EXPECTED_ARTIFACTS = {
 }
 
 PS1_FILES = ("install.ps1", "uninstall.ps1", "build-setup.ps1")
-BAT_FILES = ("JarvisLauncher.bat", "Install-Jarvis.bat", "Uninstall-Jarvis.bat")
+BAT_FILES = ("ZereLauncher.bat", "Install-Zere.bat", "Uninstall-Zere.bat")
 
 
 def _read(name: str) -> str:
@@ -66,7 +66,7 @@ def _read(name: str) -> str:
 
 
 def test_installer_files_exist() -> None:
-    expected = set(PS1_FILES) | set(BAT_FILES) | {"Jarvis.iss"}
+    expected = set(PS1_FILES) | set(BAT_FILES) | {"Zere.iss"}
     missing = sorted(n for n in expected if not (INSTALLER / n).is_file())
     assert not missing, f"нет файлов установщика: {missing}"
 
@@ -106,7 +106,7 @@ def test_artifact_hashes_and_sizes() -> None:
 
 def test_install_references_launcher_template() -> None:
     text = _read("install.ps1")
-    assert "JarvisLauncher.bat" in text, "install.ps1 не копирует лаунчер"
+    assert "ZereLauncher.bat" in text, "install.ps1 не копирует лаунчер"
     assert "-CheckOnly" in text, "install.ps1 нет режима -CheckOnly"
     for pname in (
         "Prefix", "Edition", "Model", "SkipOllama", "SkipVoice",
@@ -117,9 +117,9 @@ def test_install_references_launcher_template() -> None:
 
 def test_launcher_prefers_venv() -> None:
     """Лаунчер должен запускать .venv, затем .NET, затем системный python."""
-    data = (INSTALLER / "JarvisLauncher.bat").read_bytes().decode("ascii")
+    data = (INSTALLER / "ZereLauncher.bat").read_bytes().decode("ascii")
     venv_pos = data.find(".venv\\Scripts\\python.exe")
-    dotnet_pos = data.find("publish\\app\\JARVIS.App.exe")
+    dotnet_pos = data.find("publish\\app\\ZERE.App.exe")
     assert 0 < venv_pos < dotnet_pos, "порядок запуска редакций нарушен"
 
 
@@ -136,9 +136,9 @@ def test_uninstall_never_touches_sources() -> None:
     first_segments = {re.split(r"[\\/]", q)[0] for q in quoted}
     # Каталоги-исходники: удалять нельзя вообще (config\panel.token под
     # -PurgeData — можно, а вот весь каталог config — нет)
-    banned_dirs = {"jarvis", "panel", "docs", "tests", "installer"}
+    banned_dirs = {"zere", "panel", "docs", "tests", "installer"}
     # Отдельные файлы-исходники: запрещено удалять
-    banned_files = {"main.py", "requirements.txt", "AGENTS.md", "README.md", "JARVIS.slnx"}
+    banned_files = {"main.py", "requirements.txt", "AGENTS.md", "README.md", "ZERE.slnx"}
     hit_dirs = {s for s in first_segments if s.lower() in banned_dirs}
     if any(q.lower() == "config" for q in quoted):
         hit_dirs.add("config")
@@ -149,20 +149,20 @@ def test_uninstall_never_touches_sources() -> None:
     assert "$RemoveAssets" in text and "$PurgeData" in text
     # Чистка данных — только внутри блока if ($PurgeData)
     assert re.search(
-        r"if \(\$PurgeData\) \{[^}]*?Join-Path \$Prefix 'jarvis\.db'",
+        r"if \(\$PurgeData\) \{[^}]*?Join-Path \$Prefix 'zere\.db'",
         text,
         re.S,
-    ), "jarvis.db удаляется без привязки к флагу -PurgeData"
+    ), "zere.db удаляется без привязки к флагу -PurgeData"
 
 
 def test_inno_script_wiring() -> None:
-    iss = _read("Jarvis.iss")
-    assert "install.ps1" in iss, "Jarvis.iss не запускает install.ps1"
-    assert "uninstall.ps1" in iss, "Jarvis.iss не запускает uninstall.ps1"
+    iss = _read("Zere.iss")
+    assert "install.ps1" in iss, "Zere.iss не запускает install.ps1"
+    assert "uninstall.ps1" in iss, "Zere.iss не запускает uninstall.ps1"
     assert "PrivilegesRequired=lowest" in iss, "установка должна быть per-user"
-    assert "JarvisInstaller" in iss, "нет имени дистрибутива (JarvisInstaller.exe)"
+    assert "ZereInstaller" in iss, "нет имени дистрибутива (ZereInstaller.exe)"
     build = _read("build-setup.ps1")
-    assert "Jarvis.iss" in build, "build-setup.ps1 не компилирует Jarvis.iss"
+    assert "Zere.iss" in build, "build-setup.ps1 не компилирует Zere.iss"
     assert "git archive" in build or "ls-files" in build, (
         "build-setup.ps1 не формирует stage из git"
     )
@@ -191,37 +191,37 @@ def test_version_sources_agree() -> None:
     assert match, "в install.ps1 не найден DefaultConfigJson с версией"
     assert match.group(1) == version, "install.ps1: DefaultConfigJson != config.json"
 
-    iss = _read("Jarvis.iss")
+    iss = _read("Zere.iss")
     match = re.search(r'#define MyAppVersion "([^"]+)"', iss)
-    assert match, "в Jarvis.iss не найден MyAppVersion"
-    assert match.group(1) == version, "Jarvis.iss: MyAppVersion != config.json"
+    assert match, "в Zere.iss не найден MyAppVersion"
+    assert match.group(1) == version, "Zere.iss: MyAppVersion != config.json"
 
     match = re.search(
         r'#define FileVersion "([\d.]+)"', iss
     )
-    assert match, "в Jarvis.iss не найден FileVersion"
-    assert match.group(1).startswith(version), "Jarvis.iss: FileVersion != config.json"
+    assert match, "в Zere.iss не найден FileVersion"
+    assert match.group(1).startswith(version), "Zere.iss: FileVersion != config.json"
 
     python_config = (
-        ROOT / "jarvis" / "core" / "configuration" / "jarvis_config.py"
+        ROOT / "zere" / "core" / "configuration" / "zere_config.py"
     ).read_text(encoding="utf-8")
     match = re.search(r'version: str = "([^"]+)"', python_config)
-    assert match, "в jarvis_config.py не найдена версия по умолчанию"
-    assert match.group(1) == version, "jarvis_config.py: версия != config.json"
+    assert match, "в zere_config.py не найдена версия по умолчанию"
+    assert match.group(1) == version, "zere_config.py: версия != config.json"
 
     csharp_config = (
-        ROOT / "JARVIS.Core" / "Configuration" / "JarvisConfig.cs"
+        ROOT / "ZERE.Core" / "Configuration" / "ZereConfig.cs"
     ).read_text(encoding="utf-8")
     match = re.search(r'Version \{ get; set; \} = "([^"]+)"', csharp_config)
-    assert match, "в JarvisConfig.cs не найдена версия по умолчанию"
-    assert match.group(1) == version, "JarvisConfig.cs: версия != config.json"
+    assert match, "в ZereConfig.cs не найдена версия по умолчанию"
+    assert match.group(1) == version, "ZereConfig.cs: версия != config.json"
 
 
 def test_iss_gets_version_from_build() -> None:
     """Версию в .iss задаёт сборка: иначе она замирает и расходится с конфигом."""
-    iss = _read("Jarvis.iss")
+    iss = _read("Zere.iss")
     assert "#ifndef MyAppVersion" in iss, (
-        "MyAppVersion в Jarvis.iss не переопределяется через /DMyAppVersion"
+        "MyAppVersion в Zere.iss не переопределяется через /DMyAppVersion"
     )
 
     build = _read("build-setup.ps1")
@@ -253,10 +253,10 @@ def test_build_setup_ships_both_editions() -> None:
         "C#-редакция в дистрибутив не попадёт"
     )
 
-    iss = _read("Jarvis.iss")
-    assert "#ifndef Edition" in iss, "в Jarvis.iss нет переопределяемого Edition"
+    iss = _read("Zere.iss")
+    assert "#ifndef Edition" in iss, "в Zere.iss нет переопределяемого Edition"
     match = re.search(r'#define Edition "(\w+)"', iss)
-    assert match, "в Jarvis.iss не найден запасной Edition"
+    assert match, "в Zere.iss не найден запасной Edition"
     assert match.group(1) == "both", "ручной ISCC соберёт не обе редакции"
 
 

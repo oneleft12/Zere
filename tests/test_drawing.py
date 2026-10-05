@@ -13,12 +13,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from jarvis.core.handlers.drawing_handler import DrawingHandler
-from jarvis.tools.drawing import drawing_geometry as geometry
-from jarvis.tools.drawing.drawing_command_router import DrawingCommandRouter
-from jarvis.tools.drawing.drawing_command_type import DrawingCommandType
-from jarvis.tools.drawing.drawing_service import DrawingService
-from jarvis.tools.drawing.drawing_target import (
+from zere.core.handlers.drawing_handler import DrawingHandler
+from zere.tools.drawing import drawing_geometry as geometry
+from zere.tools.drawing.drawing_command_router import DrawingCommandRouter
+from zere.tools.drawing.drawing_command_type import DrawingCommandType
+from zere.tools.drawing.drawing_service import DrawingService
+from zere.tools.drawing.drawing_target import (
     DEFAULT_TARGET,
     DrawingTarget,
     display_name,
@@ -95,7 +95,7 @@ def test_router_parses_text_with_anchor() -> None:
 
     for phrase, expected in (
         ("нарисуй текст привет", "привет"),
-        ("напиши на холсте JARVIS", "JARVIS"),
+        ("напиши на холсте ZERE", "ZERE"),
         ("напиши текст Привет, мир!", "Привет, мир!"),
         ("нарисуй надпись «Мяу»", "Мяу"),
     ):
@@ -321,7 +321,7 @@ def test_text_rendering_produces_strokes() -> None:
         print(f"SKIP Pillow недоступен ({ex})")
         return
 
-    from jarvis.tools.drawing.drawing_font import render_text_bitmap, text_strokes
+    from zere.tools.drawing.drawing_font import render_text_bitmap, text_strokes
 
     rows = render_text_bitmap("Привет")
     assert rows and rows[0], "растр текста пуст"
@@ -416,7 +416,7 @@ def test_interpolation_covers_segment() -> None:
 def test_target_specs_cover_store_paint_and_titles() -> None:
     """Paint в Windows 11 — Store-приложение: процесс PaintApp.exe, не mspaint.
 
-    Без этого окно не находилось бы и JARVIS запускал бы Paint заново
+    Без этого окно не находилось бы и ZERE запускал бы Paint заново
     на каждую команду. Заголовок — запасной признак поиска окна.
     """
     paint = spec_for(DrawingTarget.PAINT)
@@ -442,9 +442,9 @@ def test_window_title_matching_is_precise() -> None:
     """Заголовок принимается по сегментам, а не подстрокой.
 
     Иначе окно браузера с вкладкой «Paint tutorial» сошло бы за Paint,
-    и JARVIS рисовал бы в браузере.
+    и ZERE рисовал бы в браузере.
     """
-    from jarvis.tools.drawing.drawing_service import _title_matches
+    from zere.tools.drawing.drawing_service import _title_matches
 
     assert _title_matches("Untitled - Paint", ("paint",)) is True
     assert _title_matches("Безымянный — Paint", ("paint",)) is True
@@ -462,7 +462,7 @@ def test_plan_moves_caps_points_and_covers_ends() -> None:
 
     Без потолка длинная окружность при паузе 10 мс рисовалась бы секундами.
     """
-    from jarvis.tools.drawing import drawing_service
+    from zere.tools.drawing import drawing_service
 
     canvas = geometry.DrawingCanvas(left=0, top=0, width=800, height=600)
     circle_points = [canvas.to_screen(x, y) for (x, y) in geometry.circle()[0]]
@@ -484,7 +484,7 @@ def test_plan_moves_caps_points_and_covers_ends() -> None:
 
 def test_canvas_guard_rejects_degenerate_area() -> None:
     """Вырожденный холст — отказ, а не молчаливая точка вместо фигуры."""
-    from jarvis.tools.drawing.drawing_service import is_canvas_usable
+    from zere.tools.drawing.drawing_service import is_canvas_usable
 
     assert is_canvas_usable(geometry.DrawingCanvas(0, 0, 800, 600)) is True
     assert is_canvas_usable(geometry.DrawingCanvas(0, 0, 80, 80)) is True
@@ -504,7 +504,7 @@ def test_moves_are_injected_not_just_repositioned() -> None:
     """
     import inspect
 
-    from jarvis.tools.drawing import drawing_service
+    from zere.tools.drawing import drawing_service
 
     source = inspect.getsource(drawing_service._move_to)
 
@@ -530,7 +530,7 @@ def test_dpi_awareness_enabled_before_measuring_window() -> None:
     """
     import inspect
 
-    from jarvis.tools.drawing import drawing_service
+    from zere.tools.drawing import drawing_service
 
     run_source = inspect.getsource(drawing_service.DrawingService._run)
     awareness_source = inspect.getsource(drawing_service._enable_dpi_awareness)
@@ -548,7 +548,7 @@ def test_run_reports_drawing_diagnostics() -> None:
     """Строка [Drawing] нужна, чтобы отличить сбой от успеха без отладчика."""
     import inspect
 
-    from jarvis.tools.drawing import drawing_service
+    from zere.tools.drawing import drawing_service
 
     source = inspect.getsource(drawing_service.DrawingService._run)
 
@@ -566,7 +566,7 @@ def test_win32_input_struct_matches_windows_layout() -> None:
     """
     import ctypes as ctypes_module
 
-    from jarvis.tools.drawing import drawing_service
+    from zere.tools.drawing import drawing_service
 
     pointer_size = ctypes_module.sizeof(ctypes_module.c_void_p)
 
@@ -587,7 +587,7 @@ def test_hwnd_returning_calls_have_explicit_restype() -> None:
     """
     import inspect
 
-    from jarvis.tools.drawing import drawing_service
+    from zere.tools.drawing import drawing_service
 
     source = inspect.getsource(drawing_service._get_user32)
 
@@ -621,7 +621,7 @@ def test_pipeline_places_drawing_before_ai() -> None:
     Импортировать services.py нельзя на Linux (psutil/winreg), поэтому
     проверяем AST-ом — как scripts/check_port.py.
     """
-    source = (REPO_ROOT / "jarvis" / "core" / "services.py").read_text(encoding="utf-8")
+    source = (REPO_ROOT / "zere" / "core" / "services.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
 
     pipeline_calls: list[str] = []

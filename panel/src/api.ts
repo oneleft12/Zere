@@ -4,7 +4,7 @@
  */
 
 export const TOKEN: string =
-  document.querySelector<HTMLMetaElement>('meta[name="jarvis-token"]')?.content ?? "";
+  document.querySelector<HTMLMetaElement>('meta[name="zere-token"]')?.content ?? "";
 
 export class ApiError extends Error {
   readonly code: string;

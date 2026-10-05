@@ -1,4 +1,4 @@
-"""JARVIS — точка входа (Python-порт JARVIS.App/Program.cs)."""
+"""ZERE — точка входа (Python-порт ZERE.App/Program.cs)."""
 
 from __future__ import annotations
 
@@ -6,26 +6,26 @@ import sys
 import threading
 import webbrowser
 
-from jarvis import paths
-from jarvis.ai.ollama_client import OllamaClient
-from jarvis.api.server import PanelServer
-from jarvis.core.configuration.jarvis_config import JarvisConfig
-from jarvis.core.console import configure_console_encoding
-from jarvis.core.context.runtime_context import RuntimeContext
-from jarvis.core.dependencies.dependency_checker import DependencyChecker
-from jarvis.core.engine import JarvisEngine
-from jarvis.core.logging.log_service import LogService
-from jarvis.core.plugins.plugin_config import PluginConfig
-from jarvis.core.plugins.plugin_manager import PluginManager
-from jarvis.core.plugins.settings.settings_menu import SettingsMenu
-from jarvis.core.services import create_services
-from jarvis.memory.database.conversation_repository import ConversationRepository
-from jarvis.memory.database.memory_database import MemoryDatabase
-from jarvis.memory.database.memory_repository import MemoryRepository
-from jarvis.tools.applications.application_launcher import ApplicationLauncher
-from jarvis.tools.windows.process_service import ProcessService
-from jarvis.tools.windows.safe_action_manager import SafeActionManager
-from jarvis.voice.voice_manager import VoiceManager
+from zere import paths
+from zere.ai.ollama_client import OllamaClient
+from zere.api.server import PanelServer
+from zere.core.configuration.zere_config import ZereConfig
+from zere.core.console import configure_console_encoding
+from zere.core.context.runtime_context import RuntimeContext
+from zere.core.dependencies.dependency_checker import DependencyChecker
+from zere.core.engine import ZereEngine
+from zere.core.logging.log_service import LogService
+from zere.core.plugins.plugin_config import PluginConfig
+from zere.core.plugins.plugin_manager import PluginManager
+from zere.core.plugins.settings.settings_menu import SettingsMenu
+from zere.core.services import create_services
+from zere.memory.database.conversation_repository import ConversationRepository
+from zere.memory.database.memory_database import MemoryDatabase
+from zere.memory.database.memory_repository import MemoryRepository
+from zere.tools.applications.application_launcher import ApplicationLauncher
+from zere.tools.windows.process_service import ProcessService
+from zere.tools.windows.safe_action_manager import SafeActionManager
+from zere.voice.voice_manager import VoiceManager
 
 
 def main() -> None:
@@ -33,7 +33,7 @@ def main() -> None:
     # UnicodeEncodeError — в аудио-пути это выглядело как сбой микрофона.
     configure_console_encoding()
 
-    config = JarvisConfig.load()
+    config = ZereConfig.load()
     logger = LogService()
 
     logger.info(f"{config.assistant_name} OS {config.version} запускается.")
@@ -79,14 +79,14 @@ def main() -> None:
 
     services.get(MemoryDatabase)
 
-    jarvis = services.get(JarvisEngine)
+    zere = services.get(ZereEngine)
     voice_manager = VoiceManager()
 
     # Локальная панель (этап 1 GUI-плана): loopback + токен, контракт
     # docs/api/openapi.yaml. Сбой порта не должен ронять консоль.
     panel = PanelServer(
-        engine=jarvis,
-        config=services.get(JarvisConfig),
+        engine=zere,
+        config=services.get(ZereConfig),
         memory=services.get(MemoryRepository),
         conversation=services.get(ConversationRepository),
         plugin_config=services.get(PluginConfig),
@@ -121,7 +121,7 @@ def main() -> None:
     # читается на каждое предложение — переключается из панели на лету
     voice_manager.config.audio_processing = bool(config.audio_processing)
 
-    active_personality = jarvis.plugin_manager.active_personality
+    active_personality = zere.plugin_manager.active_personality
     if active_personality is not None:
         print(f"[Личность] {active_personality.name} | Стиль: {active_personality.style}\n")
 
@@ -165,7 +165,7 @@ def main() -> None:
             if runtime is not None:
                 runtime.voice_mode = True
 
-            run_voice_mode(voice_manager, jarvis, config, logger, voice_mode_holder := [True])
+            run_voice_mode(voice_manager, zere, config, logger, voice_mode_holder := [True])
 
             if runtime is not None:
                 runtime.voice_mode = False
@@ -196,7 +196,7 @@ def main() -> None:
             settings_menu = SettingsMenu(plugin_manager, plugin_config)
             settings_menu.show()
 
-            active_personality = jarvis.plugin_manager.active_personality
+            active_personality = zere.plugin_manager.active_personality
             if active_personality is not None:
                 print(f"\n[Личность] {active_personality.name} | Стиль: {active_personality.style}\n")
 
@@ -221,12 +221,12 @@ def main() -> None:
             continue
 
         try:
-            answer = jarvis.process(message)
+            answer = zere.process(message)
 
-            logger.info(f"JARVIS: {answer}")
+            logger.info(f"ZERE: {answer}")
 
             print()
-            print(f"JARVIS: {answer}")
+            print(f"ZERE: {answer}")
             print()
 
             if config.voice_enabled:
@@ -240,7 +240,7 @@ def main() -> None:
 
     panel.stop()
     voice_manager.close()
-    logger.info("JARVIS завершил работу.")
+    logger.info("ZERE завершил работу.")
 
 
 def _open_panel_in_browser(url: str, logger: LogService) -> None:
@@ -280,7 +280,7 @@ def _open_panel_window(url: str, logger: LogService) -> None:
             return
 
         try:
-            new_window = webview.create_window("JARVIS", url, width=1280, height=840)
+            new_window = webview.create_window("ZERE", url, width=1280, height=840)
             _panel_window_ref["window"] = new_window
             threading.Thread(
                 target=_run_panel_window, args=(webview, url, logger), daemon=True
@@ -313,7 +313,7 @@ def _cleanup_voice_input() -> None:
             pass  # очистка не должна ронять старт
 
 
-def _text_fallback(voice_manager: VoiceManager, jarvis: JarvisEngine, config: JarvisConfig, logger: LogService, keep_running: list[bool]) -> None:
+def _text_fallback(voice_manager: VoiceManager, zere: ZereEngine, config: ZereConfig, logger: LogService, keep_running: list[bool]) -> None:
     """Fallback «Whisper не отвечает → текстовый ввод» (ROADMAP 1.1):
     предлагает ввести команду текстом, не выходя из голосового режима.
     """
@@ -331,13 +331,13 @@ def _text_fallback(voice_manager: VoiceManager, jarvis: JarvisEngine, config: Ja
         print("[Голос] Текстовый режим.\n")
         return
 
-    _process_voice(text_input, jarvis, config, logger, voice_manager)
+    _process_voice(text_input, zere, config, logger, voice_manager)
 
 
 def run_voice_mode(
     voice_manager: VoiceManager,
-    jarvis: JarvisEngine,
-    config: JarvisConfig,
+    zere: ZereEngine,
+    config: ZereConfig,
     logger: LogService,
     keep_running: list[bool],
 ) -> None:
@@ -406,7 +406,7 @@ def run_voice_mode(
 
             if not voice_input or not voice_input.strip():
                 print("⚠️ Не удалось распознать команду.\n")
-                _text_fallback(voice_manager, jarvis, config, logger, keep_running)
+                _text_fallback(voice_manager, zere, config, logger, keep_running)
                 if not keep_running[0]:
                     return
                 print("💤 Возвращаюсь в спящий режим.\n")
@@ -419,7 +419,7 @@ def run_voice_mode(
                 print("[Голос] Текстовый режим.\n")
                 return
 
-            _process_voice(voice_input, jarvis, config, logger, voice_manager)
+            _process_voice(voice_input, zere, config, logger, voice_manager)
             print("💤 Возвращаюсь в спящий режим.\n")
         else:
             # Обычный режим без ключевого слова (старый вариант)
@@ -428,7 +428,7 @@ def run_voice_mode(
 
             if not voice_input or not voice_input.strip():
                 print("Не удалось распознать речь.")
-                _text_fallback(voice_manager, jarvis, config, logger, keep_running)
+                _text_fallback(voice_manager, zere, config, logger, keep_running)
                 if not keep_running[0]:
                     return
                 continue
@@ -440,22 +440,22 @@ def run_voice_mode(
                 print("[Голос] Текстовый режим.\n")
                 return
 
-            _process_voice(voice_input, jarvis, config, logger, voice_manager)
+            _process_voice(voice_input, zere, config, logger, voice_manager)
 
 
 def _process_voice(
     voice_input: str,
-    jarvis: JarvisEngine,
-    config: JarvisConfig,
+    zere: ZereEngine,
+    config: ZereConfig,
     logger: LogService,
     voice_manager: VoiceManager,
 ) -> None:
     try:
-        answer = jarvis.process(voice_input)
+        answer = zere.process(voice_input)
 
-        logger.info(f"JARVIS: {answer}")
+        logger.info(f"ZERE: {answer}")
 
-        print(f"\nJARVIS: {answer}\n")
+        print(f"\nZERE: {answer}\n")
 
         if config.voice_enabled:
             voice_manager.speak(answer)
