@@ -4,9 +4,11 @@ namespace JARVIS.Voice.Audio;
 
 /// <summary>
 /// DSP-цепочка обработки голоса (TTS).
-/// Делает звук плотнее и «кинематографичнее», но без артефактов: один мягкий
-/// компрессор вместо каскада, без шумовых гейтов и с качественным
-/// sinc-ресемплингом до частоты устройства вывода.
+/// Ровно столько обработки, сколько нужно для качественного звука: качественный
+/// sinc-ресемплинг до частоты устройства, чистка низа/шипения, умеренный EQ и
+/// страховка по пикам. <b>Компрессора здесь нет</b>: 2.5:1 при пороге −18 dBFS
+/// плюс нормализация всего файла «зажимали» динамику речи — на слух это и есть
+/// «очень компрессированный звук» (см. §13 отчёта VOICE_PERF_STABILITY_ANALYSIS).
 /// </summary>
 public static class AudioProcessor
 {
@@ -25,7 +27,7 @@ public static class AudioProcessor
 
     /// <summary>
     /// Обработка WAV-файла: ресемплинг → HPF → корректирующий EQ → EQ →
-    /// компрессия → нормализация → мягкий лимитер.
+    /// страховка по пикам → мягкий лимитер (без компрессии).
     ///
     /// Про ресемплинг. Piper отдаёт 22050 Гц, а у звуковых устройств нативная
     /// частота обычно 44100/48000. Если отдать 22050 как есть, конвертировать
@@ -66,7 +68,7 @@ public static class AudioProcessor
                 sampleRate = targetSampleRate;
             }
 
-            // === DSP-цепочка (баритон, без артефактов) ===
+            // === DSP-цепочка (баритон, без артефактов и без компрессии) ===
 
             // 1. HPF: убираем гул и комнатный румбл ниже 75 Гц
             ApplyHighPass(samples, sampleRate, 75.0);
@@ -80,16 +82,14 @@ public static class AudioProcessor
             // 3. Кинематографичный EQ (умеренный: без «бочки» и без шипения)
             ApplyCinematicEq(samples, sampleRate);
 
-            // 4. ОДИН мягкий компрессор 2.5:1 @ -18 dBFS.
-            //    Атака 20 мс (было 3 мс): на 3 мс усиление успевало промодулироваться
-            //    внутри периода голоса (~8 мс), что и давало металлическую грязь.
-            //    Раньше здесь стояли ДВА компрессора подряд (3:1 и 6:1) — это была
-            //    та самая «перекомпрессия».
-            ApplyCompressor(samples, sampleRate,
-                thresholdDb: -18.0, ratio: 2.5, attackMs: 20.0, releaseMs: 250.0);
+            // 4. Компрессора больше нет. Было 2.5:1 при пороге −18 dBFS (то есть
+            //    выше порога оказывалась почти вся речь) плюс нормализация всего
+            //    файла — динамика «зажималась», и озвучка звучала перекомпресси-
+            //    рованной. TTS-движок и так отдаёт выровненный по громкости голос.
 
-            // 5. Нормализация пика -3 dBFS: запас по динамике вместо «стены» на -1.5
-            Normalize(samples, targetPeakDb: -3.0);
+            // 5. Страховка по пикам: только ослабление, тихое не поднимаем —
+            //    иначе это снова было бы выравнивание громкости (компрессия).
+            AttenuatePeak(samples, ceilingDb: -1.0);
 
             // 6. Мягкий лимитер -0.5 dBFS
             ApplySoftLimiter(samples, ceilingDb: -0.5);
@@ -297,42 +297,23 @@ public static class AudioProcessor
     /// Один мягкий компрессор с медленной атакой: выравнивает громкость фразы,
     /// но не трогает форму волны внутри периода голоса (иначе — «металл»).
     /// </summary>
-    private static void ApplyCompressor(float[] samples, int sampleRate,
-        double thresholdDb, double ratio, double attackMs, double releaseMs)
+    /// <summary>
+    /// Ослабляет файл, если пик выше потолка; тихое не поднимает.
+    /// Заменяет прежнюю нормализацию «пик в −3 dBFS»: та поднимала громкость
+    /// всего файла и вместе с компрессором выравнивала динамику на слух.
+    /// Здесь только страховка от клиппинга.
+    /// </summary>
+    private static void AttenuatePeak(float[] samples, double ceilingDb)
     {
-        var threshold = Math.Pow(10, thresholdDb / 20.0);
-        var attackCoeff = Math.Exp(-1.0 / (attackMs / 1000.0 * sampleRate));
-        var releaseCoeff = Math.Exp(-1.0 / (releaseMs / 1000.0 * sampleRate));
-        double envelope = 0;
-
-        for (int i = 0; i < samples.Length; i++)
-        {
-            var x = samples[i];
-            var abs = Math.Abs(x);
-
-            var coeff = abs > envelope ? attackCoeff : releaseCoeff;
-            envelope = coeff * envelope + (1.0 - coeff) * abs;
-
-            if (envelope > threshold)
-            {
-                var gain = threshold + (envelope - threshold) / ratio;
-                var applied = envelope > 0 ? gain / envelope : 1.0;
-                samples[i] = (float)(x * Math.Max(applied, 0.1));
-            }
-        }
-    }
-
-    private static void Normalize(float[] samples, double targetPeakDb)
-    {
-        var target = (float)Math.Pow(10, targetPeakDb / 20.0);
+        var ceiling = (float)Math.Pow(10, ceilingDb / 20.0);
         var peak = float.Epsilon;
         for (int i = 0; i < samples.Length; i++)
         {
             var abs = Math.Abs(samples[i]);
             if (abs > peak) peak = abs;
         }
-        if (peak < float.Epsilon) return;
-        var gain = target / peak;
+        if (peak <= ceiling) return;
+        var gain = ceiling / peak;
         for (int i = 0; i < samples.Length; i++)
             samples[i] *= gain;
     }

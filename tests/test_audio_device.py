@@ -23,6 +23,7 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import sys
 import tempfile
 import types
@@ -405,9 +406,20 @@ def test_live_input_options_open_16k() -> None:
     """Живой тест: выбранный вариант действительно открывает 16 кГц.
 
     До правки здесь была ошибка «Invalid sample rate [PaErrorCode -9997]»:
-    устройство WASAPI без auto_convert не принимает 16 кГц. Тест пропускается,
-    если PortAudio/микрофона в системе нет (CI).
+    устройство WASAPI без auto_convert не принимает 16 кГц.
+
+    Тест трогает **реальную звуковую карту** (микрофон пользователя), поэтому
+    по умолчанию выключен: запускается только с `JARVIS_LIVE_AUDIO=1`.
+    Все остальные тесты файла работают на фейковом тракте и устройств не
+    касаются.
     """
+    if os.environ.get("JARVIS_LIVE_AUDIO") != "1":
+        print(
+            "\n[пропущено] живой микрофон не трогаем "
+            "(включить: JARVIS_LIVE_AUDIO=1)"
+        )
+        return
+
     if not LIVE:
         print("\n[пропущено] живого PortAudio нет: sounddevice недоступен")
         return

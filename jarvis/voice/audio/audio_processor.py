@@ -1,9 +1,12 @@
 """DSP-цепочка обработки голоса (TTS)
 (порт JARVIS.Voice/Audio/AudioProcessor.cs).
 
-Делает звук плотнее и «кинематографичнее», но без артефактов: один мягкий
-компрессор вместо каскада, без шумовых гейтов и с качественным
-sinc-ресемплингом до частоты устройства вывода.
+Ровно столько обработки, сколько нужно для качественного звука: качественный
+sinc-ресемплинг до частоты устройства, чистка низа/шипения, умеренный EQ и
+страховка по пикам. **Компрессора здесь нет**: 2.5:1 при пороге −18 dBFS плюс
+нормализация всего файла «зажимали» динамику речи — на слух это и есть
+«очень компрессированный звук» (см. §13 отчёта VOICE_PERF_STABILITY_ANALYSIS).
+
 NAudio (AudioFileReader/WaveFileWriter) заменён на stdlib wave + numpy.
 """
 
@@ -78,7 +81,7 @@ class AudioProcessor:
 
     @staticmethod
     def process(input_wav_path: str, target_sample_rate: int = DEFAULT_SAMPLE_RATE) -> str:
-        """Ресемплинг → HPF → корректирующий EQ → EQ → компрессия → лимитер.
+        """Ресемплинг → HPF → корректирующий EQ → EQ → страховка по пикам → лимитер.
 
         Про ресемплинг. Piper отдаёт 22050 Гц, а у звуковых устройств нативная
         частота обычно 44100/48000. Если отдать 22050 как есть, конвертировать
@@ -108,7 +111,7 @@ class AudioProcessor:
                 samples = _resample_sinc(samples, sample_rate, target_sample_rate)
                 sample_rate = target_sample_rate
 
-            # === DSP-цепочка (баритон, без артефактов) ===
+            # === DSP-цепочка (баритон, без артефактов и без компрессии) ===
 
             # 1. HPF: убираем гул и комнатный румбл ниже 75 Гц
             _apply_high_pass(samples, sample_rate, 75.0)
@@ -122,18 +125,14 @@ class AudioProcessor:
             # 3. Кинематографичный EQ (умеренный: без «бочки» и без шипения)
             _apply_cinematic_eq(samples, sample_rate)
 
-            # 4. ОДИН мягкий компрессор 2.5:1 @ -18 dBFS.
-            #    Атака 20 мс (было 3 мс): на 3 мс усиление успевало промодулироваться
-            #    внутри периода голоса (~8 мс), что и давало металлическую грязь.
-            #    Раньше здесь стояли ДВА компрессора подряд (3:1 и 6:1) — это была
-            #    та самая «перекомпрессия».
-            _apply_compressor(
-                samples, sample_rate, threshold_db=-18.0, ratio=2.5,
-                attack_ms=20.0, release_ms=250.0,
-            )
+            # 4. Компрессора больше нет. Было 2.5:1 при пороге −18 dBFS (то есть
+            #    выше порога оказывалась почти вся речь) плюс нормализация всего
+            #    файла — динамика «зажималась», и озвучка звучала перекомпресси-
+            #    рованной. TTS-движок и так отдаёт выровненный по громкости голос.
 
-            # 5. Нормализация пика -3 dBFS: запас по динамике вместо «стены» на -1.5
-            _normalize(samples, target_peak_db=-3.0)
+            # 5. Страховка по пикам: только ослабление, тихое не поднимаем —
+            #    иначе это снова было бы выравнивание громкости (компрессия).
+            _attenuate_peak(samples, ceiling_db=-1.0)
 
             # 6. Мягкий лимитер -0.5 dBFS
             _apply_soft_limiter(samples, ceiling_db=-0.5)
@@ -283,40 +282,26 @@ def _apply_biquad_peak(
         samples[i] = np.float32(y)
 
 
-def _apply_compressor(
-    samples: np.ndarray, sample_rate: int, threshold_db: float, ratio: float,
-    attack_ms: float, release_ms: float,
-) -> None:
-    """Один мягкий компрессор с медленной атакой: выравнивает громкость фразы,
-    но не трогает форму волны внутри периода голоса (иначе — «металл»)."""
-    threshold = 10.0 ** (threshold_db / 20.0)
-    attack_coeff = math.exp(-1.0 / (attack_ms / 1000.0 * sample_rate))
-    release_coeff = math.exp(-1.0 / (release_ms / 1000.0 * sample_rate))
-    envelope = 0.0
+def _attenuate_peak(samples: np.ndarray, ceiling_db: float) -> None:
+    """Ослабляет файл, если пик выше потолка; тихое не поднимает.
 
-    for i in range(len(samples)):
-        x = float(samples[i])
-        abs_val = abs(x)
-
-        coeff = attack_coeff if abs_val > envelope else release_coeff
-        envelope = coeff * envelope + (1.0 - coeff) * abs_val
-
-        if envelope > threshold:
-            gain = threshold + (envelope - threshold) / ratio
-            applied = gain / envelope if envelope > 0 else 1.0
-            samples[i] = np.float32(x * max(applied, 0.1))
-
-
-def _normalize(samples: np.ndarray, target_peak_db: float) -> None:
-    target = np.float32(10.0 ** (target_peak_db / 20.0))
+    Заменяет прежнюю нормализацию «пик в −3 dBFS»: та поднимала громкость
+    всего файла и вместе с компрессором выравнивала динамику на слух.
+    Здесь только страховка от клиппинга — динамика голоса остаётся как в TTS.
+    """
+    ceiling = np.float32(10.0 ** (ceiling_db / 20.0))
     peak = _FLOAT_EPSILON
+
     for i in range(len(samples)):
         abs_val = abs(float(samples[i]))
         if abs_val > peak:
             peak = abs_val
-    if peak < _FLOAT_EPSILON:
+
+    if peak <= ceiling:
         return
-    gain = target / np.float32(peak)
+
+    gain = ceiling / np.float32(peak)
+
     for i in range(len(samples)):
         samples[i] *= gain
 
