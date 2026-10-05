@@ -145,6 +145,9 @@ JARVIS.Voice/Piper/*.exe
 JARVIS.Voice/Piper/*.dll
 JARVIS.Voice/Piper/espeak-ng-data/
 JARVIS.Voice/Piper/pkgconfig/
+# Промежуточные WAV синтеза и DSP (создаются и удаляются на лету)
+JARVIS.Voice/Piper/output_*.wav
+JARVIS.Voice/Piper/processed_*.wav
 
 # Если есть папка с бинарными моделями ML (Whisper, Piper и т.д.)
 JARVIS.Voice/Models/

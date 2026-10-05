@@ -167,16 +167,40 @@ internal static class Program
         {
             var stopwatch = Stopwatch.StartNew();
             await player.PlayAsync(file, volume);
+            var playMs = stopwatch.ElapsedMilliseconds;
+
+            // Обработанный файл — временный артефакт (в C#-редакции его так же
+            // удаляет VoiceManager после озвучки). В dry-режиме файл остаётся
+            // вызывающему: он для проверки DSP без вывода звука.
+            if (file != wav)
+                TryDelete(file);
 
             Reply(new JsonObject
             {
                 ["event"] = "done",
                 ["file"] = file,
                 ["processMs"] = processMs,
-                ["playMs"] = stopwatch.ElapsedMilliseconds,
+                ["playMs"] = playMs,
                 ["played"] = true
             });
         });
+    }
+
+    /// <summary>Удаляет временный файл, молча глотая ошибки файловой системы.</summary>
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (IOException)
+        {
+            // Файл занят/уже удалён — мусор не критичен.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Нет прав на удаление — оставляем файл.
+        }
     }
 
     // ─── Режим speak: разовая озвучка ───────────────────────────
