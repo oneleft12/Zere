@@ -133,6 +133,25 @@ Pipeline обработки команд (порядок важен):
 
 ---
 
+## Обновление из GitHub
+
+**Только Python-редакция** (C#-панель эндпоинтов обновления не имеет).
+Обновляется кодом `zere/core/update/updater.py` (`UpdateService`):
+`git fetch` + `git pull --ff-only` текущей ветки, без слияний и force.
+
+- Автопроверка при старте панели (фоновый поток, сбой не мешает работе).
+- Экран панели «Обновления» (`/update`) + карточка на дашборде + отметка в
+  статус-строке (`⬆ обновление: N`).
+- API: `GET /api/update` (кэш, без сети), `POST /api/update/check` (fetch),
+  `POST /api/update/apply` (`pull --ff-only` + `pip install -r requirements.txt`
+  при изменении файла; `409 UPDATE_BUSY` при параллельной операции).
+- CLI: `python -m zere.core.update [--check|--apply] [--no-deps]`.
+- Данные не трогаются: `config/`, `zere.db`, `logs/`, голосовые модели.
+  Грязная рабочая копия и расхождение веток — отказ с причиной, не pull.
+- После применения нужен перезапуск ZERE (процесс не перезапускается сам).
+- Подробности: `docs/UPDATE.md`; тесты — `tests/test_updater.py`
+  и контрактные `/api/update*` в `tests/test_panel_api.py`.
+
 ## Карта структуры проекта
 
 ```
@@ -235,7 +254,7 @@ Zere/
 ├── tools/                        # TTS-инструментарий
 │   └── zere_tts_server.py        # HTTP-сервер клонирования (uv.exe, xVibePocketTTS — gitignored)
 ├── panel/                        # Web-панель (SPA, Vite + vanilla TS)
-│   ├── src/                      # main/shell/router/ui/i18n + 11 экранов (screens/)
+│   ├── src/                      # main/shell/router/ui/i18n + 12 экранов (screens/)
 │   ├── e2e/                      # Playwright-смоук (npm run test:e2e)
 │   └── dist/                     # Сборка — коммитится, раздаётся сервером
 ├── installer/                    # Установщик Windows (PowerShell + Inno Setup)
@@ -247,7 +266,7 @@ Zere/
 │   ├── Zere.iss                  # Inno Setup: готовый Setup.exe
 │   └── build-setup.ps1           # Сборка Setup.exe (git archive + ISCC)
 ├── tests/
-│   ├── test_panel_api.py         # Контрактные тесты панели (91, по OpenAPI)
+│   ├── test_panel_api.py         # Контрактные тесты панели (102, по OpenAPI)
 │   ├── test_installer.py         # Тесты установщика (BOM, CRLF, SHA-256, связность)
 │   ├── test_stt_engine.py        # Тесты STT GigaAM (константы, роутинг, живое распознавание)
 │   ├── test_audio_device.py      # Тесты звуковых устройств (WASAPI+auto_convert, откат, регрессия -9997, живой микрофон)
@@ -258,8 +277,9 @@ Zere/
 │   ├── fake_speaker.py           # Фейковый C#-хелпер для тестов озвучки (звук не играет)
 │   ├── test_system_prompt.py     # Тесты P1-2
 │   ├── test_drawing.py           # Тесты рисования (36: роутер, геометрия, текст, обработчик, Win32)
+│   ├── test_updater.py           # Тесты обновления из GitHub (git в temp: fetch/pull, отказы, зависимости)
 │   └── e2e_server.py             # Раннер панели с фейками для E2E
-├── docs/                         # Планы, отчёты, openapi.yaml
+├── docs/                         # Планы, отчёты, openapi.yaml (UPDATE.md — обновление из GitHub)
 ├── logs/                         # Логи
 └── backups/                      # Бэкапы версий
 ```

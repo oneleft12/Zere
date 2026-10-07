@@ -384,3 +384,49 @@ export interface VoiceModeState {
   lastAnswer: string;
   lastError: string | null;
 }
+
+// ── Обновление из GitHub (docs/UPDATE.md) ────────────────────────
+
+export interface UpdateCommit {
+  hash: string;
+  short: string;
+  subject: string;
+  author: string;
+  /** ISO 8601 (git %aI). */
+  date: string;
+}
+
+export type UpdateDependencies = "not-needed" | "updated" | "skipped" | "failed";
+
+export interface UpdateOutcome {
+  ok: boolean;
+  message: string;
+  fromHash: string | null;
+  toHash: string | null;
+  pulled: number;
+  dependencies: UpdateDependencies;
+  restartRequired: boolean;
+  finishedAt: string;
+}
+
+export interface UpdateStatus {
+  edition: "python";
+  available: boolean;
+  branch: string;
+  remote: string;
+  remoteUrl: string | null;
+  current: UpdateCommit | null;
+  target: UpdateCommit | null;
+  behind: number;
+  ahead: number;
+  commits: UpdateCommit[];
+  dirty: boolean;
+  updateAvailable: boolean;
+  canUpdate: boolean;
+  blockedReason: string | null;
+  checking: boolean;
+  applying: boolean;
+  checkedAt: string | null;
+  error: string | null;
+  lastResult: UpdateOutcome | null;
+}

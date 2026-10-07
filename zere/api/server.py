@@ -30,6 +30,7 @@ from zere.ai.ollama_url_resolver import OllamaUrlResolver
 from zere.core.configuration.zere_config import ZereConfig
 from zere.core.logging.log_service import log_error
 from zere.core.plugins.plugin_config import PluginConfig
+from zere.core.update.updater import UpdateBusyError, UpdateService
 # Только раннер: он тянет лишь log_error/threading — сервер панели
 # по-прежнему собирается без тяжёлых голосовых зависимостей (Whisper/Piper).
 from zere.voice.voice_mode import VoiceModeRunner
@@ -66,6 +67,10 @@ _ROUTES = {
     "/api/voice/reference": frozenset({"POST"}),
     "/api/voice/test": frozenset({"POST"}),
     "/api/voice/listen": frozenset({"POST"}),
+    # Обновление из GitHub: статус (кэш) → проверка → применение.
+    "/api/update": frozenset({"GET"}),
+    "/api/update/check": frozenset({"POST"}),
+    "/api/update/apply": frozenset({"POST"}),
 }
 
 _MEMORY_PREFIX = "/api/memory/"
@@ -113,6 +118,7 @@ class PanelServer:
         app_launcher: Optional[Any] = None,
         voice: Optional[Any] = None,
         runtime: Optional[Any] = None,
+        updater: Optional[Any] = None,
         token: Optional[str] = None,
         port: int = DEFAULT_PORT,
     ) -> None:
@@ -135,6 +141,9 @@ class PanelServer:
             else None
         )
         self._token = token if token is not None else load_or_create_token()
+        # Обновление из GitHub (docs/UPDATE.md): сервис с кэшем состояния;
+        # в тестах и E2E подменяется фейком — сеть и рабочая копия не трогаются.
+        self._updater = updater if updater is not None else UpdateService()
         self._requested_port = port
         self._httpd: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[Thread] = None
@@ -184,6 +193,11 @@ class PanelServer:
     def voice_mode(self) -> Optional[VoiceModeRunner]:
         """Раннер непрерывного голосового режима (None — голоса нет)."""
         return self._voice_mode
+
+    @property
+    def updater(self) -> Any:
+        """Сервис обновления из GitHub (UpdateService или фейк в тестах)."""
+        return self._updater
 
     # ── Подтверждения опасных действий (серверный TTL, P0-3) ──────
 
@@ -246,6 +260,31 @@ class PanelServer:
 
         self._thread = Thread(target=self._httpd.serve_forever, daemon=True)
         self._thread.start()
+
+        # Автопроверка обновлений при старте — фоном, чтобы старт не ждал сеть.
+        self._start_update_probe()
+
+    def _start_update_probe(self) -> None:
+        """Проверка обновлений в фоне (единственный сетевой вызов панели).
+
+        Сбой (нет сети, нет git, закрытый ключ) не мешает работе: причина
+        остаётся в статусе `/api/update`, панель показывает её как ошибку.
+        """
+
+        def probe() -> None:
+            try:
+                status = self._updater.check()
+            except Exception as ex:  # noqa: BLE001 — фон не должен падать
+                log_error("PanelServer", f"Проверка обновлений: {ex}")
+                return
+
+            if status.get("updateAvailable"):
+                print(
+                    f"[Обновление] Доступно {status['behind']} коммитов позади "
+                    f"{status['remote']}/{status['branch']} — панель → «Обновления»."
+                )
+
+        Thread(target=probe, daemon=True, name="zere-update-check").start()
 
     def stop(self) -> None:
         # Голосовой режим — фоновый поток с захваченным микрофоном:
@@ -439,6 +478,12 @@ class _PanelHandler(BaseHTTPRequestHandler):
                     self._handle_voice_mode_get()
                 else:
                     self._handle_voice_mode_post()
+            elif path == "/api/update":
+                self._handle_update_get()
+            elif path == "/api/update/check":
+                self._handle_update_check()
+            elif path == "/api/update/apply":
+                self._handle_update_apply()
             else:  # /api/chat/stream
                 self._handle_chat_stream()
         except Exception as ex:  # noqa: BLE001 — нормализуем любую ошибку
@@ -1109,6 +1154,70 @@ class _PanelHandler(BaseHTTPRequestHandler):
 
         self._send_json(200, None, runner.status())
 
+    # ── Обновление из GitHub (docs/UPDATE.md) ─────────────────────
+
+    def _handle_update_get(self) -> None:
+        """Статус обновления из кэша сервиса: сеть не трогаем.
+
+        Единственный сетевой вызов — автопроверка при старте и POST
+        /api/update/check; GET отдаёт последнее известное состояние.
+        """
+        self._send_json(200, None, self.panel.updater.status())
+
+    def _handle_update_check(self) -> None:
+        """Проверка: git fetch удалённой ветки и сравнение с локальным HEAD."""
+        try:
+            status = self.panel.updater.check()
+        except UpdateBusyError as ex:
+            self._send_json(409, "UPDATE_BUSY", str(ex))
+            return
+
+        self._send_json(200, None, status)
+
+    def _handle_update_apply(self) -> None:
+        """Применение: git pull --ff-only текущей ветки (+ зависимости Python).
+
+        `ok: false` в ответе — не ошибка запроса, а отказ с причиной
+        (нет обновлений, грязная рабочая копия, расхождение веток).
+        """
+        body = self._read_body()
+        if body is None:
+            return
+
+        install_dependencies = True
+
+        if body.strip():
+            try:
+                payload = json.loads(body.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                self._send_json(
+                    400, "VALIDATION_ERROR", "Тело запроса не является корректным JSON."
+                )
+                return
+
+            if not isinstance(payload, dict):
+                self._send_json(
+                    400, "VALIDATION_ERROR", "Ожидался JSON-объект в теле запроса."
+                )
+                return
+
+            error = _validate_update_payload(payload)
+            if error is not None:
+                self._send_json(400, "VALIDATION_ERROR", error)
+                return
+
+            install_dependencies = payload.get("installDependencies", True)
+
+        try:
+            outcome = self.panel.updater.apply(
+                install_dependencies=install_dependencies
+            )
+        except UpdateBusyError as ex:
+            self._send_json(409, "UPDATE_BUSY", str(ex))
+            return
+
+        self._send_json(200, None, outcome)
+
     # ── Процессы и питание (этап 4, §6 плана) ────────────────────
 
     def _handle_processes_get(self) -> None:
@@ -1609,6 +1718,24 @@ def _read_log_entries(folder: Path, level: str) -> list[dict[str, Any]]:
 
     entries.sort(key=lambda entry: str(entry["time"]), reverse=True)
     return entries
+
+
+def _validate_update_payload(payload: Any) -> Optional[str]:
+    """Тело POST /api/update/apply: только необязательный installDependencies."""
+    if not isinstance(payload, dict):
+        return "Ожидался JSON-объект {installDependencies}."
+
+    for key in payload:
+        if key != "installDependencies":
+            return f"Неизвестный ключ: «{key}»."
+
+    if "installDependencies" in payload and not isinstance(
+        payload["installDependencies"], bool
+    ):
+        return "Ключ «installDependencies» должен быть булевым."
+
+    return None
+
 
 def _validate_memory_payload(payload: Any) -> Optional[str]:
     """Валидация записи памяти: {key, value, category?}."""

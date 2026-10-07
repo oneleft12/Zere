@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import copy
 import enum
 import http.client
 import json
@@ -37,6 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from zere import paths as paths_module
 from zere.ai.ollama_url_resolver import OllamaUrlResolver
 from zere.api.server import PanelServer
+from zere.core.update.updater import UpdateBusyError
 from zere.core.configuration.zere_config import ZereConfig
 from zere.core.plugins.interfaces.plugin import PluginType
 from zere.core.plugins.plugin_config import PluginConfig
@@ -478,6 +480,121 @@ class FakeVoiceManager:
         return ""
 
 
+class FakeUpdater:
+    """Порт-замена UpdateService: контракт /api/update без git и сети.
+
+    Обновление проверяется на настоящем репозитории только в
+    tests/test_updater.py; здесь важно другое — форма ответов по
+    docs/api/openapi.yaml, кэширующий GET и автопроверка при старте.
+    """
+
+    #: Форма коммита — как у настоящего сервиса (git %H/%h/%an/%aI/%s).
+    _CURRENT = {
+        "hash": "a" * 40,
+        "short": "aaaaaaa",
+        "subject": "Текущий коммит (фейк)",
+        "author": "ZERE",
+        "date": "2026-10-06T10:00:00+05:00",
+    }
+    _TARGET = {
+        "hash": "b" * 40,
+        "short": "bbbbbbb",
+        "subject": "Новый коммит (фейк)",
+        "author": "ZERE",
+        "date": "2026-10-06T11:00:00+05:00",
+    }
+
+    def __init__(self, *, update_available: bool = False) -> None:
+        self.checks = 0
+        self.applies = 0
+        self.calls: list[str] = []
+        self.busy = False
+        self.available = True
+        # По умолчанию ветка актуальна (как у обычной установки):
+        # тесты «есть обновление» включают флаг явно, E2E — через конструктор.
+        self.update_available = update_available
+        self.behind = 1
+        self.dirty = False
+        self.error: Optional[str] = None
+        self.blocked_reason: Optional[str] = None
+        self.install_dependencies: Optional[bool] = None
+        self.last_result: Optional[dict[str, Any]] = None
+
+    # ── Контракт UpdateService ───────────────────────────────────
+
+    def status(self) -> dict[str, Any]:
+        return copy.deepcopy(self._status())
+
+    def check(self) -> dict[str, Any]:
+        if self.busy:
+            raise UpdateBusyError("Проверка или обновление уже выполняется.")
+
+        self.checks += 1
+        self.calls.append("check")
+        return self.status()
+
+    def apply(self, *, install_dependencies: bool = True) -> dict[str, Any]:
+        if self.busy:
+            raise UpdateBusyError("Проверка или обновление уже выполняется.")
+
+        self.applies += 1
+        self.calls.append("apply")
+        self.install_dependencies = install_dependencies
+
+        if not self.update_available:
+            self.last_result = self._outcome(ok=False)
+            return copy.deepcopy(self.last_result)
+
+        self.update_available = False
+        self.last_result = self._outcome(ok=True)
+        return copy.deepcopy(self.last_result)
+
+    # ── Данные ───────────────────────────────────────────────────
+
+    def _status(self) -> dict[str, Any]:
+        commits = [copy.deepcopy(self._TARGET)] if self.update_available else []
+
+        return {
+            "edition": "python",
+            "available": self.available,
+            "branch": "python-port",
+            "remote": "origin",
+            "remoteUrl": "git@github.com:oneleft12/Jarvis.git",
+            "current": copy.deepcopy(self._CURRENT),
+            "target": copy.deepcopy(self._TARGET),
+            "behind": self.behind if self.update_available else 0,
+            "ahead": 0,
+            "commits": commits,
+            "dirty": self.dirty,
+            "updateAvailable": self.update_available,
+            "canUpdate": self.available and self.update_available and not self.busy,
+            "blockedReason": self.blocked_reason,
+            "checking": False,
+            "applying": self.busy,
+            "checkedAt": "2026-10-06T12:00:00+05:00",
+            "error": self.error,
+            "lastResult": copy.deepcopy(self.last_result),
+        }
+
+    def _outcome(self, *, ok: bool) -> dict[str, Any]:
+        pulled = self.behind if ok else 0
+
+        return {
+            "ok": ok,
+            "message": (
+                f"Обновление применено: {pulled} коммитов."
+                if ok
+                else "Обновлений нет: ветка python-port совпадает с origin."
+            ),
+            "fromHash": self._CURRENT["hash"] if ok else None,
+            "toHash": self._TARGET["hash"] if ok else self._CURRENT["hash"],
+            "pulled": pulled,
+            "dependencies": "updated" if ok else "not-needed",
+            "restartRequired": ok,
+            "finishedAt": "2026-10-06T12:05:00+05:00",
+        }
+
+
 @contextmanager
 def running_panel() -> Iterator[tuple[Any, Path]]:
     """Панель на эфемерном порту, config.json — во временной папке.
@@ -514,6 +631,9 @@ def running_panel() -> Iterator[tuple[Any, Path]]:
                     safe_actions=FakeSafeActionManager(),
                     app_launcher=FakeApplicationLauncher(),
                     voice=FakeVoiceManager(),
+                    # Обновление из GitHub: фейк — тесты не ходят в сеть
+                    # и не трогают рабочую копию репозитория.
+                    updater=FakeUpdater(),
                     token=TOKEN,
                     port=0,
                 )
@@ -2302,6 +2422,266 @@ def test_voice_mode_process_error_keeps_listening() -> None:
             status, raw, _ = call(panel, "POST", "/api/voice/mode", body={"enabled": False})
             assert status == 200, raw
             wait_voice_mode(panel, lambda s: s["enabled"] is False)
+
+
+# ── /api/update — обновление из GitHub (docs/UPDATE.md) ───────────
+
+
+def _require_python_update() -> bool:
+    """Обновление реализовано только в Python-редакции.
+
+    C#-панель эндпоинтов /api/update не имеет, поэтому в EXTERNAL-режиме
+    (CI-джоба C#-редакции) проверки пропускаются — так же, как голосовые
+    тесты, требующие микрофона.
+    """
+    if EXTERNAL:
+        print("\n[пропущено] /api/update реализован только в Python-редакции")
+        return False
+    return True
+
+
+def _wait_for_startup_probe(panel: Any, timeout: float = 5.0) -> int:
+    """Ждёт автопроверку обновления при старте и возвращает число проверок.
+
+    Панель запускает check() фоновым потоком, поэтому «сколько раз
+    спрашивали сервис» проверяем после того, как он ответил хотя бы раз.
+    """
+    deadline = time.monotonic() + timeout
+    while panel.updater.checks == 0 and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    return panel.updater.checks
+
+
+def _pending_update(panel: Any) -> FakeUpdater:
+    """Состояние фейка «есть 1 новый коммит» — без git и сети."""
+    updater = panel.updater
+    assert isinstance(updater, FakeUpdater)
+    updater.update_available = True
+    return updater
+
+
+def test_update_paths_are_in_spec() -> None:
+    """Контракт: маршруты обновления описаны в docs/api/openapi.yaml."""
+    for path in ("/api/update", "/api/update/check", "/api/update/apply"):
+        assert path in SPEC["paths"], path
+
+
+def test_update_get_matches_spec() -> None:
+    if not _require_python_update():
+        return
+
+    with running_panel() as (panel, _):
+        checks = _wait_for_startup_probe(panel)
+        _pending_update(panel)
+
+        status, raw, headers = call(panel, "GET", "/api/update")
+        assert status == 200
+        assert headers.get("content-type", "").startswith("application/json")
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("UpdateStatus"), payload)
+        assert_schema(schema("UpdateCommit"), payload["current"])
+        assert_schema(schema("UpdateCommit"), payload["target"])
+
+        for commit in payload["commits"]:
+            assert_schema(schema("UpdateCommit"), commit)
+
+        assert payload["edition"] == "python"
+        assert payload["branch"] == "python-port"
+        assert payload["behind"] == len(payload["commits"])
+        assert payload["updateAvailable"] is True
+
+        # GET отдаёт кэш: сервис (git fetch) повторно не опрашивается.
+        assert panel.updater.checks == checks
+
+
+def test_update_check_matches_spec() -> None:
+    if not _require_python_update():
+        return
+
+    with running_panel() as (panel, _):
+        checks = _wait_for_startup_probe(panel)
+        _pending_update(panel)
+
+        status, raw, _ = call(panel, "POST", "/api/update/check")
+        assert status == 200
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("UpdateStatus"), payload)
+
+        assert panel.updater.checks == checks + 1
+        assert payload["updateAvailable"] is True
+        assert payload["behind"] == 1
+        assert payload["commits"][0]["short"] == "bbbbbbb"
+        assert payload["error"] is None
+
+
+def test_update_check_runs_on_start() -> None:
+    """Автопроверка при старте панели: ровно один фоновый опрос сервиса."""
+    if not _require_python_update():
+        return
+
+    with running_panel() as (panel, _):
+        assert _wait_for_startup_probe(panel) == 1
+        assert panel.updater.calls == ["check"]
+
+
+def test_update_apply_matches_spec() -> None:
+    if not _require_python_update():
+        return
+
+    with running_panel() as (panel, _):
+        _pending_update(panel)
+        status, raw, _ = call(
+            panel, "POST", "/api/update/apply", body={"installDependencies": True}
+        )
+        assert status == 200
+
+        outcome = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("UpdateOutcome"), outcome)
+
+        assert outcome["ok"] is True
+        assert outcome["pulled"] == 1
+        assert outcome["dependencies"] == "updated"
+        assert outcome["restartRequired"] is True
+        assert outcome["fromHash"] == "a" * 40
+        assert outcome["toHash"] == "b" * 40
+        assert panel.updater.install_dependencies is True
+
+        # Состояние после применения: обновлений больше нет, итог в lastResult.
+        status, raw, _ = call(panel, "GET", "/api/update")
+        assert status == 200
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("UpdateStatus"), payload)
+        assert_schema(schema("UpdateOutcome"), payload["lastResult"])
+
+        assert payload["updateAvailable"] is False
+        assert payload["canUpdate"] is False
+        assert payload["lastResult"]["ok"] is True
+
+
+def test_update_apply_empty_body_uses_defaults() -> None:
+    """Пустое тело (requestBody.required: false) — зависимости обновляются."""
+    if not _require_python_update():
+        return
+
+    with running_panel() as (panel, _):
+        _pending_update(panel)
+        status, raw, _ = call(panel, "POST", "/api/update/apply")
+        assert status == 200
+
+        outcome = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("UpdateOutcome"), outcome)
+
+        assert outcome["ok"] is True
+        assert panel.updater.install_dependencies is True
+
+
+def test_update_apply_can_skip_dependencies() -> None:
+    if not _require_python_update():
+        return
+
+    with running_panel() as (panel, _):
+        _pending_update(panel)
+        status, raw, _ = call(
+            panel, "POST", "/api/update/apply", body={"installDependencies": False}
+        )
+        assert status == 200
+
+        outcome = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("UpdateOutcome"), outcome)
+        assert outcome["ok"] is True
+        assert panel.updater.install_dependencies is False
+
+
+def test_update_apply_validation_errors() -> None:
+    if not _require_python_update():
+        return
+
+    with running_panel() as (panel, _):
+        for body in ({"foo": 1}, {"installDependencies": "yes"}):
+            status, raw, _ = call(panel, "POST", "/api/update/apply", body=body)
+            assert status == 400, body
+            assert error_payload(raw)["code"] == "VALIDATION_ERROR"
+
+        # Битый JSON и не-объект в теле — тоже 400, сервис не вызывается.
+        conn = http.client.HTTPConnection("127.0.0.1", panel.port, timeout=15)
+        try:
+            conn.request(
+                "POST",
+                "/api/update/apply",
+                body=b"{not json",
+                headers={"X-ZERE-Token": panel.token, "Content-Type": "application/json"},
+            )
+            assert conn.getresponse().status == 400
+        finally:
+            conn.close()
+
+        status, raw, _ = call(panel, "POST", "/api/update/apply", body=[1, 2])
+        assert status == 400
+        assert error_payload(raw)["code"] == "VALIDATION_ERROR"
+
+        assert panel.updater.applies == 0
+
+
+def test_update_busy_is_409() -> None:
+    """Параллельная операция: 409 UPDATE_BUSY, GET по-прежнему отдаёт статус."""
+    if not _require_python_update():
+        return
+
+    with running_panel() as (panel, _):
+        _wait_for_startup_probe(panel)
+        _pending_update(panel).busy = True
+
+        for path in ("/api/update/check", "/api/update/apply"):
+            status, raw, _ = call(panel, "POST", path)
+            assert status == 409, path
+
+            payload = error_payload(raw)
+            assert_schema(schema("Error"), payload)
+            assert payload["code"] == "UPDATE_BUSY"
+
+        status, raw, _ = call(panel, "GET", "/api/update")
+        assert status == 200
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("UpdateStatus"), payload)
+        assert payload["applying"] is True
+        assert payload["canUpdate"] is False
+
+
+def test_update_requires_token() -> None:
+    if not _require_python_update():
+        return
+
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/update", token=None)
+        assert status == 401
+        assert error_payload(raw)["code"] == "UNAUTHORIZED"
+
+        status, raw, _ = call(panel, "POST", "/api/update/apply", token="f" * 64)
+        assert status == 401
+        assert error_payload(raw)["code"] == "UNAUTHORIZED"
+
+        assert panel.updater.applies == 0
+
+
+def test_update_wrong_method_is_405() -> None:
+    if not _require_python_update():
+        return
+
+    with running_panel() as (panel, _):
+        for method, path in (
+            ("POST", "/api/update"),
+            ("GET", "/api/update/check"),
+            ("GET", "/api/update/apply"),
+            ("DELETE", "/api/update"),
+        ):
+            status, raw, _ = call(panel, method, path)
+            assert status == 405, f"{method} {path}"
+            assert error_payload(raw)["code"] == "METHOD_NOT_ALLOWED"
 
 
 def main() -> None:

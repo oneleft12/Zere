@@ -41,6 +41,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Панель",
     items: [
       { path: "/settings", icon: "⚙", label: "Настройки" },
+      { path: "/update", icon: "⬆", label: "Обновления" },
       { path: "/personalities", icon: "🎭", label: "Личности" },
     ],
   },

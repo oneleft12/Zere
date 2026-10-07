@@ -920,6 +920,113 @@ paths:
         "503":
           $ref: "#/components/responses/NotReady"
 
+  /api/update:
+    get:
+      operationId: getUpdateStatus
+      summary: >
+        Статус обновления из GitHub из кэша сервиса: сеть не трогается,
+        отдаётся результат автопроверки при старте или последнего
+        POST /api/update/check. Показывает ветку, локальный и удалённый
+        HEAD, число коммитов позади/впереди, незакоммиченные правки
+        и причину, по которой обновление недоступно
+      tags: [update]
+      responses:
+        "200":
+          description: Состояние обновления
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Метод не поддерживается
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /api/update/check:
+    post:
+      operationId: checkUpdate
+      summary: >
+        Проверка обновлений: git fetch текущей ветки и сравнение локального
+        HEAD с refs/remotes/origin/<ветка>. Единственный сетевой вызов
+        обновления, запускается и автоматически при старте панели. Тело
+        запроса не читается; сбой сети не ошибка запроса — причина в поле
+        error
+      tags: [update]
+      responses:
+        "200":
+          description: Свежее состояние обновления
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Метод не поддерживается
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/UpdateBusy"
+
+  /api/update/apply:
+    post:
+      operationId: applyUpdate
+      summary: >
+        Применение обновления: `git pull --ff-only` текущей ветки, затем
+        `pip install -r requirements.txt`, если файл изменился. Правки в
+        рабочей копии и расхождение веток не трогаются — приходят в ответе
+        как `ok: false` с причиной. После успешного pull нужен перезапуск
+        ZERE
+      tags: [update]
+      requestBody:
+        required: false
+        description: 'Пустое тело равнозначно {"installDependencies": true}'
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateApplyRequest"
+      responses:
+        "200":
+          description: Результат применения (ok=false — отказ с причиной)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateOutcome"
+        "400":
+          description: Тело запроса не прошло валидацию
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Метод не поддерживается
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+        "409":
+          $ref: "#/components/responses/UpdateBusy"
+
 components:
   securitySchemes:
     tokenHeader:
@@ -947,6 +1054,15 @@ components:
       description: >
         Хранилище (личности, история, память), настройки или сервис
         (процессы, питание) ещё не готовы
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    UpdateBusy:
+      description: >
+        Проверка или применение обновления уже выполняется — повторный
+        запрос отклонён (код UPDATE_BUSY)
       content:
         application/json:
           schema:
@@ -1658,6 +1774,156 @@ components:
       properties:
         text:
           type: string
+
+    UpdateCommit:
+      type: object
+      required: [hash, short, subject, author, date]
+      additionalProperties: false
+      properties:
+        hash:
+          type: string
+          description: Полный SHA-1 коммита
+        short:
+          type: string
+          description: Короткий SHA-1 (как в `git log --oneline`)
+        subject:
+          type: string
+          description: Первая строка сообщения коммита
+        author:
+          type: string
+          description: Имя автора коммита
+        date:
+          type: string
+          format: date-time
+          description: Дата автора в ISO 8601 (git %aI)
+
+    UpdateApplyRequest:
+      type: object
+      additionalProperties: false
+      description: Тело POST /api/update/apply (необязательное)
+      properties:
+        installDependencies:
+          type: boolean
+          default: true
+          description: >
+            Обновлять зависимости Python (`pip install -r requirements.txt`),
+            если файл изменился в подтянутых коммитах
+
+    UpdateOutcome:
+      type: object
+      required:
+        [ok, message, fromHash, toHash, pulled, dependencies, restartRequired, finishedAt]
+      additionalProperties: false
+      properties:
+        ok:
+          type: boolean
+          description: >
+            true — обновление применено; false — отказ с причиной в message
+            (нет обновлений, незакоммиченные правки, расхождение веток, сбой git)
+        message:
+          type: string
+        fromHash:
+          type: string
+          nullable: true
+          description: Коммит HEAD до обновления
+        toHash:
+          type: string
+          nullable: true
+          description: Коммит HEAD после операции
+        pulled:
+          type: integer
+          minimum: 0
+          description: Сколько коммитов подтянуто
+        dependencies:
+          type: string
+          enum: [not-needed, updated, skipped, failed]
+          description: >
+            not-needed — requirements.txt не менялся; updated — pip прошёл;
+            skipped — pip отключён запросом; failed — pip не удался
+        restartRequired:
+          type: boolean
+          description: true — код на диске новее запущенного, нужен перезапуск ZERE
+        finishedAt:
+          type: string
+          format: date-time
+
+    UpdateStatus:
+      type: object
+      required:
+        [edition, available, branch, remote, remoteUrl, current, target, behind,
+         ahead, commits, dirty, updateAvailable, canUpdate, blockedReason,
+         checking, applying, checkedAt, error, lastResult]
+      additionalProperties: false
+      properties:
+        edition:
+          type: string
+          enum: [python]
+          description: Обновляется только Python-редакция (C#-хелпер озвучки не трогается)
+        available:
+          type: boolean
+          description: Каталог — git-репозиторий и git доступен
+        branch:
+          type: string
+        remote:
+          type: string
+          description: Имя удалённого репозитория (обычно origin)
+        remoteUrl:
+          type: string
+          nullable: true
+          description: URL без логина/токена
+        current:
+          allOf:
+            - $ref: "#/components/schemas/UpdateCommit"
+          nullable: true
+          description: Локальный HEAD
+        target:
+          allOf:
+            - $ref: "#/components/schemas/UpdateCommit"
+          nullable: true
+          description: HEAD удалённой ветки (refs/remotes/<remote>/<branch>)
+        behind:
+          type: integer
+          minimum: 0
+          description: Сколько коммитов есть на удалённой ветке и нет локально
+        ahead:
+          type: integer
+          minimum: 0
+          description: Сколько локальных коммитов нет на удалённой ветке
+        commits:
+          type: array
+          description: Новые коммиты удалённой ветки (не более 30), новые сверху
+          items:
+            $ref: "#/components/schemas/UpdateCommit"
+        dirty:
+          type: boolean
+          description: Есть незакоммиченные правки отслеживаемых файлов
+        updateAvailable:
+          type: boolean
+        canUpdate:
+          type: boolean
+          description: Обновление можно применить прямо сейчас (fast-forward)
+        blockedReason:
+          type: string
+          nullable: true
+          description: Почему canUpdate = false (человекочитаемо)
+        checking:
+          type: boolean
+        applying:
+          type: boolean
+        checkedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Когда состояние собиралось последний раз
+        error:
+          type: string
+          nullable: true
+          description: Ошибка последней проверки (нет сети, нет git) — не 500
+        lastResult:
+          allOf:
+            - $ref: "#/components/schemas/UpdateOutcome"
+          nullable: true
+          description: Результат последнего применения обновления
 
     ChatEvent:
       description: >

@@ -3,7 +3,13 @@
  * Данные — только фактические из API; серверная лента /api/logs — этап 4.
  */
 
-import { apiGet, type Config, type Health, type Personality } from "../api";
+import {
+  apiGet,
+  type Config,
+  type Health,
+  type Personality,
+  type UpdateStatus,
+} from "../api";
 import { getEvents, logEvent, subscribeEvents } from "../events";
 import { t } from "../i18n";
 import {
@@ -23,13 +29,15 @@ interface DashboardData {
   health: Health;
   config: Config;
   personality: Personality | null;
+  update: UpdateStatus | null;
 }
 
 async function fetchData(): Promise<DashboardData> {
-  const [health, config, personality] = await Promise.allSettled([
+  const [health, config, personality, update] = await Promise.allSettled([
     apiGet<Health>("/api/health"),
     apiGet<Config>("/api/config"),
     apiGet<Personality>("/api/personality"),
+    apiGet<UpdateStatus>("/api/update"),
   ]);
 
   if (health.status === "rejected") throw health.reason;
@@ -39,6 +47,7 @@ async function fetchData(): Promise<DashboardData> {
     health: health.value,
     config: config.value,
     personality: personality.status === "fulfilled" ? personality.value : null,
+    update: update.status === "fulfilled" ? update.value : null,
   };
 }
 
@@ -98,7 +107,7 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
   }
 
   function renderData(data: DashboardData): void {
-    const { health, config, personality } = data;
+    const { health, config, personality, update } = data;
     clear(body);
 
     const pills = h(
@@ -147,10 +156,41 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
     );
     actionsCard.classList.add("col-12");
 
+    const updateCard = card(
+      t("Обновления"),
+      h(
+        "div",
+        { class: "update-section" },
+        h(
+          "div",
+          { class: "pill-row" },
+          statusPill({
+            label: t("Статус"),
+            value: update?.updateAvailable
+              ? t("+{count} коммитов", { count: update.behind })
+              : t("актуальная версия"),
+            state: update?.updateAvailable ? "warn" : "ok",
+          }),
+          statusPill({
+            label: t("Ветка"),
+            value: update ? `${update.remote}/${update.branch}` : health.branch,
+            state: "idle",
+          }),
+        ),
+        h(
+          "div",
+          { class: "pill-row" },
+          button(t("Открыть обновления"), () => navigate("/update")),
+        ),
+      ),
+    );
+    updateCard.classList.add("col-12");
+
     body.appendChild(statusesCard);
     body.appendChild(metricsCard);
     body.appendChild(eventsCard);
     body.appendChild(actionsCard);
+    body.appendChild(updateCard);
 
     renderEvents();
   }

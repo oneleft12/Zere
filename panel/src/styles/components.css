@@ -855,3 +855,19 @@ select:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* ── Экран «Обновления» (docs/UPDATE.md) ───────────────────────── */
+
+/* Вертикальный ритм внутри карточек статуса и результата. */
+.update-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.update-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}

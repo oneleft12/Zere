@@ -99,3 +99,55 @@ test("голос: режим включается и выключается ту
   await expect(pill).toHaveText("выключен", { timeout: 10_000 });
   await expect(page.locator(".toast").last()).toContainText("Голосовой режим выключен");
 });
+
+test("дашборд: карточка «Обновления» и переход на экран", async ({ page }) => {
+  await page.goto("/");
+
+  const card = page.locator(".card", { hasText: "Обновления" });
+  await expect(card).toBeVisible();
+
+  // Значение зависит от состояния фейка («есть коммит» / «уже обновлено»):
+  // сервер E2E переиспользуется между прогонами (reuseExistingServer).
+  await expect(card.locator(".status-pill__value").first()).toHaveText(
+    /\+1 коммитов|актуальная версия/,
+  );
+
+  await card.getByRole("button", { name: "Открыть обновления" }).click();
+  await expect(page).toHaveURL(/\/update$/);
+});
+
+test("обновления: состояние ветки из /api/update", async ({ page }) => {
+  await page.goto("/update");
+  await expect(page.locator(TITLE)).toHaveText("Обновления");
+
+  // Фейк-сервер: ветка python-port, локальный и удалённый коммит различны.
+  const status = page.locator(".card", { hasText: "Состояние" });
+  await expect(status).toContainText("origin/python-port");
+  await expect(status).toContainText("aaaaaaa · Текущий коммит (фейк)");
+  await expect(status).toContainText("bbbbbbb · Новый коммит (фейк)");
+  await expect(page.locator(".card", { hasText: "Новые коммиты" })).toBeVisible();
+});
+
+test("обновления: кнопка применяет обновление и требует перезапуск", async ({ page }) => {
+  // Идёт последним в файле: применение меняет состояние фейка на сервере,
+  // общем для всех тестов (fullyParallel: false — порядок объявления).
+  await page.goto("/update");
+
+  const apply = page.getByRole("button", { name: "Обновить сейчас" });
+  if (!(await apply.isEnabled())) {
+    test.skip(true, "обновление уже применено на переиспользованном сервере E2E");
+  }
+
+  await apply.click();
+
+  await expect(page.locator(".toast").first()).toContainText("Обновление применено", {
+    timeout: 15_000,
+  });
+
+  // После применения обновлений нет, показан результат с требованием перезапуска.
+  await expect(page.locator(".card", { hasText: "Последнее обновление" })).toContainText(
+    "закройте и снова запустите ZERE",
+    { timeout: 15_000 },
+  );
+  await expect(page.getByRole("button", { name: "Обновить сейчас" })).toBeDisabled();
+});

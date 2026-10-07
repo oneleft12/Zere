@@ -15,6 +15,7 @@ import { MEMORY_EN } from "./i18n/memory";
 import { PERSONALITIES_EN } from "./i18n/personalities";
 import { PLUGINS_EN } from "./i18n/plugins";
 import { PROCESSES_EN } from "./i18n/processes";
+import { UPDATE_EN } from "./i18n/update";
 import { VOICE_EN } from "./i18n/voice";
 
 export type Lang = "ru" | "en";
@@ -127,6 +128,7 @@ const EN: Record<string, string> = {
   ...PLUGINS_EN,
   ...LOGS_EN,
   ...PERSONALITIES_EN,
+  ...UPDATE_EN,
 };
 
 let current: Lang = "ru";

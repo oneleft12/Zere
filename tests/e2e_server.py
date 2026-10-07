@@ -34,6 +34,7 @@ from tests.test_panel_api import (
     FakeMemory,
     FakeProcessService,
     FakeSafeActionManager,
+    FakeUpdater,
     FakeVoiceManager,
 )
 
@@ -64,6 +65,9 @@ def main() -> None:
                 safe_actions=FakeSafeActionManager(),
                 app_launcher=FakeApplicationLauncher(),
                 voice=FakeVoiceManager(),
+                # Обновление из GitHub: в E2E — «есть 1 новый коммит»,
+                # без git, сети и записи в рабочую копию.
+                updater=FakeUpdater(update_available=True),
                 token=TOKEN,
                 port=PORT,
             )
