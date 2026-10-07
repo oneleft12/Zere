@@ -177,6 +177,11 @@ tools/uvx.exe
 # Токен локальной панели (создаётся при старте, не публикуем)
 config/panel.token
 
+# Настройки ИИ и API-ключ облачной модели: секрет, живёт только локально
+# (config/ai.json, права 0600; см. docs/AI_PROVIDERS.md)
+config/ai.json
+config/ai.json.tmp
+
 # Артефакты установщика (генерируются)
 /ZereInstaller.exe
 /ZERE.bat

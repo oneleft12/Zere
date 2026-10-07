@@ -36,6 +36,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from zere import paths as paths_module
+from zere.ai.ai_service import AiService, MESSAGE_NOT_CONFIGURED
+from zere.ai.ai_settings import AiSettings
 from zere.ai.ollama_url_resolver import OllamaUrlResolver
 from zere.api.server import PanelServer
 from zere.core.update.updater import UpdateBusyError
@@ -47,6 +49,15 @@ from zere.memory.models.memory_item import MemoryItem
 # app_info — только dataclass: в отличие от ApplicationLauncher, чей импорт
 # тянет winreg (сканеры), этот модуль работает на любой платформе.
 from zere.tools.applications.indexing.app_info import AppInfo
+# Фейковый HTTP-слой: проверка ключа и локальной модели не ходит в сеть.
+from tests.fake_http import (
+    FakeSession,
+    chat_response,
+    error_response,
+    models_response,
+    ollama_pull_response,
+    ollama_tags_response,
+)
 
 SPEC: dict[str, Any] = yaml.safe_load(
     (Path(__file__).resolve().parents[1] / "docs" / "api" / "openapi.yaml").read_text(
@@ -596,11 +607,15 @@ class FakeUpdater:
 
 
 @contextmanager
-def running_panel() -> Iterator[tuple[Any, Path]]:
+def running_panel(ai_session: Optional[Any] = None) -> Iterator[tuple[Any, Path]]:
     """Панель на эфемерном порту, config.json — во временной папке.
 
     В режиме ZERE_PANEL_EXTERNAL — уже запущенная панель в отдельном
     процессе, конфигурация берётся из config/ репозитория.
+
+    ai_session — подмена HTTP-слоя сервиса ИИ: проверка облачного ключа и
+    локальной модели не должна ходить в сеть (по умолчанию — «нет ключа,
+    локальный сервер не запущен»).
     """
     if EXTERNAL:
         yield _wait_external_panel(), REPO_ROOT / "config"
@@ -634,6 +649,9 @@ def running_panel() -> Iterator[tuple[Any, Path]]:
                     # Обновление из GitHub: фейк — тесты не ходят в сеть
                     # и не трогают рабочую копию репозитория.
                     updater=FakeUpdater(),
+                    # ИИ: реальный AiService с фейковым HTTP — проверяются
+                    # и код, и контракт (без сети и без запущенной Ollama).
+                    ai=AiService(session=ai_session if ai_session is not None else FakeSession()),
                     token=TOKEN,
                     port=0,
                 )
@@ -2682,6 +2700,411 @@ def test_update_wrong_method_is_405() -> None:
             status, raw, _ = call(panel, method, path)
             assert status == 405, f"{method} {path}"
             assert error_payload(raw)["code"] == "METHOD_NOT_ALLOWED"
+
+
+def test_ai_paths_are_in_spec() -> None:
+    """Контракт: маршруты ИИ описаны в docs/api/openapi.yaml."""
+    for path in (
+        "/api/ai",
+        "/api/ai/settings",
+        "/api/ai/key",
+        "/api/ai/key/test",
+        "/api/ai/local",
+        "/api/ai/local/test",
+        "/api/ai/local/pull",
+    ):
+        assert path in SPEC["paths"], path
+
+
+def _require_python_ai() -> bool:
+    """Маршруты /api/ai есть только в Python-редакции (как /api/update)."""
+    if EXTERNAL:
+        print("\n[пропущено] /api/ai реализован только в Python-редакции")
+        return False
+    return True
+
+
+def _ai_session_with_key() -> FakeSession:
+    """HTTP-фейк: облачный /models отвечает, локальный сервер не запущен."""
+    return FakeSession().route("GET", "/models", models_response(["gpt-4o-mini"]))
+
+
+def _ai_session_with_local(model: str = "qwen3.5:2b") -> FakeSession:
+    """HTTP-фейк: запущена Ollama с моделью (native /api/tags + чат)."""
+    return (
+        FakeSession()
+        .route("GET", "/api/tags", ollama_tags_response([model]))
+        .route("POST", "/chat/completions", chat_response("pong"))
+    )
+
+
+def test_ai_status_without_key_or_model() -> None:
+    if not _require_python_ai():
+        return
+
+    with running_panel() as (panel, _):
+        status, raw, headers = call(panel, "GET", "/api/ai")
+        assert status == 200
+        assert headers.get("content-type", "").startswith("application/json")
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("AiStatus"), payload)
+        assert_schema(schema("AiCloudStatus"), payload["cloud"])
+        assert_schema(schema("AiLocalStatus"), payload["local"])
+        for preset in payload["presets"]:
+            assert_schema(schema("AiProviderPreset"), preset)
+        for option in payload["local"]["suggestions"]:
+            assert_schema(schema("AiLocalModelOption"), option)
+
+        # Требование 1: без ключа и без локальной модели — приглашение.
+        assert payload["activeProvider"] == "none"
+        assert payload["ready"] is False
+        assert payload["summary"] == "Подключите API-ключ или используйте локальную модель"
+        assert payload["cloud"]["keySaved"] is False
+        assert payload["cloud"]["keyMask"] == ""
+        assert payload["local"]["status"] == "server-down"
+        # Требование 8: понятная инструкция по установке.
+        assert_schema(schema("AiInstallHint"), payload["local"]["installHint"])
+        assert payload["local"]["installHint"]["command"] == "ollama pull qwen3.5:2b"
+
+
+def test_ai_status_reports_local_model_available() -> None:
+    if not _require_python_ai():
+        return
+
+    with running_panel(_ai_session_with_local()) as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/ai")
+        assert status == 200
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("AiStatus"), payload)
+        assert payload["activeProvider"] == "local"
+        assert payload["ready"] is True
+        assert "Подключено: локальная модель" in payload["summary"]
+        assert payload["local"]["status"] == "available"
+        assert payload["local"]["canPull"] is True
+        assert payload["local"]["installHint"] is None
+
+
+def test_ai_key_save_shows_cloud_connected() -> None:
+    if not _require_python_ai():
+        return
+
+    with running_panel(_ai_session_with_key()) as (panel, tmp):
+        status, raw, _ = call(
+            panel,
+            "POST",
+            "/api/ai/key",
+            body={
+                "apiKey": "sk-live-abcdefghijklmnop",
+                "cloudProvider": "openai",
+                "cloudBaseUrl": "https://api.openai.com/v1",
+                "cloudModel": "gpt-4o-mini",
+            },
+        )
+        assert status == 200
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("AiStatus"), payload)
+
+        # Требование 1: рабочий ключ → «Подключено: облачная модель».
+        assert payload["activeProvider"] == "cloud"
+        assert "Подключено: облачная модель" in payload["summary"]
+        assert payload["cloud"]["keySaved"] is True
+        assert payload["cloud"]["keyStatus"] == "ok"
+        # Требование 4: в интерфейс уходит только маска.
+        assert payload["cloud"]["keyMask"] == "sk-...mnop"
+        assert "sk-live-abcdefghijklmnop" not in raw.decode("utf-8")
+
+        # Ключ сохранён на бэкенде (файл настроек ИИ), а не в клиенте.
+        saved = json.loads((tmp / "ai.json").read_text(encoding="utf-8"))
+        assert saved["cloud_api_key"] == "sk-live-abcdefghijklmnop"
+
+
+def test_ai_key_invalid_is_rejected_and_not_saved() -> None:
+    if not _require_python_ai():
+        return
+
+    session = FakeSession().route("GET", "/models", error_response(401, "invalid api key")).route(
+        "POST", "/chat/completions", error_response(401, "invalid api key")
+    )
+
+    with running_panel(session) as (panel, tmp):
+        status, raw, _ = call(panel, "POST", "/api/ai/key", body={"apiKey": "sk-bad-key-1234567890"})
+        assert status == 400
+        error = error_payload(raw)
+        assert_schema(schema("Error"), error)
+        assert error["code"] == "AI_KEY_INVALID"
+        assert error["message"] == "Неверный API-ключ"
+        assert "sk-bad-key-1234567890" not in raw.decode("utf-8")
+
+        assert not (tmp / "ai.json").exists() or (
+            "sk-bad-key-1234567890" not in (tmp / "ai.json").read_text(encoding="utf-8")
+        )
+
+
+def test_ai_key_errors_are_reported_with_codes() -> None:
+    if not _require_python_ai():
+        return
+
+    cases = (
+        (402, "no credits", "AI_NO_CREDITS", "На балансе нет средств"),
+        (429, "slow down", "AI_RATE_LIMIT", "Превышен лимит запросов"),
+        (500, "boom", "AI_PROVIDER_ERROR", None),
+    )
+
+    for provider_status, provider_body, expected_code, expected_message in cases:
+        session = FakeSession().route(
+            "GET", "/models", error_response(provider_status, provider_body)
+        ).route("POST", "/chat/completions", error_response(provider_status, provider_body))
+
+        with running_panel(session) as (panel, _):
+            status, raw, _ = call(
+                panel, "POST", "/api/ai/key", body={"apiKey": "sk-live-abcdefghijklmnop"}
+            )
+            error = error_payload(raw)
+            assert error["code"] == expected_code, f"HTTP {provider_status}: {error}"
+            if expected_message is not None:
+                assert error["message"] == expected_message
+
+
+def test_ai_key_test_does_not_save() -> None:
+    if not _require_python_ai():
+        return
+
+    with running_panel(_ai_session_with_key()) as (panel, tmp):
+        status, raw, _ = call(
+            panel, "POST", "/api/ai/key/test", body={"apiKey": "sk-live-abcdefghijklmnop"}
+        )
+        assert status == 200
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("AiKeyTestResult"), payload)
+        assert payload["ok"] is True
+        assert payload["keyMask"] == "sk-...mnop"
+        assert payload["models"] == ["gpt-4o-mini"]
+
+        assert not (tmp / "ai.json").exists(), "проверка ключа ничего не сохраняет"
+
+
+def test_ai_key_delete_and_owner_key() -> None:
+    if not _require_python_ai():
+        return
+
+    with running_panel(_ai_session_with_key()) as (panel, _):
+        call(panel, "POST", "/api/ai/key", body={"apiKey": "sk-live-abcdefghijklmnop"})
+
+        status, raw, _ = call(panel, "DELETE", "/api/ai/key")
+        assert status == 200
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("AiStatus"), payload)
+        assert payload["cloud"]["keySaved"] is False
+        assert payload["cloud"]["keyMask"] == ""
+        assert payload["activeProvider"] == "none"
+
+
+def test_ai_settings_update_matches_spec() -> None:
+    if not _require_python_ai():
+        return
+
+    with running_panel(_ai_session_with_local()) as (panel, _):
+        status, raw, _ = call(
+            panel,
+            "POST",
+            "/api/ai/settings",
+            body={"mode": "local", "localModel": "qwen2.5:1.5b", "localBaseUrl": "http://127.0.0.1:11434/v1"},
+        )
+        assert status == 200
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("AiStatus"), payload)
+        assert payload["mode"] == "local"
+        assert payload["local"]["model"] == "qwen2.5:1.5b"
+        # Модели нет среди локальных — панель честно это показывает.
+        assert payload["local"]["modelInstalled"] is False
+        assert payload["local"]["statusText"] == "Локальная модель недоступна"
+
+
+def test_ai_local_status_and_test() -> None:
+    if not _require_python_ai():
+        return
+
+    with running_panel(_ai_session_with_local()) as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/ai/local")
+        assert status == 200
+        local = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("AiLocalStatus"), local)
+        assert local["server"] == "up"
+        assert local["api"] == "ollama"
+        assert local["models"] == ["qwen3.5:2b"]
+
+        status, raw, _ = call(panel, "POST", "/api/ai/local/test", body={})
+        assert status == 200
+        result = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("AiLocalTestResult"), result)
+        assert result["ok"] is True
+
+
+def test_ai_local_errors_are_friendly() -> None:
+    if not _require_python_ai():
+        return
+
+    # Сервер выключен.
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "POST", "/api/ai/local/test", body={})
+        assert status == 400
+        error = error_payload(raw)
+        assert error["code"] == "AI_LOCAL_SERVER_DOWN"
+        assert error["message"] == "Локальный сервер не запущен"
+
+    # Сервер запущен, нужной модели нет.
+    session = FakeSession().route("GET", "/api/tags", ollama_tags_response(["llama3.2:3b"]))
+    with running_panel(session) as (panel, _):
+        status, raw, _ = call(panel, "POST", "/api/ai/local/test", body={})
+        assert status == 400
+        error = error_payload(raw)
+        assert error["code"] == "AI_LOCAL_MODEL_MISSING"
+        assert "ollama pull qwen3.5:2b" in error["message"]
+
+
+def test_ai_local_pull_streams_progress() -> None:
+    if not _require_python_ai():
+        return
+
+    session = _ai_session_with_local().route(
+        "POST",
+        "/api/pull",
+        ollama_pull_response(
+            [
+                '{"status":"pulling manifest"}',
+                '{"status":"downloading","total":100,"completed":40}',
+                '{"status":"success"}',
+            ]
+        ),
+    )
+
+    with running_panel(session) as (panel, _):
+        status, raw, headers = call(panel, "GET", "/api/ai/local/pull?model=qwen3.5:2b")
+        assert status == 200
+        assert headers.get("content-type", "").startswith("text/event-stream")
+
+        events = parse_sse(raw)
+        names = [name for name, _ in events]
+        assert names == ["progress", "progress", "progress", "done"]
+
+        assert_schema(schema("AiPullEvent"), {"event": "progress", "data": events[1][1]})
+        assert events[1][1]["percent"] == 40.0
+        assert events[-1][1]["model"] == "qwen3.5:2b"
+
+
+def test_ai_pull_unauthorized_and_bad_model() -> None:
+    if not _require_python_ai():
+        return
+
+    with running_panel(_ai_session_with_local()) as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/ai/local/pull", token=None)
+        assert status == 401
+
+        status, raw, _ = call(panel, "GET", "/api/ai/local/pull?model=плохое имя")
+        assert status == 400
+        assert error_payload(raw)["code"] == "VALIDATION_ERROR"
+
+
+def test_ai_rejects_bad_payloads() -> None:
+    if not _require_python_ai():
+        return
+
+    cases = (
+        ("POST", "/api/ai/settings", {}, "Не задано ни одного поля настроек ИИ."),
+        ("POST", "/api/ai/settings", {"mode": "магия"}, None),
+        ("POST", "/api/ai/settings", {"localBaseUrl": "не-адрес"}, None),
+        ("POST", "/api/ai/settings", {"unknown": 1}, None),
+        ("POST", "/api/ai/key", {}, None),
+        ("POST", "/api/ai/key", {"apiKey": "   "}, None),
+        ("POST", "/api/ai/key", {"apiKey": "sk-live-x", "unknown": 1}, None),
+        ("POST", "/api/ai/key/test", {"apiKey": 42}, None),
+        ("POST", "/api/ai/local/test", {"localModel": ""}, None),
+        ("POST", "/api/ai/local/test", {"localBaseUrl": "ftp://x"}, None),
+    )
+
+    with running_panel(_ai_session_with_key()) as (panel, _):
+        for method, path, body, message in cases:
+            status, raw, _ = call(panel, method, path, body=body)
+            assert status == 400, f"{method} {path} {body}"
+            error = error_payload(raw)
+            assert_schema(schema("Error"), error)
+            assert error["code"] == "VALIDATION_ERROR", f"{path}: {error}"
+            if message is not None:
+                assert error["message"] == message
+
+
+def test_ai_bad_json_body_is_rejected() -> None:
+    if not _require_python_ai():
+        return
+
+    with running_panel(_ai_session_with_key()) as (panel, _):
+        conn = http.client.HTTPConnection("127.0.0.1", panel.port, timeout=15)
+        conn.request(
+            "POST",
+            "/api/ai/key",
+            body=b"{not json",
+            headers={"X-ZERE-Token": panel.token, "Content-Type": "application/json"},
+        )
+        response = conn.getresponse()
+        raw = response.read()
+        conn.close()
+        assert response.status == 400
+        assert error_payload(raw)["code"] == "VALIDATION_ERROR"
+
+
+def test_ai_requires_token() -> None:
+    if not _require_python_ai():
+        return
+
+    with running_panel(_ai_session_with_key()) as (panel, _):
+        for method, path in (
+            ("GET", "/api/ai"),
+            ("POST", "/api/ai/settings"),
+            ("POST", "/api/ai/key"),
+            ("DELETE", "/api/ai/key"),
+            ("POST", "/api/ai/key/test"),
+            ("GET", "/api/ai/local"),
+            ("POST", "/api/ai/local/test"),
+            ("GET", "/api/ai/local/pull"),
+        ):
+            status, raw, _ = call(panel, method, path, token="f" * 64)
+            assert status == 401, f"{method} {path}"
+            assert error_payload(raw)["code"] == "UNAUTHORIZED"
+
+
+def test_ai_wrong_method_is_405() -> None:
+    if not _require_python_ai():
+        return
+
+    with running_panel() as (panel, _):
+        for method, path in (
+            ("POST", "/api/ai"),
+            ("GET", "/api/ai/settings"),
+            ("GET", "/api/ai/key"),
+            ("GET", "/api/ai/key/test"),
+            ("POST", "/api/ai/local"),
+            ("GET", "/api/ai/local/test"),
+            ("POST", "/api/ai/local/pull"),
+        ):
+            status, raw, _ = call(panel, method, path)
+            assert status == 405, f"{method} {path}"
+            assert error_payload(raw)["code"] == "METHOD_NOT_ALLOWED"
+
+
+def test_ai_chat_without_provider_is_covered_by_unit_tests() -> None:
+    """Требование 5 (сообщение в чате) проверяется на уровне сервиса ИИ.
+
+    Контрактные тесты панели подменяют engine фейком (FakeEngine), который
+    не ходит в AIHandler, поэтому сообщение «Чтобы начать, введите API-ключ
+    или установите локальную модель» проверяет tests/test_ai_providers.py
+    на реальном AiService (там же — приоритет облако → локальная модель).
+    """
+    if not _require_python_ai():
+        return
+
+    with running_panel() as (panel, _):
+        assert panel.ai.generate("привет") == MESSAGE_NOT_CONFIGURED
 
 
 def main() -> None:

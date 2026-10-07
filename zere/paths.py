@@ -24,6 +24,19 @@ def plugins_config_path() -> Path:
     return CONFIG_DIR / "plugins.json"
 
 
+def ai_config_path() -> Path:
+    """Настройки ИИ и ключ облачной модели: config/ai.json (gitignored).
+
+    Путь вычисляется от config_path(), а не от CONFIG_DIR: тесты и E2E
+    подменяют config_path() на временный каталог, и ключ не должен
+    утечь из песочницы в реальный config/.
+
+    Файл содержит секрет — наружу (в API) он не отдаётся: клиент видит
+    только маску вида «sk-...abcd».
+    """
+    return config_path().parent / "ai.json"
+
+
 def db_path() -> Path:
     """Путь к базе истории и памяти.
 

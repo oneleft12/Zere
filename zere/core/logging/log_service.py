@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +11,37 @@ from zere import paths
 
 # Общий замок для записи в постоянный errors.log (межпоточный, межмодульный)
 _ERRORS_LOCK = threading.Lock()
+
+# ── Защита секретов (задача «ключ облачной модели») ──────────────────
+# Ключ API не должен попасть в логи ни при каких обстоятельствах, даже
+# если он случайно окажется внутри текста исключения (requests кладёт URL
+# и заголовки в сообщение об ошибке). Маскирование — на выходе лога,
+# поэтому вызывающему коду не нужно об этом помнить.
+_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    # Провайдерские форматы ключей: OpenAI, OpenRouter, Groq, Google, xAI
+    (re.compile(r"\bsk-[A-Za-z0-9_\-]{6,}"), "***"),
+    (re.compile(r"\bgsk_[A-Za-z0-9]{6,}"), "***"),
+    (re.compile(r"\bAIza[A-Za-z0-9_\-]{10,}"), "***"),
+    (re.compile(r"\bxai-[A-Za-z0-9]{6,}"), "***"),
+    # Authorization: Bearer <token>
+    (re.compile(r"(?i)(bearer\s+)([A-Za-z0-9._\-]{8,})"), r"\1***"),
+    # JSON/JSON-подобное поле ключа: "apiKey": "секрет"
+    (
+        re.compile(r"(?i)([\"']?(?:api[_-]?key|apikey|authorization)[\"']?\s*[:=]\s*[\"'])([^\"']{8,})([\"'])"),
+        r"\1***\3",
+    ),
+)
+
+
+def redact_secrets(text: str) -> str:
+    """Убирает секреты из строки перед записью в лог (best-effort)."""
+    if not text:
+        return text
+
+    result = text
+    for pattern, replacement in _SECRET_PATTERNS:
+        result = pattern.sub(replacement, result)
+    return result
 
 
 def _errors_path() -> Path:
@@ -26,7 +58,7 @@ def log_error(source: str, message: str) -> None:
     проглатываются.
     """
     try:
-        line = f"[{datetime.now():%Y-%m-%d %H:%M:%S}] [ERROR] [{source}] {message}\n"
+        line = f"[{datetime.now():%Y-%m-%d %H:%M:%S}] [ERROR] [{source}] {redact_secrets(message)}\n"
         with _ERRORS_LOCK:
             with open(_errors_path(), "a", encoding="utf-8") as errors_file:
                 errors_file.write(line)
@@ -59,7 +91,7 @@ class LogService:
         log_error("LogService", message)
 
     def _write(self, level: str, message: str) -> None:
-        line = f"[{datetime.now():%Y-%m-%d %H:%M:%S}] [{level}] {message}"
+        line = f"[{datetime.now():%Y-%m-%d %H:%M:%S}] [{level}] {redact_secrets(message)}"
 
         with self._lock:
             with open(self._log_path, "a", encoding="utf-8") as log_file:

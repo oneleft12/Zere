@@ -89,10 +89,14 @@ def _chattts_availability() -> "tuple[bool, str]":
 
 
 class DependencyChecker:
-    def __init__(self, config: ZereConfig) -> None:
+    def __init__(self, config: ZereConfig, *, cloud_available: bool = False) -> None:
         self._config = config
         self._http = requests.Session()
         self._results: List[DependencyResult] = []
+        # Настроен облачный API-ключ (config/ai.json или окружение владельца):
+        # тогда Ollama и локальная модель — не критические, ZERE стартует
+        # и работает через облако (панель: «Подключено: облачная модель»).
+        self._cloud_available = cloud_available
 
         self._ollama_url = "http://localhost:11434"
         resolved = OllamaUrlResolver.resolve()
@@ -101,6 +105,10 @@ class DependencyChecker:
 
         # HttpClient: BaseAddress = _ollamaUrl, Timeout = 3 секунды
         self._timeout = 3
+
+    def _local_critical(self) -> bool:
+        """Локальная модель критична, только если облачного ключа нет."""
+        return not self._cloud_available
 
     # ------------------------------------------------------------------ API
 
@@ -539,7 +547,7 @@ class DependencyChecker:
                     DependencyResult(
                         name="Ollama",
                         status=CheckStatus.Ok,
-                        critical=True,
+                        critical=self._local_critical(),
                     )
                 )
             else:
@@ -547,7 +555,7 @@ class DependencyChecker:
                     DependencyResult(
                         name="Ollama",
                         status=CheckStatus.Missing,
-                        critical=True,
+                        critical=self._local_critical(),
                         message="Сервер отвечает, но вернул ошибку.",
                     )
                 )
@@ -556,7 +564,7 @@ class DependencyChecker:
                 DependencyResult(
                     name="Ollama",
                     status=CheckStatus.Missing,
-                    critical=True,
+                    critical=self._local_critical(),
                     message=f"Сервер недоступен ({self._ollama_url})",
                     install_url="https://ollama.com/download",
                     install_command="winget install Ollama.Ollama"
@@ -576,7 +584,7 @@ class DependencyChecker:
                     DependencyResult(
                         name=f"Модель ({self._config.Model})",
                         status=CheckStatus.Missing,
-                        critical=True,
+                        critical=self._local_critical(),
                         message="Ollama недоступна.",
                     )
                 )
@@ -599,7 +607,7 @@ class DependencyChecker:
                     DependencyResult(
                         name=f"Модель ({self._config.Model})",
                         status=CheckStatus.Ok,
-                        critical=True,
+                        critical=self._local_critical(),
                     )
                 )
             else:
@@ -609,7 +617,7 @@ class DependencyChecker:
                     DependencyResult(
                         name=f"Модель ({self._config.Model})",
                         status=CheckStatus.Missing,
-                        critical=True,
+                        critical=self._local_critical(),
                         message=f"Не найдена. Доступные: {available}",
                         install_command=f"ollama pull {self._config.Model}",
                     )
@@ -619,7 +627,7 @@ class DependencyChecker:
                 DependencyResult(
                     name=f"Модель ({self._config.Model})",
                     status=CheckStatus.Warning,
-                    critical=True,
+                    critical=self._local_critical(),
                     message="Не удалось проверить.",
                 )
             )

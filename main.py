@@ -7,6 +7,8 @@ import threading
 import webbrowser
 
 from zere import paths
+from zere.ai.ai_service import AiService
+from zere.ai.ai_settings import AiSettings
 from zere.ai.ollama_client import OllamaClient
 from zere.api.server import PanelServer
 from zere.core.configuration.zere_config import ZereConfig
@@ -52,7 +54,10 @@ def main() -> None:
 
 """)
 
-    checker = DependencyChecker(config)
+    # Облачный ключ (config/ai.json или окружение владельца) делает Ollama
+    # необязательной: ZERE стартует и отвечает через облачную модель.
+    cloud_available = AiSettings.load().has_key()
+    checker = DependencyChecker(config, cloud_available=cloud_available)
     checker.run_all()
     checker.print_report()
 
@@ -61,6 +66,9 @@ def main() -> None:
 
     if not checker.all_critical_passed():
         print("Критические зависимости не выполнены.")
+        if cloud_available:
+            print("Настроен облачный API-ключ — он используется приоритетно.")
+        print("Откройте панель → «ИИ»: введите API-ключ или установите локальную модель.")
         print("Устраните ошибки выше и запустите снова.")
         print("Нажмите Enter для выхода...")
         try:
@@ -97,6 +105,9 @@ def main() -> None:
         # Голосовой режим из панели: AIHandler отвечает коротко, пока
         # цикл /api/voice/mode жив (тот же синглтон, что и в консоли).
         runtime=services.get(RuntimeContext),
+        # Настройки ИИ: облачный ключ пользователя / локальная модель —
+        # тот же сервис, что отвечает в чате (единый выбор провайдера).
+        ai=services.get(AiService),
     )
     # Авто-открытие панели при старте (этапы 5–6): окно приложения,
     # фолбэк — браузер; panel_url остаётся None, если сервер не поднялся.
@@ -138,12 +149,13 @@ def main() -> None:
     else:
         print("[Голос] Отключен. Только текстовый режим.")
 
-    # Прогрев Ollama в фоне (этап 1, анализ S5): первый «настоящий»
-    # запрос не платит за загрузку модели; keep_alive из конфига
-    # удерживает её в памяти. Ошибки не критичны.
+    # Прогрев локальной модели в фоне (этап 1, анализ S5): первый
+    # «настоящий» запрос не платит за загрузку модели; keep_alive из
+    # конфига удерживает её в памяти. Если выбран облачный провайдер,
+    # прогрева нет; ошибки не критичны.
     def _warmup_llm() -> None:
         try:
-            client = services.get(OllamaClient)
+            client = services.get(AiService).proxy
             if client is not None:
                 client.warmup()
         except Exception as ex:  # noqa: BLE001 — прогрев не должен мешать старту

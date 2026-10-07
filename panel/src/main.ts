@@ -7,13 +7,14 @@ import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/components.css";
 
-import { apiGet, type Health, type UpdateStatus } from "./api";
+import { apiGet, type AiStatus, type Health, type UpdateStatus } from "./api";
 import { logEvent } from "./events";
 import { initLang, onLangChange, t } from "./i18n";
 import { initToasts, toast } from "./ui";
 import { navigate, registerRoute, startRouter } from "./router";
 import { createShell } from "./shell";
 import { initTheme, toggleTheme, THEME_EVENT, type Theme } from "./theme";
+import { aiScreen } from "./screens/ai";
 import { dashboardScreen } from "./screens/dashboard";
 import { settingsScreen } from "./screens/settings";
 import { personalitiesScreen } from "./screens/personalities";
@@ -50,6 +51,7 @@ document.addEventListener(THEME_EVENT, (event) => {
 // Маршруты. Этап 2: дашборд/настройки/личности; 3: чат/история/память;
 // 4: голос/процессы/приложения/плагины/логи.
 registerRoute({ path: "/", title: "Дашборд", factory: dashboardScreen });
+registerRoute({ path: "/ai", title: "Подключение ИИ", factory: aiScreen });
 registerRoute({ path: "/settings", title: "Настройки", factory: settingsScreen });
 registerRoute({ path: "/personalities", title: "Личности", factory: personalitiesScreen });
 registerRoute({ path: "/chat", title: "Чат", factory: chatScreen });
@@ -67,21 +69,35 @@ startRouter(shell.content, (route) => {
   shell.setActive(route.path);
 });
 
-// Статус-строка: опрос /api/health (§5.3: микрофон · индекс · версия) и
+// Статус-строка: опрос /api/health (§5.3: микрофон · индекс · версия),
+// состояние ИИ (/api/ai: облако / локальная модель / не настроен) и
 // отметка о доступном обновлении из /api/update (кэш автопроверки, без сети).
 let updateNoticeShown = false;
+let aiNoticeShown = false;
 
 async function refreshStatus(): Promise<void> {
   try {
-    const [health, update] = await Promise.all([
+    const [health, update, ai] = await Promise.all([
       apiGet<Health>("/api/health"),
       apiGet<UpdateStatus>("/api/update").catch(() => null),
+      // Состояние ИИ — из кэша пробы: запрос локальный и дешёвый.
+      apiGet<AiStatus>("/api/ai").catch(() => null),
     ]);
     const ollama = health.ollama === "ok" ? "Ollama OK" : t("Ollama недоступен");
     const whisper = health.whisper === "ok" ? "Whisper OK" : t("Whisper отсутствует");
     const memory = t("память: {count}", { count: health.memory.count });
+    const aiLabel = ai
+      ? ai.activeProvider === "cloud"
+        ? t("ИИ: облако")
+        : ai.activeProvider === "local"
+          ? t("ИИ: локально")
+          : t("ИИ: не настроен")
+      : "";
 
-    shell.statusLeft.textContent = `● ${ollama} · ${whisper} · ${health.tts.engine} · ${memory}`;
+    shell.statusLeft.textContent =
+      `● ${ollama} · ${whisper} · ${health.tts.engine} · ${memory}` +
+      (aiLabel ? ` · ${aiLabel}` : "");
+
     shell.statusRight.textContent = update?.updateAvailable
       ? `${health.branch} · ${health.version} · ⬆ ${t("обновление: {count}", { count: update.behind })}`
       : `${health.branch} · ${health.version}`;
@@ -90,6 +106,13 @@ async function refreshStatus(): Promise<void> {
     if (update?.updateAvailable && !updateNoticeShown) {
       updateNoticeShown = true;
       toast(t("Доступно обновление ZERE: {count} коммитов — «Обновления»", { count: update.behind }), "warn");
+    }
+
+    // ИИ не настроен — один раз подсказываем, где ввести ключ или включить
+    // локальную модель (требование 1: состояние видно сразу при входе).
+    if (ai && !ai.ready && !aiNoticeShown) {
+      aiNoticeShown = true;
+      toast(t("Чтобы начать, введите API-ключ или установите локальную модель"), "warn");
     }
   } catch {
     shell.statusLeft.textContent = t("● панель не отвечает");

@@ -6,6 +6,7 @@
 
 - **Голосовой ввод/вывод** — GigaAM-v3 (STT, откат на Whisper) + ChatTTS/PocketTTS (TTS)
 - **Локальная LLM** — Ollama с моделью qwen3.5:2b
+- **Свой API-ключ** — облачная модель через любой OpenAI-совместимый API (OpenAI, DeepSeek, OpenRouter, Groq): режим «Авто» использует ключ, если он есть, иначе локальную модель — [docs/AI_PROVIDERS.md](docs/AI_PROVIDERS.md)
 - **Управление компьютером** — запуск приложений, процессы, файлы, громкость
 - **Память** — SQLite-хранилище фактов о пользователе
 - **История диалогов** — сохранение и просмотр
@@ -19,6 +20,10 @@
 
 - [Ollama](https://ollama.com/download) — запущенный локальный сервер
 - Модель: `ollama pull qwen3.5:2b`
+- **Вместо Ollama** можно указать свой API-ключ облачной модели: панель →
+  «Подключение ИИ» (ключ живёт только на бэкенде, в интерфейсе — маска).
+  Переменные окружения и примеры запросов — `.env.example` и
+  [docs/AI_PROVIDERS.md](docs/AI_PROVIDERS.md)
 - **Для C#-версии:** [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - **Для Python-версии:** Python 3.12+ и `pip install -r requirements.txt`
 - **Опционально:** Whisper (модель ggml-base.bin); TTS — PocketTTS (клонирование голоса) или ChatTTS (офлайн-откат; нужен `tools/uv.exe`)

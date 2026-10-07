@@ -22,6 +22,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Ассистент",
     items: [
       { path: "/", icon: "🟠", label: "Дашборд" },
+      { path: "/ai", icon: "🤖", label: "Подключение ИИ" },
       { path: "/chat", icon: "💬", label: "Чат" },
       { path: "/history", icon: "🕘", label: "История" },
       { path: "/memory", icon: "🧠", label: "Память" },

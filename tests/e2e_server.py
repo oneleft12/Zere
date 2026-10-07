@@ -21,11 +21,19 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from zere import paths as paths_module
+from zere.ai.ai_service import AiService
 from zere.ai.ollama_url_resolver import OllamaUrlResolver
 from zere.api.server import PanelServer
 from zere.core.configuration.zere_config import ZereConfig
 from zere.core.plugins.plugin_config import PluginConfig
 
+from tests.fake_http import (
+    FakeSession,
+    chat_response,
+    models_response,
+    ollama_pull_response,
+    ollama_tags_response,
+)
 from tests.test_panel_api import (
     TOKEN,
     FakeApplicationLauncher,
@@ -39,6 +47,34 @@ from tests.test_panel_api import (
 )
 
 PORT = int(os.environ.get("E2E_PORT", "8099"))
+
+
+def _ai_service() -> AiService:
+    """Сервис ИИ с фейковым HTTP: детерминированное состояние для E2E.
+
+    Облачный ключ не сохранён, локальная Ollama «запущена» с моделью
+    qwen3.5:2b — экран «Подключение ИИ» показывает «Подключено: локальная
+    модель», а проверка ключа и загрузка модели отвечают как у реального
+    провайдера (сеть в E2E не используется).
+    """
+    session = (
+        FakeSession()
+        .route("GET", "/api/tags", ollama_tags_response(["qwen3.5:2b"]))
+        .route("GET", "/models", models_response(["gpt-4o-mini"]))
+        .route("POST", "/chat/completions", chat_response("pong"))
+        .route(
+            "POST",
+            "/api/pull",
+            ollama_pull_response(
+                [
+                    '{"status":"pulling manifest"}',
+                    '{"status":"downloading","total":100,"completed":60}',
+                    '{"status":"success"}',
+                ]
+            ),
+        )
+    )
+    return AiService(session=session)
 
 
 def main() -> None:
@@ -68,6 +104,9 @@ def main() -> None:
                 # Обновление из GitHub: в E2E — «есть 1 новый коммит»,
                 # без git, сети и записи в рабочую копию.
                 updater=FakeUpdater(update_available=True),
+                # ИИ: локальная модель «доступна», ключ не сохранён —
+                # экран «Подключение ИИ» детерминирован, сеть не нужна.
+                ai=_ai_service(),
                 token=TOKEN,
                 port=PORT,
             )

@@ -60,6 +60,50 @@ test("настройки: правка конфига сохраняется ч�
   });
 });
 
+test("ИИ: экран подключения показывает рабочую локальную модель", async ({ page }) => {
+  await page.goto("/ai");
+  await expect(page.locator(TITLE)).toHaveText("Подключение ИИ");
+
+  // Фейк-сервер: ключа нет, Ollama «запущена» с моделью qwen3.5:2b.
+  const status = page.locator(".card", { hasText: "Состояние подключения" });
+  await expect(status).toContainText("Подключено: локальная модель", { timeout: 15_000 });
+
+  const local = page.locator(".card", { hasText: "Локальная модель (Ollama" });
+  await expect(local).toContainText("Локальная модель доступна");
+  await expect(local).toContainText("запущен");
+  await expect(local).toContainText("загружена");
+});
+
+test("ИИ: ключ проверяется, показывается маской и удаляется", async ({ page }) => {
+  await page.goto("/ai");
+  await expect(page.locator(TITLE)).toHaveText("Подключение ИИ");
+
+  const cloud = page.locator(".card", { hasText: "Свой API-ключ (облачная модель)" });
+  const keyInput = cloud.locator('input[type="password"]');
+
+  // Полного ключа в интерфейсе нет и поле всегда пустое.
+  await expect(keyInput).toHaveValue("");
+
+  await keyInput.fill("sk-live-e2e-abcdefghijklmnop");
+
+  await cloud.getByRole("button", { name: "Проверить ключ" }).click();
+  await expect(page.locator(".toast").last()).toContainText("Ключ рабочий", { timeout: 15_000 });
+
+  await cloud.getByRole("button", { name: "Сохранить" }).click();
+  await expect(page.locator(".toast").last()).toContainText("API-ключ сохранён", {
+    timeout: 15_000,
+  });
+
+  // Наружу — только маска, поле ввода остаётся пустым.
+  await expect(cloud).toContainText("sk-...mnop");
+  await expect(cloud.locator('input[type="password"]')).toHaveValue("");
+
+  // Убираем ключ: смоук идемпотентен на переиспользуемом сервере E2E.
+  await cloud.getByRole("button", { name: "Удалить ключ" }).click();
+  await expect(page.locator(".toast").last()).toContainText("API-ключ удалён", { timeout: 15_000 });
+  await expect(cloud).toContainText("ключ не найден");
+});
+
 test("i18n: переключение интерфейса на английский переживает перезагрузку", async ({ page }) => {
   await page.goto("/settings");
   await expect(page.locator(TITLE)).toHaveText("Настройки");

@@ -6,11 +6,11 @@
  * движком в истории — он появляется на экране «История».
  */
 
-import { ApiError, apiSse } from "../api";
+import { ApiError, apiGet, apiSse, type AiStatus } from "../api";
 import { logEvent } from "../events";
 import { t } from "../i18n";
 import { badge, button, clear, emptyState, h, loadingRow, pageHeader, textInput, toast } from "../ui";
-import type { Cleanup, ScreenFactory } from "../router";
+import { navigate, type Cleanup, type ScreenFactory } from "../router";
 
 interface Message {
   role: "user" | "assistant";
@@ -59,13 +59,49 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
     sendButton,
   );
 
+  const providerBadge = badge(t("ИИ"), "plain");
+
   container.appendChild(
     pageHeader(
       t("Чат"),
       t("Ответ приходит потоком (SSE) и сразу сохраняется в истории диалогов"),
-      [badge(t("SSE-стрим"), "accent")],
+      [providerBadge, badge(t("SSE-стрим"), "accent")],
     ),
   );
+
+  // ── Кто отвечает: облачная модель или локальная (требование 1) ──
+  // Если не настроено ни то, ни другое — подсказка и переход в «Подключение ИИ».
+  const aiNotice = h("div", { class: "ai-notice", hidden: true });
+
+  async function refreshProvider(): Promise<void> {
+    try {
+      const ai = await apiGet<AiStatus>("/api/ai");
+      if (cancelled) return;
+
+      providerBadge.textContent =
+        ai.activeProvider === "cloud"
+          ? t("Облачная модель")
+          : ai.activeProvider === "local"
+            ? t("Локальная модель")
+            : t("ИИ не настроен");
+
+      clear(aiNotice);
+
+      if (!ai.ready) {
+        aiNotice.appendChild(h("span", { text: ai.message }));
+        aiNotice.appendChild(button(t("Настроить ИИ"), () => navigate("/ai"), "primary"));
+        aiNotice.hidden = false;
+      } else {
+        aiNotice.hidden = true;
+      }
+    } catch {
+      // Состояние ИИ — вспомогательное: без него чат всё равно работает.
+    }
+  }
+
+  container.appendChild(aiNotice);
+  void refreshProvider();
+
   container.appendChild(log);
   container.appendChild(h("div", { class: "chat__foot" }, status));
   container.appendChild(composer);

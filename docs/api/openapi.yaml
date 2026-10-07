@@ -1027,6 +1027,243 @@ paths:
         "409":
           $ref: "#/components/responses/UpdateBusy"
 
+  /api/ai:
+    get:
+      operationId: getAiStatus
+      summary: >
+        Состояние подключения ИИ: облачный ключ пользователя или локальная
+        модель. Ключ наружу не выходит — только маска вида `sk-...abcd`
+        (требование безопасности). `activeProvider` = cloud, если ключ есть
+        и рабочий, local — если доступна локальная модель, none — если нет
+        ни того, ни другого
+      tags: [ai]
+      responses:
+        "200":
+          description: Текущее состояние подключения ИИ
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/ai/settings:
+    post:
+      operationId: updateAiSettings
+      summary: >
+        Режим выбора провайдера (`auto` — сначала ключ, потом локальная
+        модель; `cloud` — только ключ; `local` — только локальная модель),
+        адреса и модели. API-ключ здесь не меняется — для него
+        `/api/ai/key`
+      tags: [ai]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiSettingsUpdate"
+      responses:
+        "200":
+          description: Настройки применены и сохранены в config/ai.json
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiStatus"
+        "400":
+          description: Тело запроса не прошло валидацию
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/ai/key:
+    post:
+      operationId: saveAiKey
+      summary: >
+        Проверка ключа рабочим запросом к API (`GET /models`, при
+        необходимости минимальный `POST /chat/completions`) и сохранение.
+        Нерабочий ключ не сохраняется: ответ 400 с кодом AI_KEY_INVALID,
+        AI_NO_CREDITS, AI_RATE_LIMIT или AI_MODEL_UNAVAILABLE
+      tags: [ai]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiKeyRequest"
+      responses:
+        "200":
+          description: Ключ проверен и сохранён (в ответе только маска)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiStatus"
+        "400":
+          description: >
+            Ключ не прошёл проверку или тело запроса некорректно
+            (код в поле code)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          description: Провайдер сообщил о превышении лимита запросов
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deleteAiKey
+      summary: >
+        Удаление ключа пользователя (config/ai.json). Ключ владельца из
+        переменных окружения сервера не удаляется — он принадлежит только
+        аккаунту владельца
+      tags: [ai]
+      responses:
+        "200":
+          description: Ключ удалён, состояние ИИ пересчитано
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/ai/key/test:
+    post:
+      operationId: testAiKey
+      summary: >
+        Кнопка «Проверить ключ»: рабочий запрос к API без сохранения.
+        Если `apiKey` не передан, проверяется сохранённый ключ
+      tags: [ai]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiKeyTestRequest"
+      responses:
+        "200":
+          description: Ключ рабочий
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiKeyTestResult"
+        "400":
+          description: Ключ не рабочий или тело запроса некорректно
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          description: Провайдер сообщил о превышении лимита запросов
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/ai/local:
+    get:
+      operationId: getAiLocalStatus
+      summary: >
+        Проверка локальной модели: запущен ли сервер (Ollama или другой
+        OpenAI-совместимый), какие модели доступны, загружена ли нужная,
+        и инструкция по установке (`installHint`), если её нет
+      tags: [ai]
+      responses:
+        "200":
+          description: Состояние локальной модели
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiLocalStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/ai/local/test:
+    post:
+      operationId: testAiLocal
+      summary: >
+        Тестовый запрос к локальной модели (минимальная генерация).
+        Ошибки: AI_LOCAL_SERVER_DOWN, AI_LOCAL_MODEL_MISSING,
+        AI_MODEL_UNAVAILABLE
+      tags: [ai]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiLocalTestRequest"
+      responses:
+        "200":
+          description: Локальная модель отвечает
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiLocalTestResult"
+        "400":
+          description: Сервер не запущен или модель не загружена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /api/ai/local/pull:
+    get:
+      operationId: pullAiLocalModel
+      summary: >
+        Загрузка локальной модели через Ollama (`POST /api/pull`) с
+        потоком прогресса (SSE). Для не-Ollama локальных серверов приходит
+        событие `error` с кодом AI_PULL_UNSUPPORTED — модель нужно
+        загрузить средствами самого сервера
+      tags: [ai]
+      parameters:
+        - name: model
+          in: query
+          required: false
+          description: Имя модели (по умолчанию — модель из настроек)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Поток событий прогресса (SSE)
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/AiPullEvent"
+        "400":
+          description: Недопустимое имя модели
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
 components:
   securitySchemes:
     tokenHeader:
@@ -1937,5 +2174,316 @@ components:
             event:
               type: string
               enum: [token, done, error]
+            data:
+              type: object
+
+    # ── ИИ: облачный ключ / локальная модель (docs/AI_PROVIDERS.md) ──
+    AiProviderPreset:
+      type: object
+      additionalProperties: false
+      description: Готовый пресет OpenAI-совместимого облачного API
+      required: [id, label, baseUrl, model, docsUrl]
+      properties:
+        id:
+          type: string
+          enum: [openai, deepseek, openrouter, groq, custom]
+        label:
+          type: string
+        baseUrl:
+          type: string
+        model:
+          type: string
+        docsUrl:
+          type: string
+          description: Где взять ключ (пусто у пресета «custom»)
+
+    AiLocalModelOption:
+      type: object
+      additionalProperties: false
+      description: Лёгкая локальная модель для слабых ПК (тяжёлые не предлагаются)
+      required: [id, label, tier, sizeHint]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        tier:
+          type: string
+          enum: [tiny, light, medium]
+        sizeHint:
+          type: string
+
+    AiInstallHint:
+      type: object
+      additionalProperties: false
+      description: >
+        Инструкция по установке локальной модели: показывается, когда
+        сервер не запущен или нужная модель не загружена
+      required: [title, steps, command, downloadUrl, model]
+      properties:
+        title:
+          type: string
+        steps:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        command:
+          type: string
+          description: Команда загрузки, например ollama pull qwen3.5:2b
+        downloadUrl:
+          type: string
+        model:
+          type: string
+
+    AiCloudStatus:
+      type: object
+      additionalProperties: false
+      description: >
+        Состояние облачного ключа. Секрет не отдаётся: только маска,
+        источник ключа (пользователь/владелец) и результат проверки
+      required: [provider, baseUrl, model, keySaved, keySource, keyMask, keyStatus, keyCheckedAt]
+      properties:
+        provider:
+          type: string
+          enum: [openai, deepseek, openrouter, groq, custom]
+        baseUrl:
+          type: string
+        model:
+          type: string
+        keySaved:
+          type: boolean
+          description: Ключ есть (свой или владельца) и будет использован
+        keySource:
+          type: string
+          enum: [none, user, owner]
+        keyMask:
+          type: string
+          description: Маска вида sk-...abcd (пусто, если ключа нет)
+        keyStatus:
+          type: string
+          enum: [unknown, ok, invalid]
+        keyCheckedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Когда ключ проверялся последний раз
+
+    AiLocalStatus:
+      type: object
+      additionalProperties: false
+      description: Состояние локальной модели (Ollama или OpenAI-совместимый сервер)
+      required:
+        - baseUrl
+        - model
+        - suggestions
+        - server
+        - api
+        - resolvedBaseUrl
+        - models
+        - modelInstalled
+        - status
+        - statusText
+        - detail
+        - canPull
+        - installHint
+      properties:
+        baseUrl:
+          type: string
+          description: Base URL из настроек
+        model:
+          type: string
+          description: Нужная модель (по умолчанию qwen3.5:2b)
+        suggestions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiLocalModelOption"
+        server:
+          type: string
+          enum: [up, down, unknown]
+        api:
+          type: string
+          description: '"ollama" — нативный API, "openai" — /v1, "" — сервер не найден'
+        resolvedBaseUrl:
+          type: string
+          description: Фактически найденный адрес сервера
+        models:
+          type: array
+          items:
+            type: string
+        modelInstalled:
+          type: boolean
+        status:
+          type: string
+          enum: [available, model-missing, server-down]
+        statusText:
+          type: string
+        detail:
+          type: string
+        canPull:
+          type: boolean
+          description: Доступна ли кнопка «Скачать модель» (только Ollama)
+        installHint:
+          allOf:
+            - $ref: "#/components/schemas/AiInstallHint"
+          nullable: true
+
+    AiSettingsUpdate:
+      type: object
+      additionalProperties: false
+      description: Частичное обновление настроек ИИ (без ключа)
+      minProperties: 1
+      properties:
+        mode:
+          type: string
+          enum: [auto, cloud, local]
+        cloudProvider:
+          type: string
+          enum: [openai, deepseek, openrouter, groq, custom]
+        cloudBaseUrl:
+          type: string
+        cloudModel:
+          type: string
+        localBaseUrl:
+          type: string
+        localModel:
+          type: string
+
+    AiKeyRequest:
+      type: object
+      additionalProperties: false
+      description: Ключ проверяется рабочим запросом и сохраняется в config/ai.json
+      required: [apiKey]
+      properties:
+        apiKey:
+          type: string
+          description: Секрет; в лог и в ответы не попадает
+        cloudProvider:
+          type: string
+          enum: [openai, deepseek, openrouter, groq, custom]
+        cloudBaseUrl:
+          type: string
+        cloudModel:
+          type: string
+        validate:
+          type: boolean
+          description: false — сохранить без проверки (по умолчанию true)
+
+    AiKeyTestRequest:
+      type: object
+      additionalProperties: false
+      description: Проверка ключа без сохранения (apiKey не задан → проверяется сохранённый)
+      properties:
+        apiKey:
+          type: string
+        cloudProvider:
+          type: string
+          enum: [openai, deepseek, openrouter, groq, custom]
+        cloudBaseUrl:
+          type: string
+        cloudModel:
+          type: string
+
+    AiKeyTestResult:
+      type: object
+      additionalProperties: false
+      required: [ok, message, models, checkedWith, keyMask]
+      properties:
+        ok:
+          type: boolean
+        message:
+          type: string
+        models:
+          type: array
+          items:
+            type: string
+        checkedWith:
+          type: string
+          enum: [models, chat]
+        keyMask:
+          type: string
+
+    AiLocalTestRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        localBaseUrl:
+          type: string
+        localModel:
+          type: string
+
+    AiLocalTestResult:
+      type: object
+      additionalProperties: false
+      required: [ok, message, server, models]
+      properties:
+        ok:
+          type: boolean
+        message:
+          type: string
+        server:
+          type: string
+          enum: [up, down]
+        models:
+          type: array
+          items:
+            type: string
+
+    AiStatus:
+      type: object
+      additionalProperties: false
+      description: >
+        Состояние подключения ИИ: показывается на входе в панель
+        («Подключено: облачная модель» / «Подключите API-ключ или
+        используйте локальную модель»)
+      required:
+        - mode
+        - activeProvider
+        - ready
+        - summary
+        - message
+        - cloud
+        - local
+        - presets
+        - settingsPath
+      properties:
+        mode:
+          type: string
+          enum: [auto, cloud, local]
+        activeProvider:
+          type: string
+          enum: [cloud, local, none]
+        ready:
+          type: boolean
+          description: Есть рабочий провайдер — чат ответит
+        summary:
+          type: string
+        message:
+          type: string
+        cloud:
+          $ref: "#/components/schemas/AiCloudStatus"
+        local:
+          $ref: "#/components/schemas/AiLocalStatus"
+        presets:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/AiProviderPreset"
+        settingsPath:
+          type: string
+          description: Путь к файлу настроек ИИ (config/ai.json)
+
+    AiPullEvent:
+      description: >
+        SSE-события загрузки локальной модели: `event: progress`
+        c `{percent, completed, total, detail}` (повторяется),
+        `event: done` c `{model}`, `event: error` c объектом Error.
+      oneOf:
+        - type: object
+          required: [event, data]
+          properties:
+            event:
+              type: string
+              enum: [progress, done, error]
             data:
               type: object

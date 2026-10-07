@@ -5,6 +5,7 @@
 
 import {
   apiGet,
+  type AiStatus,
   type Config,
   type Health,
   type Personality,
@@ -30,14 +31,16 @@ interface DashboardData {
   config: Config;
   personality: Personality | null;
   update: UpdateStatus | null;
+  ai: AiStatus | null;
 }
 
 async function fetchData(): Promise<DashboardData> {
-  const [health, config, personality, update] = await Promise.allSettled([
+  const [health, config, personality, update, ai] = await Promise.allSettled([
     apiGet<Health>("/api/health"),
     apiGet<Config>("/api/config"),
     apiGet<Personality>("/api/personality"),
     apiGet<UpdateStatus>("/api/update"),
+    apiGet<AiStatus>("/api/ai"),
   ]);
 
   if (health.status === "rejected") throw health.reason;
@@ -48,6 +51,7 @@ async function fetchData(): Promise<DashboardData> {
     config: config.value,
     personality: personality.status === "fulfilled" ? personality.value : null,
     update: update.status === "fulfilled" ? update.value : null,
+    ai: ai.status === "fulfilled" ? ai.value : null,
   };
 }
 
@@ -107,7 +111,7 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
   }
 
   function renderData(data: DashboardData): void {
-    const { health, config, personality, update } = data;
+    const { health, config, personality, update, ai } = data;
     clear(body);
 
     const pills = h(
@@ -139,6 +143,48 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
 
     const statusesCard = card(t("Статусы"), pills);
     statusesCard.classList.add("col-12");
+
+    // ── ИИ: облачный ключ или локальная модель (требование 1) ────
+    const aiCard = card(
+      t("ИИ и модель"),
+      h(
+        "div",
+        { class: "update-section" },
+        h(
+          "div",
+          { class: "pill-row" },
+          statusPill({
+            label: t("ИИ"),
+            value: ai ? ai.summary : t("Проверить ИИ"),
+            state: ai?.activeProvider === "none" ? "danger" : ai ? "ok" : "idle",
+          }),
+          statusPill({
+            label: t("Режим"),
+            value: ai ? ai.mode : "—",
+            state: "idle",
+          }),
+        ),
+        h("p", {
+          class: "panel-note",
+          text: ai
+            ? ai.message
+            : t("Введите API-ключ или установите локальную модель"),
+        }),
+        ai && !ai.ready && ai.local.installHint
+          ? h(
+              "div",
+              { class: "code-line" },
+              h("code", { text: ai.local.installHint.command }),
+            )
+          : null,
+        h(
+          "div",
+          { class: "pill-row" },
+          button(t("Настроить ИИ"), () => navigate("/ai"), "primary"),
+        ),
+      ),
+    );
+    aiCard.classList.add("col-12");
 
     const metricsCard = card(t("Метрики"), metrics);
     metricsCard.classList.add("col-6");
@@ -187,6 +233,7 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
     updateCard.classList.add("col-12");
 
     body.appendChild(statusesCard);
+    body.appendChild(aiCard);
     body.appendChild(metricsCard);
     body.appendChild(eventsCard);
     body.appendChild(actionsCard);

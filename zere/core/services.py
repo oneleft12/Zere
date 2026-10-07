@@ -10,6 +10,7 @@ from __future__ import annotations
 import inspect
 from typing import Any, Callable, Dict, Optional, Type, TypeVar
 
+from zere.ai.ai_service import AiService
 from zere.ai.ollama_client import OllamaClient
 from zere.core.ai.context_builder import ContextBuilder
 from zere.core.configuration.zere_config import ZereConfig
@@ -181,6 +182,13 @@ def create_services(config: ZereConfig) -> ServiceContainer:
 
     services.add_singleton_factory(_create_ollama_client, OllamaClient)
 
+    # services.AddSingleton<AiService>(); — выбор провайдера ИИ: облачный
+    # ключ пользователя (config/ai.json) → локальная модель (Ollama).
+    # Панель меняет настройки на лету: прокси читает их на каждый запрос.
+    services.add_singleton_factory(
+        lambda sp: AiService(config=sp.get(ZereConfig)), AiService
+    )
+
     # services.AddSingleton<RuntimeContext>(); — флаги рантайма (этап 1, S5)
     services.add_singleton_factory(lambda sp: RuntimeContext(), RuntimeContext)
 
@@ -287,9 +295,12 @@ def create_services(config: ZereConfig) -> ServiceContainer:
     )
 
     # services.AddSingleton<AIHandler>();
+    # Первый аргумент — прокси выбора провайдера (облачный ключ или локальная
+    # модель): интерфейс generate/warmup/close тот же, что у OllamaClient,
+    # поэтому AIHandler и голосовой режим менять не пришлось.
     services.add_singleton_factory(
         lambda sp: AIHandler(
-            sp.get(OllamaClient),
+            sp.get(AiService).proxy,
             sp.get(ContextBuilder),
             sp.get(PluginManager),
             runtime=sp.get(RuntimeContext),

@@ -25,10 +25,13 @@ from typing import Any, Optional
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from zere import paths
+from zere.ai.ai_service import AiService
+from zere.ai.ai_settings import MODES, PROVIDER_IDS
+from zere.ai.cloud_client import AiError
 from zere.api.token import load_or_create_token
 from zere.ai.ollama_url_resolver import OllamaUrlResolver
 from zere.core.configuration.zere_config import ZereConfig
-from zere.core.logging.log_service import log_error
+from zere.core.logging.log_service import log_error, redact_secrets
 from zere.core.plugins.plugin_config import PluginConfig
 from zere.core.update.updater import UpdateBusyError, UpdateService
 # Только раннер: он тянет лишь log_error/threading — сервер панели
@@ -71,6 +74,22 @@ _ROUTES = {
     "/api/update": frozenset({"GET"}),
     "/api/update/check": frozenset({"POST"}),
     "/api/update/apply": frozenset({"POST"}),
+    # ИИ: облачный ключ пользователя или локальная модель (docs/AI_PROVIDERS.md).
+    #   GET    /api/ai            — состояние подключения ИИ;
+    #   POST   /api/ai/settings   — режим авто/облако/локально, адреса, модели;
+    #   POST   /api/ai/key        — проверка + сохранение ключа;
+    #   DELETE /api/ai/key        — удаление ключа пользователя;
+    #   POST   /api/ai/key/test   — «Проверить ключ» без сохранения;
+    #   GET    /api/ai/local      — запущен ли локальный сервер, какие модели;
+    #   POST   /api/ai/local/test — тестовый запрос к локальной модели;
+    #   GET    /api/ai/local/pull — SSE-прогресс загрузки модели (Ollama).
+    "/api/ai": frozenset({"GET"}),
+    "/api/ai/settings": frozenset({"POST"}),
+    "/api/ai/key": frozenset({"POST", "DELETE"}),
+    "/api/ai/key/test": frozenset({"POST"}),
+    "/api/ai/local": frozenset({"GET"}),
+    "/api/ai/local/test": frozenset({"POST"}),
+    "/api/ai/local/pull": frozenset({"GET"}),
 }
 
 _MEMORY_PREFIX = "/api/memory/"
@@ -119,6 +138,7 @@ class PanelServer:
         voice: Optional[Any] = None,
         runtime: Optional[Any] = None,
         updater: Optional[Any] = None,
+        ai: Optional[Any] = None,
         token: Optional[str] = None,
         port: int = DEFAULT_PORT,
     ) -> None:
@@ -144,6 +164,10 @@ class PanelServer:
         # Обновление из GitHub (docs/UPDATE.md): сервис с кэшем состояния;
         # в тестах и E2E подменяется фейком — сеть и рабочая копия не трогаются.
         self._updater = updater if updater is not None else UpdateService()
+        # Настройки ИИ (облачный ключ / локальная модель). None — сервис
+        # создаётся лениво при первом обращении (тесты подменяют его фейком),
+        # поэтому отсутствие Ollama или сети не мешает старту панели.
+        self._ai = ai
         self._requested_port = port
         self._httpd: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[Thread] = None
@@ -198,6 +222,17 @@ class PanelServer:
     def updater(self) -> Any:
         """Сервис обновления из GitHub (UpdateService или фейк в тестах)."""
         return self._updater
+
+    @property
+    def ai(self) -> Any:
+        """Сервис выбора провайдера ИИ (AiService или фейк в тестах).
+
+        Создаётся лениво: сервер панели не должен трогать сеть/локальные
+        серверы при старте, если пользователь не открыл настройки ИИ.
+        """
+        if self._ai is None:
+            self._ai = AiService(config=self._config)
+        return self._ai
 
     # ── Подтверждения опасных действий (серверный TTL, P0-3) ──────
 
@@ -484,6 +519,23 @@ class _PanelHandler(BaseHTTPRequestHandler):
                 self._handle_update_check()
             elif path == "/api/update/apply":
                 self._handle_update_apply()
+            elif path == "/api/ai":
+                self._handle_ai_get()
+            elif path == "/api/ai/settings":
+                self._handle_ai_settings()
+            elif path == "/api/ai/key":
+                if method == "POST":
+                    self._handle_ai_key_post()
+                else:
+                    self._handle_ai_key_delete()
+            elif path == "/api/ai/key/test":
+                self._handle_ai_key_test()
+            elif path == "/api/ai/local":
+                self._handle_ai_local_get()
+            elif path == "/api/ai/local/test":
+                self._handle_ai_local_test()
+            elif path == "/api/ai/local/pull":
+                self._handle_ai_local_pull()
             else:  # /api/chat/stream
                 self._handle_chat_stream()
         except Exception as ex:  # noqa: BLE001 — нормализуем любую ошибку
@@ -1411,6 +1463,150 @@ class _PanelHandler(BaseHTTPRequestHandler):
 
         self.close_connection = True
 
+    # ── ИИ: облачный ключ пользователя и локальная модель ─────────
+
+    def _handle_ai_get(self) -> None:
+        """GET /api/ai — состояние подключения ИИ (без секретов)."""
+        self._send_json(200, None, self.panel.ai.status())
+
+    def _handle_ai_settings(self) -> None:
+        """POST /api/ai/settings — режим (авто/облако/локально), адреса, модели."""
+        payload = self._read_json_object()
+        if payload is None:
+            return
+
+        error = _validate_ai_settings_payload(payload)
+        if error is not None:
+            self._send_json(400, "VALIDATION_ERROR", error)
+            return
+
+        try:
+            status = self.panel.ai.update_settings(payload)
+        except AiError as ex:
+            self._send_json(ex.status, ex.code, ex.message)
+            return
+
+        self._send_json(200, None, status)
+
+    def _handle_ai_key_post(self) -> None:
+        """POST /api/ai/key — проверить рабочим запросом и сохранить ключ."""
+        payload = self._read_json_object()
+        if payload is None:
+            return
+
+        error = _validate_ai_key_payload(payload)
+        if error is not None:
+            self._send_json(400, "VALIDATION_ERROR", error)
+            return
+
+        validate = payload.get("validate", True)
+        try:
+            status = self.panel.ai.save_key(payload, validate=bool(validate))
+        except AiError as ex:
+            # Ключ не сохранён: клиент видит понятную причину
+            # (AI_KEY_INVALID / AI_NO_CREDITS / AI_RATE_LIMIT / ...).
+            self._send_json(ex.status, ex.code, ex.message)
+            return
+
+        self._send_json(200, None, status)
+
+    def _handle_ai_key_delete(self) -> None:
+        """DELETE /api/ai/key — удалить ключ пользователя (ключ владельца не трогаем)."""
+        self._send_json(200, None, self.panel.ai.delete_key())
+
+    def _handle_ai_key_test(self) -> None:
+        """POST /api/ai/key/test — «Проверить ключ» без сохранения."""
+        payload = self._read_json_object()
+        if payload is None:
+            return
+
+        error = _validate_ai_key_test_payload(payload)
+        if error is not None:
+            self._send_json(400, "VALIDATION_ERROR", error)
+            return
+
+        try:
+            result = self.panel.ai.test_key(payload)
+        except AiError as ex:
+            self._send_json(ex.status, ex.code, ex.message)
+            return
+
+        self._send_json(200, None, result)
+
+    def _handle_ai_local_get(self) -> None:
+        """GET /api/ai/local — запущен ли сервер, какие модели, есть ли нужная."""
+        self._send_json(200, None, self.panel.ai.local_status())
+
+    def _handle_ai_local_test(self) -> None:
+        """POST /api/ai/local/test — минимальный запрос к локальной модели."""
+        payload = self._read_json_object()
+        if payload is None:
+            return
+
+        error = _validate_ai_local_payload(payload)
+        if error is not None:
+            self._send_json(400, "VALIDATION_ERROR", error)
+            return
+
+        try:
+            result = self.panel.ai.test_local(payload)
+        except AiError as ex:
+            self._send_json(ex.status, ex.code, ex.message)
+            return
+
+        self._send_json(200, None, result)
+
+    def _handle_ai_local_pull(self) -> None:
+        """GET /api/ai/local/pull?model=... — SSE-прогресс загрузки модели.
+
+        Работает только с Ollama (нативный /api/pull): для прочих локальных
+        серверов приходит событие error с понятным текстом.
+        """
+        params = parse_qs(urlsplit(self.path).query)
+        model = (params.get("model") or [""])[0].strip()
+
+        if model and not re.fullmatch(r"[A-Za-z0-9._\-/:]{1,120}", model):
+            self._send_json(400, "VALIDATION_ERROR", "Недопустимое имя модели.")
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        self.end_headers()
+
+        try:
+            for event in self.panel.ai.pull_model(model or None):
+                status = event.get("status")
+
+                if status == "error":
+                    self._write_event(
+                        "error",
+                        {
+                            "code": event.get("code", "AI_PULL_FAILED"),
+                            "message": event.get("message", "Не удалось скачать модель."),
+                        },
+                    )
+                elif status == "done":
+                    self._write_event("done", {"model": event.get("model", model)})
+                else:
+                    self._write_event(
+                        "progress",
+                        {
+                            "percent": event.get("percent"),
+                            "completed": event.get("completed"),
+                            "total": event.get("total"),
+                            "detail": event.get("detail", ""),
+                        },
+                    )
+        except Exception as ex:  # noqa: BLE001 — поток не должен рвать соединение
+            log_error("PanelServer.ai.pull", redact_secrets(str(ex)))
+            self._write_event(
+                "error", {"code": "INTERNAL", "message": "Не удалось скачать модель."}
+            )
+
+        self.close_connection = True
+
     # ── Помощники ─────────────────────────────────────────────────
 
     def _read_json_object(self) -> Optional[dict[str, Any]]:
@@ -1804,6 +2000,186 @@ _BOOL_FIELDS = ("voiceEnabled", "autoMemory")
 # Необязательные логические ключи — тот же контракт, что у sttEngine:
 # свойство есть в схеме, но вне required (старые клиенты его не шлют).
 _OPTIONAL_BOOL_FIELDS = ("audioProcessing",)
+
+
+# ── ИИ: границы полей (docs/AI_PROVIDERS.md) ───────────────────────
+_MAX_AI_KEY_LENGTH = 500
+_MAX_AI_URL_LENGTH = 500
+_MAX_AI_MODEL_LENGTH = 120
+_AI_SETTINGS_KEYS = (
+    "mode",
+    "cloudProvider",
+    "cloudBaseUrl",
+    "cloudModel",
+    "localBaseUrl",
+    "localModel",
+)
+
+
+def _validate_ai_base_url(key: str, value: Any) -> Optional[str]:
+    """Base URL облачного/локального API: только http(s) и с хостом."""
+    if not isinstance(value, str):
+        return f"Ключ «{key}» должен быть строкой."
+
+    url = value.strip()
+    if not url:
+        return f"Ключ «{key}» не может быть пустым."
+
+    if len(url) > _MAX_AI_URL_LENGTH:
+        return f"Ключ «{key}» длиннее {_MAX_AI_URL_LENGTH} символов."
+
+    if any(char.isspace() for char in url):
+        return f"Ключ «{key}» не должен содержать пробелов."
+
+    parts = urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        return f"Ключ «{key}» должен быть полным адресом вида http://127.0.0.1:11434/v1."
+
+    return None
+
+
+def _validate_ai_model(key: str, value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return f"Ключ «{key}» должен быть строкой."
+
+    model = value.strip()
+    if not model:
+        return f"Ключ «{key}» не может быть пустым."
+
+    if len(model) > _MAX_AI_MODEL_LENGTH:
+        return f"Ключ «{key}» длиннее {_MAX_AI_MODEL_LENGTH} символов."
+
+    return None
+
+
+def _validate_ai_settings_payload(payload: Any) -> Optional[str]:
+    """Тело POST /api/ai/settings: подмножество ключей ИИ, дополнительных нет."""
+    if not isinstance(payload, dict):
+        return "Ожидался JSON-объект настроек ИИ."
+
+    for key in payload:
+        if key not in _AI_SETTINGS_KEYS:
+            return f"Неизвестный ключ настроек ИИ: «{key}»."
+
+    if not payload:
+        return "Не задано ни одного поля настроек ИИ."
+
+    if "mode" in payload:
+        if not isinstance(payload["mode"], str):
+            return "Ключ «mode» должен быть строкой."
+        if payload["mode"] not in MODES:
+            return f"Ключ «mode» допускает только: {', '.join(MODES)}."
+
+    if "cloudProvider" in payload:
+        if not isinstance(payload["cloudProvider"], str):
+            return "Ключ «cloudProvider» должен быть строкой."
+        if payload["cloudProvider"] not in PROVIDER_IDS:
+            return f"Ключ «cloudProvider» допускает только: {', '.join(PROVIDER_IDS)}."
+
+    for key in ("cloudBaseUrl", "localBaseUrl"):
+        if key in payload:
+            error = _validate_ai_base_url(key, payload[key])
+            if error is not None:
+                return error
+
+    for key in ("cloudModel", "localModel"):
+        if key in payload:
+            error = _validate_ai_model(key, payload[key])
+            if error is not None:
+                return error
+
+    return None
+
+
+def _validate_ai_key_payload(payload: Any) -> Optional[str]:
+    """Тело POST /api/ai/key: обязателен непустой apiKey, остальное опционально."""
+    if not isinstance(payload, dict):
+        return "Ожидался JSON-объект с API-ключом."
+
+    allowed = {"apiKey", "cloudProvider", "cloudBaseUrl", "cloudModel", "validate"}
+
+    for key in payload:
+        if key not in allowed:
+            return f"Неизвестный ключ: «{key}»."
+
+    if "apiKey" not in payload:
+        return "Отсутствует обязательный ключ «apiKey»."
+
+    api_key = payload["apiKey"]
+    if not isinstance(api_key, str):
+        return "Ключ «apiKey» должен быть строкой."
+
+    if not api_key.strip():
+        return "Ключ «apiKey» не может быть пустым."
+
+    if len(api_key.strip()) > _MAX_AI_KEY_LENGTH:
+        return f"Ключ «apiKey» длиннее {_MAX_AI_KEY_LENGTH} символов."
+
+    if "validate" in payload and not isinstance(payload["validate"], bool):
+        return "Ключ «validate» должен быть логическим значением."
+
+    nested = {
+        key: value
+        for key, value in payload.items()
+        if key in ("cloudProvider", "cloudBaseUrl", "cloudModel")
+    }
+    if nested:
+        return _validate_ai_settings_payload(nested)
+
+    return None
+
+
+def _validate_ai_key_test_payload(payload: Any) -> Optional[str]:
+    """Тело POST /api/ai/key/test: ключ можно не присылать (возьмём сохранённый)."""
+    if not isinstance(payload, dict):
+        return "Ожидался JSON-объект."
+
+    allowed = {"apiKey", "cloudProvider", "cloudBaseUrl", "cloudModel"}
+
+    for key in payload:
+        if key not in allowed:
+            return f"Неизвестный ключ: «{key}»."
+
+    api_key = payload.get("apiKey")
+    if api_key is not None:
+        if not isinstance(api_key, str):
+            return "Ключ «apiKey» должен быть строкой."
+        if api_key.strip() and len(api_key.strip()) > _MAX_AI_KEY_LENGTH:
+            return f"Ключ «apiKey» длиннее {_MAX_AI_KEY_LENGTH} символов."
+
+    nested = {
+        key: value
+        for key, value in payload.items()
+        if key in ("cloudProvider", "cloudBaseUrl", "cloudModel")
+    }
+    if nested:
+        return _validate_ai_settings_payload(nested)
+
+    return None
+
+
+def _validate_ai_local_payload(payload: Any) -> Optional[str]:
+    """Тело POST /api/ai/local/test: необязательные адрес и модель."""
+    if not isinstance(payload, dict):
+        return "Ожидался JSON-объект."
+
+    allowed = {"localBaseUrl", "localModel"}
+
+    for key in payload:
+        if key not in allowed:
+            return f"Неизвестный ключ: «{key}»."
+
+    if "localBaseUrl" in payload:
+        error = _validate_ai_base_url("localBaseUrl", payload["localBaseUrl"])
+        if error is not None:
+            return error
+
+    if "localModel" in payload:
+        error = _validate_ai_model("localModel", payload["localModel"])
+        if error is not None:
+            return error
+
+    return None
 
 
 def _validate_config_payload(payload: Any) -> Optional[str]:

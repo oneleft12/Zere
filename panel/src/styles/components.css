@@ -871,3 +871,100 @@ select:focus-visible {
   color: var(--text-dim);
   overflow-wrap: anywhere;
 }
+
+/* ── Экран «Подключение ИИ» (docs/AI_PROVIDERS.md) ─────────────── */
+
+/* Вертикальный ритм внутри карточек: статус, список моделей, ключ. */
+.ai-status {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.ai-status .kv {
+  margin: 0;
+}
+
+/* Подсказка в чате: «введите API-ключ или установите локальную модель». */
+.ai-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--warn);
+  border-radius: var(--radius);
+  background: var(--warn-soft);
+  font-size: 14px;
+}
+
+.ai-notice[hidden] {
+  display: none;
+}
+
+/* Карточка «локальная модель не найдена»: инструкция заметнее обычной. */
+.card--warn {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.hint-steps {
+  margin: 0 0 12px;
+  padding-left: 22px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+/* Команда для копирования: `ollama pull qwen3.5:2b`. */
+.code-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.code-line code {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* Прогресс загрузки модели (SSE /api/ai/local/pull). */
+.progress-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0;
+}
+
+.progress-block[hidden] {
+  display: none;
+}
+
+.progress {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.progress__bar {
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.progress__text {
+  font-size: 13px;
+  color: var(--text-dim);
+}

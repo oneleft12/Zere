@@ -100,7 +100,9 @@ Pipeline обработки команд (порядок важен):
 7. **GameHandler** — игровые команды
 8. **VolumeHandler** — «громкость», «сделай громче/тише», «выключи звук»
 9. **DrawingHandler** — рисование в Krita/Paint: «нарисуй круг», «напиши на холсте привет», «рисуй в крите» *(только Python-редакция)*
-10. **AIHandler** — fallback → генерация ответа через Ollama
+10. **AIHandler** — fallback → генерация ответа через провайдера ИИ
+    (облачный ключ пользователя или локальная Ollama — выбор в
+    `zere/ai/ai_service.py`)
 
 ---
 
@@ -154,6 +156,39 @@ Pipeline обработки команд (порядок важен):
 - Подробности: `docs/UPDATE.md`; тесты — `tests/test_updater.py`
   и контрактные `/api/update*` в `tests/test_panel_api.py`.
 
+## Подключение ИИ (ключ облачной модели / локальная модель)
+
+**Только Python-редакция**: модули `zere/ai/ai_settings.py`,
+`zere/ai/cloud_client.py`, `zere/ai/local_model.py`, `zere/ai/ai_service.py`
+(у C#-редакции этих эндпоинтов нет).
+
+- Режимы: `auto` — сначала облачный ключ, иначе локальная модель; `cloud` —
+  только ключ; `local` — только локальная модель. `AiProviderProxy` встаёт
+  в `AIHandler` вместо `OllamaClient` (интерфейс `generate/warmup/close`
+  тот же), поэтому выбор провайдера работает на лету, без перезапуска.
+- Ключ пользователя: `config/ai.json` (gitignored, права 0600). Наружу —
+  только маска `sk-...abcd`; в логах секреты вычищает `redact_secrets`
+  (`zere/core/logging/log_service.py`).
+- Ключ владельца — только в переменных окружения сервера
+  (`ZERE_CLOUD_API_KEY` и др.) и только для его аккаунта; из панели не
+  удаляется. Пример: `.env.example`.
+- API: `GET /api/ai` (состояние), `POST /api/ai/settings`, `POST|DELETE
+  /api/ai/key` (проверка рабочим запросом + сохранение / удаление),
+  `POST /api/ai/key/test`, `GET /api/ai/local`, `POST /api/ai/local/test`,
+  `GET /api/ai/local/pull` (SSE-прогресс `ollama pull`).
+- Панель: экран «Подключение ИИ» (`panel/src/screens/ai.ts`, маршрут `/ai`),
+  карточка «ИИ и модель» на дашборде, бейдж и подсказка в чате, отметка
+  `ИИ: облако|локально|не настроен` в статус-строке.
+- Локальная модель: Ollama (`http://127.0.0.1:11434/v1`) или другой
+  OpenAI-совместимый сервер; по умолчанию предлагаются лёгкие модели
+  (`qwen3.5:2b`, 0.5B–3B) — тяжёлые для слабых ПК не предлагаются.
+- Если настроен облачный ключ, Ollama перестаёт быть критической
+  зависимостью (`zere/core/dependencies/dependency_checker.py`,
+  `cloud_available=True`) — ZERE стартует и отвечает через облако.
+- Подробности: `docs/AI_PROVIDERS.md`; тесты — `tests/test_ai_providers.py`
+  (юнит, фейковый HTTP `tests/fake_http.py`) и контрактные `/api/ai*`
+  в `tests/test_panel_api.py`.
+
 ## Карта структуры проекта
 
 ```
@@ -161,7 +196,8 @@ Zere/
 ├── AGENTS.md                     # Этот файл
 ├── ZERE.slnx                     # Решение (.NET 10)
 ├── config/
-│   └── config.json               # Конфигурация (модель, язык, голос)
+│   ├── config.json               # Конфигурация (модель, язык, голос)
+│   └── ai.json                   # Настройки ИИ + ключ облачной модели (gitignored, 0600)
 ├── zere.db                       # SQLite база данных
 ├── ZERE.App/                     # Точка входа
 │   └── Program.cs                # Консольный цикл
@@ -204,6 +240,9 @@ Zere/
 │   ├── OllamaUrlResolver.cs      # Общий резолвер URL Ollama
 │   ├── SystemPrompt.cs           # Системный промпт
 │   └── Models/                   # DTO для ответов
+│                                 # Python-редакция (zere/ai/): ollama_client +
+│                                 # ai_settings/cloud_client/local_model/ai_service
+│                                 # (облачный ключ или локальная модель)
 ├── ZERE.Memory/                  # Память
 │   └── Database/
 │       ├── MemoryDatabase.cs     # Инициализация SQLite
@@ -257,7 +296,7 @@ Zere/
 │   ├── zere_tts_server.py        # HTTP-сервер клонирования (uv.exe, xVibePocketTTS — gitignored)
 │   └── zere_chattts_server.py    # HTTP-сервер ChatTTS (uv.exe, PCM s16le 24 кГц)
 ├── panel/                        # Web-панель (SPA, Vite + vanilla TS)
-│   ├── src/                      # main/shell/router/ui/i18n + 12 экранов (screens/)
+│   ├── src/                      # main/shell/router/ui/i18n + 13 экранов (screens/)
 │   ├── e2e/                      # Playwright-смоук (npm run test:e2e)
 │   └── dist/                     # Сборка — коммитится, раздаётся сервером
 ├── installer/                    # Установщик Windows (PowerShell + Inno Setup)
@@ -269,7 +308,7 @@ Zere/
 │   ├── Zere.iss                  # Inno Setup: готовый Setup.exe
 │   └── build-setup.ps1           # Сборка Setup.exe (git archive + ISCC)
 ├── tests/
-│   ├── test_panel_api.py         # Контрактные тесты панели (102, по OpenAPI)
+│   ├── test_panel_api.py         # Контрактные тесты панели (120, по OpenAPI)
 │   ├── test_installer.py         # Тесты установщика (BOM, CRLF, SHA-256, связность)
 │   ├── test_stt_engine.py        # Тесты STT GigaAM (константы, роутинг, живое распознавание)
 │   ├── test_audio_device.py      # Тесты звуковых устройств (WASAPI+auto_convert, откат, регрессия -9997, живой микрофон)
@@ -282,8 +321,10 @@ Zere/
 │   ├── test_system_prompt.py     # Тесты P1-2
 │   ├── test_drawing.py           # Тесты рисования (36: роутер, геометрия, текст, обработчик, Win32)
 │   ├── test_updater.py           # Тесты обновления из GitHub (git в temp: fetch/pull, отказы, зависимости)
+│   ├── test_ai_providers.py      # Тесты ИИ (приоритет облако/локально, проверка ключа, Ollama, маскирование)
+│   ├── fake_http.py              # Фейковый requests.Session для тестов ИИ (без сети)
 │   └── e2e_server.py             # Раннер панели с фейками для E2E
-├── docs/                         # Планы, отчёты, openapi.yaml (UPDATE.md — обновление из GitHub)
+├── docs/                         # Планы, отчёты, openapi.yaml (UPDATE.md, AI_PROVIDERS.md)
 ├── logs/                         # Логи
 └── backups/                      # Бэкапы версий
 ```
@@ -296,4 +337,5 @@ Zere/
 - Управляет приложениями, файлами, процессами, громкостью
 - Запоминает факты о пользователе и контексте диалога
 - Поддерживает голосовой ввод/вывод
-- Работает полностью локально (без облачных API)
+- Работает полностью локально (без облачных API — облачный ключ
+  пользователя подключается опционально, см. `docs/AI_PROVIDERS.md`)

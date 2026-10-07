@@ -7,6 +7,7 @@
  */
 
 import { APPS_EN } from "./i18n/apps";
+import { AI_EN } from "./i18n/ai";
 import { CHAT_EN } from "./i18n/chat";
 import { DASHBOARD_EN } from "./i18n/dashboard";
 import { HISTORY_EN } from "./i18n/history";
@@ -118,6 +119,7 @@ const CORE_EN: Record<string, string> = {
 /** Словари экранов лежат в panel/src/i18n/<screen>.ts — по файлу на экран. */
 const EN: Record<string, string> = {
   ...CORE_EN,
+  ...AI_EN,
   ...DASHBOARD_EN,
   ...CHAT_EN,
   ...HISTORY_EN,

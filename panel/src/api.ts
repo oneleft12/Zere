@@ -87,6 +87,9 @@ export interface SseHandlers {
   onToken?: (text: string) => void;
   onDone?: (answer: string) => void;
   onError?: (code: string, message: string) => void;
+  /** Любое событие как есть — нужно для потоков с собственными именами
+   *  (например, `progress` у загрузки локальной модели). */
+  onEvent?: (event: string, data: unknown) => void;
 }
 
 export async function apiSse(
@@ -178,6 +181,8 @@ function dispatchSseBlock(block: string, handlers: SseHandlers): void {
   else if (event === "error") {
     handlers.onError?.(String(body.code ?? "INTERNAL"), String(body.message ?? "Ошибка потока."));
   }
+
+  handlers.onEvent?.(event, payload);
 }
 
 // ── Типы контракта (из openapi.yaml) ─────────────────────────────
@@ -429,4 +434,112 @@ export interface UpdateStatus {
   checkedAt: string | null;
   error: string | null;
   lastResult: UpdateOutcome | null;
+}
+
+// ── ИИ: облачный ключ или локальная модель (docs/AI_PROVIDERS.md) ──
+
+/** Режим выбора провайдера: авто → ключ, иначе локальная модель. */
+export type AiMode = "auto" | "cloud" | "local";
+
+/** Кто отвечает на запросы прямо сейчас. */
+export type AiActiveProvider = "cloud" | "local" | "none";
+
+export interface AiProviderPreset {
+  id: string;
+  label: string;
+  baseUrl: string;
+  model: string;
+  /** Где взять ключ; пусто у пресета «custom». */
+  docsUrl: string;
+}
+
+export interface AiLocalModelOption {
+  id: string;
+  label: string;
+  tier: "tiny" | "light" | "medium";
+  sizeHint: string;
+}
+
+export interface AiInstallHint {
+  title: string;
+  steps: string[];
+  command: string;
+  downloadUrl: string;
+  model: string;
+}
+
+export interface AiCloudStatus {
+  provider: string;
+  baseUrl: string;
+  model: string;
+  keySaved: boolean;
+  keySource: "none" | "user" | "owner";
+  /** Только маска вида sk-...abcd — полный ключ остаётся на бэкенде. */
+  keyMask: string;
+  keyStatus: "unknown" | "ok" | "invalid";
+  keyCheckedAt: string | null;
+}
+
+export interface AiLocalStatus {
+  baseUrl: string;
+  model: string;
+  suggestions: AiLocalModelOption[];
+  server: "up" | "down" | "unknown";
+  /** "ollama" — нативный API, "openai" — /v1, "" — сервер не найден. */
+  api: string;
+  resolvedBaseUrl: string;
+  models: string[];
+  modelInstalled: boolean;
+  status: "available" | "model-missing" | "server-down";
+  statusText: string;
+  detail: string;
+  canPull: boolean;
+  installHint: AiInstallHint | null;
+}
+
+export interface AiStatus {
+  mode: AiMode;
+  activeProvider: AiActiveProvider;
+  ready: boolean;
+  /** Готовая строка состояния для дашборда и статус-строки. */
+  summary: string;
+  message: string;
+  cloud: AiCloudStatus;
+  local: AiLocalStatus;
+  presets: AiProviderPreset[];
+  settingsPath: string;
+}
+
+export interface AiSettingsUpdate {
+  mode?: AiMode;
+  cloudProvider?: string;
+  cloudBaseUrl?: string;
+  cloudModel?: string;
+  localBaseUrl?: string;
+  localModel?: string;
+}
+
+export interface AiKeyRequest extends AiSettingsUpdate {
+  apiKey: string;
+  /** false — сохранить без проверки (по умолчанию ключ проверяется). */
+  validate?: boolean;
+}
+
+export interface AiKeyTestRequest extends AiSettingsUpdate {
+  apiKey?: string;
+}
+
+export interface AiKeyTestResult {
+  ok: boolean;
+  message: string;
+  models: string[];
+  checkedWith: "models" | "chat";
+  keyMask: string;
+}
+
+export interface AiLocalTestResult {
+  ok: boolean;
+  message: string;
+  server: "up" | "down";
+  models: string[];
 }
