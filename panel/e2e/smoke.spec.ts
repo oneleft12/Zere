@@ -104,6 +104,54 @@ test("ИИ: ключ проверяется, показывается маско
   await expect(cloud).toContainText("ключ не найден");
 });
 
+test("ИИ: сервер старее панели — просим перезапустить ZERE, а не ошибку", async ({ page }) => {
+  // Ситуация «dist обновился, процесс ZERE — старый»: /api/ai ещё нет,
+  // /api/update уже есть. Панель обязана объяснить, что делать.
+  await page.route("**/api/ai", (route) =>
+    route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ code: "NOT_FOUND", message: "Маршрут не найден." }),
+    }),
+  );
+
+  await page.goto("/ai");
+  await expect(page.getByText("Нужен перезапуск ZERE")).toBeVisible();
+  await expect(page.getByText("Маршрут не найден")).toHaveCount(0);
+
+  // Пункт меню не прячем: после перезапуска экран заработает.
+  await expect(page.locator('.nav-item[title="Подключение ИИ"]')).toBeVisible();
+});
+
+test("ИИ: C#-редакция — пункт меню скрыт и понятное объяснение", async ({ page }) => {
+  // C#-панель отдаёт тот же panel/dist, но не умеет ни /api/ai, ни /api/update.
+  const notFound = (route: import("@playwright/test").Route): Promise<void> =>
+    route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ code: "NOT_FOUND", message: "Маршрут не найден." }),
+    });
+
+  await page.route("**/api/ai", notFound);
+  await page.route("**/api/update", notFound);
+
+  await page.goto("/");
+  await expect(page.locator('.nav-item[title="Подключение ИИ"]')).toBeHidden();
+
+  // Дашборд показывает фактическое состояние локальной модели (в фейке E2E
+  // Ollama «недоступна») и объясняет разницу редакций.
+  const card = page.locator(".card", { hasText: "ИИ и модель" });
+  await expect(card).toContainText("только локальная модель");
+  await expect(card).toContainText("Python-редакции");
+  await expect(card).toContainText("Локальная модель недоступна");
+  await expect(page.locator(".shell__status")).toContainText("ИИ: только локально");
+
+  // Прямой заход по URL — тоже понятный текст, без «Маршрут не найден».
+  await page.goto("/ai");
+  await expect(page.getByText("В этой редакции настраивается только локальная модель")).toBeVisible();
+  await expect(page.getByText("Маршрут не найден")).toHaveCount(0);
+});
+
 test("i18n: переключение интерфейса на английский переживает перезагрузку", async ({ page }) => {
   await page.goto("/settings");
   await expect(page.locator(TITLE)).toHaveText("Настройки");

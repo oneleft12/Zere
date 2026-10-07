@@ -63,6 +63,8 @@ export interface ShellInstance {
   setTitle(title: string): void;
   /** Активный пункт навигации (роутер обновляет). */
   setActive(path: string): void;
+  /** Показать/скрыть пункт меню: экраны, которых нет в редакции, не мозолят глаза. */
+  setNavVisible(path: string, visible: boolean): void;
 }
 
 export function createShell(onNavigate: (path: string) => void): ShellInstance {
@@ -182,6 +184,10 @@ export function createShell(onNavigate: (path: string) => void): ShellInstance {
       for (const [itemPath, buttonEl] of navButtons) {
         buttonEl.classList.toggle("nav-item--active", itemPath === path);
       }
+    },
+    setNavVisible(path: string, visible: boolean): void {
+      const buttonEl = navButtons.get(path);
+      if (buttonEl) buttonEl.hidden = !visible;
     },
   };
 }

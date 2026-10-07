@@ -15,6 +15,7 @@ import {
   apiGet,
   apiPost,
   apiSse,
+  aiSupport,
   type AiKeyTestResult,
   type AiLocalTestResult,
   type AiMode,
@@ -39,7 +40,7 @@ import {
   textInput,
   toast,
 } from "../ui";
-import type { Cleanup, ScreenFactory } from "../router";
+import { navigate, type Cleanup, type ScreenFactory } from "../router";
 
 interface Draft {
   mode: AiMode;
@@ -119,6 +120,37 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
     } catch (error) {
       if (cancelled) return;
       clear(container);
+
+      // Маршрута может не быть вовсе: C#-редакция панели умеет только
+      // локальную модель, а старый процесс Python не умеет ничего.
+      // Вместо «Маршрут не найден» объясняем, что происходит.
+      const support = await aiSupport();
+      if (cancelled) return;
+
+      if (support === "restart-required") {
+        container.appendChild(
+          emptyState({
+            icon: "🔄",
+            title: t("Нужен перезапуск ZERE"),
+            hint: t("Панель обновилась, а сервер ZERE работает со старым кодом: закройте и снова запустите ZERE — настройка ИИ появится."),
+            action: { label: t("Повторить"), onClick: () => void load() },
+          }),
+        );
+        return;
+      }
+
+      if (support === "unsupported") {
+        container.appendChild(
+          emptyState({
+            icon: "ℹ️",
+            title: t("В этой редакции настраивается только локальная модель"),
+            hint: t("ZERE запущен как C#-редакция: облачный API-ключ настраивается в Python-редакции (python main.py). Локальная модель (Ollama) продолжает работать — её состояние видно на дашборде."),
+            action: { label: t("На дашборд"), onClick: () => navigate("/") },
+          }),
+        );
+        return;
+      }
+
       container.appendChild(
         emptyState({
           icon: "⚠️",

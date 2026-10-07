@@ -543,3 +543,43 @@ export interface AiLocalTestResult {
   server: "up" | "down";
   models: string[];
 }
+
+// ── Поддержка настройки ИИ запущенным бэкендом ─────────────────────
+// Фронтенд (panel/dist) общий для двух редакций: Python-панель умеет
+// /api/ai, C#-панель — нет. Чтобы экран не показывал «Маршрут не найден»,
+// редакция определяется один раз и экраны честно объясняют ситуацию.
+
+export type AiSupport = "ready" | "restart-required" | "unsupported" | "unknown";
+
+let supportProbe: Promise<AiSupport> | null = null;
+
+/**
+ * Что умеет запущенный бэкенд:
+ * - `ready` — маршрут `/api/ai` есть, настройка ИИ работает;
+ * - `restart-required` — `/api/ai` нет, но `/api/update` есть: сервер ZERE
+ *   старее панели (dist обновился, процесс не перезапускали);
+ * - `unsupported` — нет ни `/api/ai`, ни `/api/update`: C#-редакция, где
+ *   настраивается только локальная модель (Ollama);
+ * - `unknown` — бэкенд не ответил (сеть/ошибка): ничего не скрываем.
+ */
+export function aiSupport(refresh = false): Promise<AiSupport> {
+  if (refresh || supportProbe === null) supportProbe = probeAiSupport();
+  return supportProbe;
+}
+
+async function probeAiSupport(): Promise<AiSupport> {
+  try {
+    await apiGet<AiStatus>("/api/ai");
+    return "ready";
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 404) return "unknown";
+  }
+
+  try {
+    await apiGet<UpdateStatus>("/api/update");
+    return "restart-required";
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return "unsupported";
+    return "unknown";
+  }
+}

@@ -1138,7 +1138,13 @@ class _PanelHandler(BaseHTTPRequestHandler):
             return
 
         if not getattr(voice, "is_tts_available", False):
-            self._send_json(503, "NOT_READY", "Синтез речи недоступен.")
+            # Причина в тексте ответа: иначе пользователь видел «недоступен» без
+            # объяснения (например, ChatTTS не установлен — нужен pip install).
+            reason = getattr(voice, "tts_unavailable_reason", "")
+            message = "Синтез речи недоступен."
+            if reason:
+                message = f"Синтез речи недоступен: {reason}"
+            self._send_json(503, "NOT_READY", message)
             return
 
         voice.speak(text)

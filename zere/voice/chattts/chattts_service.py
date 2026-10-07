@@ -82,6 +82,36 @@ class ChatTtsService:
 
         return available
 
+    def refresh(self) -> bool:
+        """Перепроверяет окружение без загрузки модели (дешёвый find_spec).
+
+        Зачем: ChatTTS можно поставить (или удалить) при работающем ZERE —
+        например, через панель «Проверка зависимостей». Состояние, снятое на
+        старте, устаревает, и панель отвечала 503 «Синтез речи недоступен»
+        до перезапуска. Перепроверка снимает это требование.
+        """
+        if self.is_loaded:
+            return True
+
+        available, reason = ChatTTSManager.availability()
+        self.is_loaded = available
+
+        if available:
+            print(f"[ChatTTS] Движок стал доступен: {reason}. Профиль: {self._current_voice}")
+            self._cleanup_old_outputs()
+
+        return available
+
+    @property
+    def unavailable_reason(self) -> str:
+        """Почему движок недоступен (для панели/логов). Пусто, если доступен."""
+        if self.is_loaded:
+            return ""
+
+        _available, reason = ChatTTSManager.availability()
+
+        return reason
+
     def set_inference_params(
         self,
         length_scale: float = 1.15,
@@ -104,7 +134,8 @@ class ChatTtsService:
         if not text or text.isspace():
             return ""
 
-        if not self.is_loaded:
+        # Движок мог появиться уже после старта: перепроверяем перед отказом.
+        if not self.refresh():
             return ""
 
         if not split_sentences(text):

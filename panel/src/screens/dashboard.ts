@@ -5,7 +5,9 @@
 
 import {
   apiGet,
+  aiSupport,
   type AiStatus,
+  type AiSupport,
   type Config,
   type Health,
   type Personality,
@@ -14,6 +16,7 @@ import {
 import { getEvents, logEvent, subscribeEvents } from "../events";
 import { t } from "../i18n";
 import {
+  badge,
   button,
   card,
   clear,
@@ -32,6 +35,8 @@ interface DashboardData {
   personality: Personality | null;
   update: UpdateStatus | null;
   ai: AiStatus | null;
+  /** Умеет ли запущенный бэкенд настройку ИИ (редакция/перезапуск). */
+  aiSupport: AiSupport;
 }
 
 async function fetchData(): Promise<DashboardData> {
@@ -52,6 +57,7 @@ async function fetchData(): Promise<DashboardData> {
     personality: personality.status === "fulfilled" ? personality.value : null,
     update: update.status === "fulfilled" ? update.value : null,
     ai: ai.status === "fulfilled" ? ai.value : null,
+    aiSupport: await aiSupport(),
   };
 }
 
@@ -111,7 +117,7 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
   }
 
   function renderData(data: DashboardData): void {
-    const { health, config, personality, update, ai } = data;
+    const { health, config, personality, update, ai, aiSupport: support } = data;
     clear(body);
 
     const pills = h(
@@ -145,6 +151,14 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
     statusesCard.classList.add("col-12");
 
     // ── ИИ: облачный ключ или локальная модель (требование 1) ────
+    // Без /api/ai (C#-редакция или не перезапущенный сервер) показываем
+    // фактическое состояние локальной модели из /api/health и честно
+    // объясняем, почему настройки ключа тут нет.
+    const fallbackNote =
+      support === "restart-required"
+        ? t("Сервер ZERE старее панели: закройте и снова запустите ZERE — появится настройка облачного ключа.")
+        : t("В этой редакции доступна только локальная модель (Ollama); облачный ключ настраивается в Python-редакции.");
+
     const aiCard = card(
       t("ИИ и модель"),
       h(
@@ -155,20 +169,28 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
           { class: "pill-row" },
           statusPill({
             label: t("ИИ"),
-            value: ai ? ai.summary : t("Проверить ИИ"),
-            state: ai?.activeProvider === "none" ? "danger" : ai ? "ok" : "idle",
+            value: ai
+              ? ai.summary
+              : health.ollama === "ok"
+                ? t("Подключено: локальная модель · {model}", { model: config.model })
+                : t("Локальная модель недоступна"),
+            state: ai
+              ? ai.activeProvider === "none"
+                ? "danger"
+                : "ok"
+              : health.ollama === "ok"
+                ? "ok"
+                : "danger",
           }),
           statusPill({
             label: t("Режим"),
-            value: ai ? ai.mode : "—",
+            value: ai ? ai.mode : t("только локальная модель"),
             state: "idle",
           }),
         ),
         h("p", {
           class: "panel-note",
-          text: ai
-            ? ai.message
-            : t("Введите API-ключ или установите локальную модель"),
+          text: ai ? ai.message : fallbackNote,
         }),
         ai && !ai.ready && ai.local.installHint
           ? h(
@@ -180,7 +202,9 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
         h(
           "div",
           { class: "pill-row" },
-          button(t("Настроить ИИ"), () => navigate("/ai"), "primary"),
+          support === "unsupported"
+            ? badge(t("Настройка ключа — в Python-редакции"), "plain")
+            : button(t("Настроить ИИ"), () => navigate("/ai"), "primary"),
         ),
       ),
     );

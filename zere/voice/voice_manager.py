@@ -73,6 +73,9 @@ class VoiceManager:
         self._whisper = WhisperService()
         self._gigaam = GigaamService()
         self._chattts = ChatTtsService()
+        # Вызывался ли initialize(): в режиме `--panel` голос не инициализируют,
+        # и перепроверять доступность TTS там не нужно (503 остаётся честным).
+        self._tts_initialized = False
         self.config = VoiceConfig()  # Config { get; } — публичный атрибут
         self._wake_word_detector: WakeWordDetector | None = None
         # Семафор записи: панель и консоль не должны писать микрофон
@@ -113,8 +116,23 @@ class VoiceManager:
 
     @property
     def is_tts_available(self) -> bool:
-        """Доступен ли TTS (ChatTTS)."""
+        """Доступен ли TTS (ChatTTS).
+
+        После инициализации состояние перепроверяется на каждый запрос: ChatTTS
+        можно поставить при работающем ZERE, и тогда озвучка начинает работать
+        без перезапуска (дешёвая проверка `importlib.find_spec`, без загрузки
+        модели). До initialize (режим `--panel`) состояние не переспрашивается —
+        панель обязана честно отдавать 503, пока голос не инициализирован.
+        """
+        if self._tts_initialized:
+            return self._chattts.refresh()
+
         return self._chattts.is_loaded
+
+    @property
+    def tts_unavailable_reason(self) -> str:
+        """Причина недоступности TTS для панели (пусто, если доступен)."""
+        return self._chattts.unavailable_reason
 
     def initialize(self, personality_style: str | None = None) -> bool:
         """Инициализирует TTS, подбирая голос под стиль личности (порт Initialize).
@@ -135,6 +153,9 @@ class VoiceManager:
         )
 
         tts_ready = self._chattts.initialize(voice_name)
+        # С этого момента доступность TTS перепроверяется на каждый запрос:
+        # движок могли поставить уже после старта (см. is_tts_available).
+        self._tts_initialized = True
 
         if tts_ready:
             print(f"[Voice] TTS готов. Голос: {self._chattts.current_voice}")

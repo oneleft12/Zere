@@ -23,6 +23,7 @@ public class VoiceManager : IDisposable
     private string _ttsEngine = "chattts";
     private string _voiceReferencePath = "";
     private string _sttEngine = "gigaam";
+    private bool _chatttsInitialized;
 
     /// <summary>
     /// Профили голоса ChatTTS под стиль личности. У ChatTTS нет именованных
@@ -39,7 +40,19 @@ public class VoiceManager : IDisposable
     };
 
     public bool IsVoiceAvailable => ActiveStt.IsInstalled();
-    public bool IsTtsAvailable => _pocket.IsAvailable || _chattts.IsLoaded;
+
+    /// <summary>
+    /// Доступен ли TTS. После инициализации состояние перепроверяется дёшево
+    /// (два File.Exists у ChatTtsService): uv/сайдкар могут появиться при
+    /// работающем ZERE, и тогда озвучка работает без перезапуска. До Initialize
+    /// (режим `--panel`) состояние не переспрашивается — панель обязана честно
+    /// отдавать 503, пока голос не инициализирован.
+    /// </summary>
+    public bool IsTtsAvailable =>
+        _pocket.IsAvailable || (_chatttsInitialized ? _chattts.RefreshAvailability() : _chattts.IsLoaded);
+
+    /// <summary>Причина недоступности TTS для панели (пусто, если доступен).</summary>
+    public string TtsUnavailableReason => _chattts.UnavailableReason;
     public VoiceConfig Config => _config;
 
     /// <summary>
@@ -103,6 +116,7 @@ public class VoiceManager : IDisposable
         _chattts.SetInferenceParams(_config.SpeechSpeed, _config.SentenceSilence);
 
         var ttsReady = _chattts.Initialize(voiceName);
+        _chatttsInitialized = true;
 
         if (ttsReady)
         {

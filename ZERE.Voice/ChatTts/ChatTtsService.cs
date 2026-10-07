@@ -32,6 +32,9 @@ public sealed class ChatTtsService : IDisposable
     /// <summary>Инструментарий найден — движок доступен (модель ещё не в памяти).</summary>
     public bool IsLoaded { get; private set; }
 
+    /// <summary>Что именно мешает работе движка (для панели/логов).</summary>
+    public string UnavailableReason { get; private set; } = "";
+
     public int SampleRate { get; private set; } = DefaultSampleRate;
 
     public string CurrentVoice => _currentVoice;
@@ -89,24 +92,62 @@ public sealed class ChatTtsService : IDisposable
         if (!string.IsNullOrWhiteSpace(voiceName))
             _currentVoice = voiceName;
 
-        var uvExe = Path.Combine(_root, "tools", "uv.exe");
-        var script = Path.Combine(_root, "tools", "zere_chattts_server.py");
+        IsLoaded = ProbeToolchain(out var reason);
 
-        if (!File.Exists(uvExe) || !File.Exists(script))
+        if (!IsLoaded)
         {
-            Console.WriteLine(
-                $"{LogPrefix} Инструментарий не найден (tools/uv.exe, " +
-                "tools/zere_chattts_server.py) — ChatTTS недоступен.");
-            IsLoaded = false;
+            UnavailableReason = reason;
+            Console.WriteLine($"{LogPrefix} Инструментарий не найден ({reason}) — ChatTTS недоступен.");
             return false;
         }
 
-        IsLoaded = true;
+        UnavailableReason = "";
         Console.WriteLine(
             $"{LogPrefix} Доступен (ленивая загрузка модели при первом синтезе). " +
             $"Профиль голоса: {_currentVoice}");
 
         CleanupOldOutputs();
+        return true;
+    }
+
+    /// <summary>
+    /// Перепроверяет инструментарий без побочных эффектов (два File.Exists).
+    ///
+    /// Нужно, потому что uv/сайдкар могут появиться при работающем ZERE
+    /// (например, их поставил установщик): панель до этого отвечала 503, а после
+    /// перепроверки озвучка работает без перезапуска приложения.
+    /// </summary>
+    public bool RefreshAvailability()
+    {
+        if (IsLoaded)
+            return true;
+
+        IsLoaded = ProbeToolchain(out var reason);
+        UnavailableReason = reason;
+
+        if (IsLoaded)
+        {
+            Console.WriteLine(
+                $"{LogPrefix} Движок стал доступен. Профиль голоса: {_currentVoice}");
+            CleanupOldOutputs();
+        }
+
+        return IsLoaded;
+    }
+
+    /// <summary>Инструментарий на месте? reason — что именно отсутствует.</summary>
+    private bool ProbeToolchain(out string reason)
+    {
+        var uvExe = Path.Combine(_root, "tools", "uv.exe");
+        var script = Path.Combine(_root, "tools", "zere_chattts_server.py");
+
+        if (!File.Exists(uvExe) || !File.Exists(script))
+        {
+            reason = "нет tools/uv.exe или tools/zere_chattts_server.py";
+            return false;
+        }
+
+        reason = "";
         return true;
     }
 

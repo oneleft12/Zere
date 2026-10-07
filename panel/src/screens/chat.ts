@@ -6,7 +6,7 @@
  * движком в истории — он появляется на экране «История».
  */
 
-import { ApiError, apiGet, apiSse, type AiStatus } from "../api";
+import { ApiError, aiSupport, apiGet, apiSse, type AiStatus } from "../api";
 import { logEvent } from "../events";
 import { t } from "../i18n";
 import { badge, button, clear, emptyState, h, loadingRow, pageHeader, textInput, toast } from "../ui";
@@ -75,6 +75,15 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
 
   async function refreshProvider(): Promise<void> {
     try {
+      // Бэкенд без /api/ai (C#-редакция) или со старым кодом: бейджа нет,
+      // подсказку не показываем — чат работает и без этой информации.
+      const support = await aiSupport();
+      if (cancelled || support !== "ready") {
+        providerBadge.hidden = true;
+        aiNotice.hidden = true;
+        return;
+      }
+
       const ai = await apiGet<AiStatus>("/api/ai");
       if (cancelled) return;
 

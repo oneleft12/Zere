@@ -31,6 +31,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import types
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -149,20 +150,45 @@ class FakeInferCodeParams:
 
 
 class FakeChat:
-    """Заглушка ChatTTS.Chat: считает загрузки и вызовы инференса."""
+    """Заглушка ChatTTS.Chat: считает загрузки и вызовы инференса.
+
+    Повторяет поведение реального ChatTTS 0.2.5:
+      * `load(source=..., compile=...)` возвращает bool (False — ассеты не скачались);
+      * `speaker` создаётся ТОЛЬКО внутри успешного `load()`;
+      * `sample_random_speaker()` делегирует в `speaker.sample_random()`.
+    """
 
     InferCodeParams = FakeInferCodeParams
 
     instances: list["FakeChat"] = []
 
+    # Режимы для тестов: что вернёт load() и умеет ли он параметр source
+    # (старые версии ChatTTS — без него).
+    load_ok: bool = True
+    reject_source: bool = False
+
     def __init__(self) -> None:
-        self.load_calls: list[bool] = []
+        self.load_calls: list[dict[str, Any]] = []
         self.infer_calls: list[tuple[list[str], FakeInferCodeParams]] = []
+        self.speaker: Any = object()  # как в ChatTTS: появляется после load()
         self.speaker_calls = 0
         FakeChat.instances.append(self)
 
-    def load(self, compile: bool = True) -> None:  # noqa: A002 — имя из API ChatTTS
-        self.load_calls.append(compile)
+    def load(
+        self,
+        source: Any = None,
+        compile: bool = True,  # noqa: A002 — имя из API ChatTTS
+    ) -> bool:
+        if FakeChat.reject_source and source is not None:
+            raise TypeError("load() got an unexpected keyword argument 'source'")
+
+        self.load_calls.append({"source": source, "compile": compile})
+
+        if not FakeChat.load_ok:
+            self.speaker = None  # при неудаче объект говорящего не создаётся
+            return False
+
+        return True
 
     def sample_random_speaker(self) -> str:
         self.speaker_calls += 1
@@ -188,13 +214,15 @@ class FakeSoundFile:
 
 
 class FakeChatTTSModule:
-    """Заглушка пакета ChatTTS (chat.load(compile=False) — как в эталоне)."""
+    """Заглушка пакета ChatTTS (load(source="huggingface", compile=False))."""
 
     Chat = FakeChat
 
     @staticmethod
     def reset() -> None:
         FakeChat.instances.clear()
+        FakeChat.load_ok = True
+        FakeChat.reject_source = False
         FakeSoundFile.writes.clear()
 
 
@@ -301,9 +329,88 @@ def test_model_is_lazy_and_loads_once() -> None:
         manager.synthesize("Ещё раз.", str(Path(tmp) / "b.wav"))
         assert len(FakeChat.instances) == 1, "второй синтез переиспользует модель"
 
-        assert FakeChat.instances[0].load_calls == [False], (
-            "эталон инициализации: chat.load(compile=False)"
-        )
+        assert FakeChat.instances[0].load_calls == [
+            {"source": "huggingface", "compile": False}
+        ], "ассеты берём с HuggingFace, compile=False — эталонные настройки"
+
+
+def test_model_loads_assets_from_huggingface_not_cwd() -> None:
+    """Регрессия: ассеты качаются в кэш HF, а не в текущий каталог.
+
+    Дефолт ChatTTS 0.2.5 (`source="local"`) кладёт ~1 ГБ в `os.getcwd()` и
+    запускает сторонний бинарник `rvcmd`, который падает без консоли
+    (`panic: The handle is invalid`). Проверено живым запуском — вместо этого
+    используем `source="huggingface"` (чистый Python, кэш ~/.cache/huggingface).
+    """
+    with fake_dependencies():
+        manager = _manager()
+
+        manager.load_model()
+
+        call = FakeChat.instances[0].load_calls[0]
+        assert call["source"] == "huggingface"
+        assert call["source"] != "local", "локальный источник пишет ассеты в cwd"
+        assert call["compile"] is False
+
+
+def test_load_failure_raises_actionable_error() -> None:
+    """load() вернул False (ассеты не скачались) — внятная ошибка, без кэша.
+
+    Раньше провал загрузки всплывал позже как
+    «'Chat' object has no attribute 'speaker'» — по нему нельзя было понять,
+    что нет доступа к HuggingFace.
+    """
+    from zere.voice.chattts.chattts_manager import ChatTtsUnavailable
+
+    with fake_dependencies():
+        FakeChat.load_ok = False
+        manager = _manager()
+
+        try:
+            manager.load_model()
+        except ChatTtsUnavailable as ex:
+            message = str(ex)
+        else:
+            raise AssertionError("ожидалось ChatTtsUnavailable")
+
+        assert "huggingface" in message.lower()
+        assert "2Noise/ChatTTS" in message
+        assert manager.is_loaded is False, "неудачная загрузка не кэшируется"
+
+        # Вторая попытка снова идёт в модель, а не отдаёт «загружено».
+        FakeChat.load_ok = True
+        manager.load_model()
+        assert len(FakeChat.instances) == 2
+
+
+def test_load_falls_back_for_old_chattts_without_source() -> None:
+    """Старые версии ChatTTS без параметра source — эталонный вызов."""
+    with fake_dependencies():
+        FakeChat.reject_source = True
+        manager = _manager()
+
+        manager.load_model()
+
+        assert FakeChat.instances[0].load_calls == [
+            {"source": None, "compile": False}
+        ]
+
+
+def test_missing_speaker_reports_model_not_loaded() -> None:
+    """Нет объекта speaker — понятная ошибка вместо AttributeError."""
+    from zere.voice.chattts.chattts_manager import ChatTtsUnavailable
+
+    with fake_dependencies():
+        manager = _manager()
+        manager.load_model()
+        FakeChat.instances[0].speaker = None  # модель «не догрузилась»
+
+        try:
+            manager.waveform("Проверка.")
+        except ChatTtsUnavailable as ex:
+            assert "speaker" in str(ex)
+        else:
+            raise AssertionError("ожидалось ChatTtsUnavailable")
 
 
 def test_load_model_is_idempotent() -> None:
@@ -579,6 +686,113 @@ def test_service_set_voice_updates_manager() -> None:
 
     assert service.current_voice == "zere-casual"
     assert service.manager.current_voice == "zere-casual"
+
+
+def test_service_refresh_detects_engine_after_install() -> None:
+    """Движок, поставленный при работающем ZERE, подхватывается без перезапуска.
+
+    Сценарий пользователя: ZERE стартовал без ChatTTS (is_loaded=False),
+    затем пакет установили — панель должна увидеть это на следующем запросе.
+    """
+    with mock.patch.object(
+        ChatTTSManager, "availability", return_value=(False, "нет модулей: ChatTTS")
+    ):
+        service = ChatTtsService()
+        assert service.initialize("zere-standard") is False
+        assert service.is_loaded is False
+
+    with mock.patch.object(
+        ChatTTSManager, "availability", return_value=(True, "ChatTTS доступен")
+    ):
+        assert service.refresh() is True
+        assert service.is_loaded is True
+
+    # Когда движок уже доступен, refresh() дешёвый и не сбрасывает состояние.
+    with mock.patch.object(
+        ChatTTSManager, "availability", side_effect=AssertionError("не должен вызываться")
+    ):
+        assert service.refresh() is True
+
+
+def test_service_speak_self_heals_after_install() -> None:
+    """speak() сам перепроверяет движок: текст не уходит в консоль зря."""
+    with mock.patch.object(
+        ChatTTSManager, "availability", return_value=(False, "нет модулей: ChatTTS")
+    ), mock.patch.object(ChatTTSManager, "synthesize_sentences") as synth:
+        service = ChatTtsService()
+        service.initialize()
+        assert service.speak("Привет.") == ""
+        synth.assert_not_called()
+
+    with mock.patch.object(
+        ChatTTSManager, "availability", return_value=(True, "ChatTTS доступен")
+    ), mock.patch.object(
+        ChatTTSManager, "synthesize_sentences", return_value="/tmp/ok.wav"
+    ):
+        assert service.speak("Привет.") == "/tmp/ok.wav"
+
+
+def test_service_unavailable_reason_is_actionable() -> None:
+    """Причина недоступности пригодна для ответа панели (что поставить)."""
+    with mock.patch.object(
+        ChatTTSManager,
+        "availability",
+        return_value=(False, "нет модулей: ChatTTS, torch (нужно: pip install ChatTTS soundfile)"),
+    ):
+        service = ChatTtsService()
+        service.initialize()
+
+        assert service.is_loaded is False
+        assert "pip install" in service.unavailable_reason
+
+
+def _import_voice_manager() -> Any:
+    """VoiceManager с заглушкой sounddevice, если PortAudio/пакета нет."""
+    try:
+        import sounddevice  # noqa: F401
+    except Exception:  # noqa: BLE001 — ImportError или OSError от PortAudio
+        sys.modules.setdefault("sounddevice", types.ModuleType("sounddevice"))
+
+    from zere.voice.voice_manager import VoiceManager
+
+    return VoiceManager
+
+
+def test_voice_manager_rechecks_tts_after_initialize() -> None:
+    """Панель видит позднюю установку движка: перезапуск ZERE не нужен."""
+    VoiceManager = _import_voice_manager()
+
+    with mock.patch.object(
+        ChatTTSManager, "availability", return_value=(False, "нет модулей: ChatTTS")
+    ):
+        manager = VoiceManager()
+        assert manager.initialize() is False
+        assert manager.is_tts_available is False
+        assert "ChatTTS" in manager.tts_unavailable_reason
+
+        # Движок появился (например, «Проверка зависимостей» в панели).
+        with mock.patch.object(
+            ChatTTSManager, "availability", return_value=(True, "ChatTTS доступен")
+        ):
+            assert manager.is_tts_available is True
+
+    manager.close()
+
+
+def test_voice_manager_without_initialize_stays_unavailable() -> None:
+    """Без initialize (режим --panel) 503 остаётся честным, даже если движок есть."""
+    VoiceManager = _import_voice_manager()
+
+    with mock.patch.object(
+        ChatTTSManager, "availability", return_value=(True, "ChatTTS доступен")
+    ):
+        manager = VoiceManager()
+
+        assert manager.is_tts_available is False, (
+            "до initialize голос не поднят — панель обязана отдавать 503"
+        )
+
+    manager.close()
 
 
 # ── Сайдкар для C#-редакции ─────────────────────────────────────────

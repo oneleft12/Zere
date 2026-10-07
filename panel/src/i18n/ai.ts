@@ -117,4 +117,25 @@ export const AI_EN: Record<string, string> = {
     "The “Download model” button works when Ollama is already running — progress appears above.",
   "Для слабых ПК: 0.5B–1.5B, для средних: 3B–4B":
     "For weak PCs: 0.5B–1.5B, for mid-range: 3B–4B",
+
+  // ── Редакция без настройки ключа / устаревший сервер ──────────
+  "ИИ: только локально": "AI: local only",
+  "ИИ: перезапустите ZERE": "AI: restart ZERE",
+  "Перезапустите ZERE: настройка ИИ включится после обновления сервера":
+    "Restart ZERE: AI settings will appear after the server update",
+  "Нужен перезапуск ZERE": "ZERE needs a restart",
+  "Панель обновилась, а сервер ZERE работает со старым кодом: закройте и снова запустите ZERE — настройка ИИ появится.":
+    "The panel was updated but the ZERE server still runs the old code: close and start ZERE again to get AI settings.",
+  "В этой редакции настраивается только локальная модель":
+    "This edition can only use a local model",
+  "ZERE запущен как C#-редакция: облачный API-ключ настраивается в Python-редакции (python main.py). Локальная модель (Ollama) продолжает работать — её состояние видно на дашборде.":
+    "ZERE runs as the C# edition: the cloud API key is configured in the Python edition (python main.py). The local model (Ollama) keeps working — its status is shown on the dashboard.",
+  "На дашборд": "Go to dashboard",
+  "Сервер ZERE старее панели: закройте и снова запустите ZERE — появится настройка облачного ключа.":
+    "The ZERE server is older than the panel: close and start ZERE again to get cloud key settings.",
+  "В этой редакции доступна только локальная модель (Ollama); облачный ключ настраивается в Python-редакции.":
+    "This edition supports the local model (Ollama) only; the cloud key is configured in the Python edition.",
+  "Подключено: локальная модель · {model}": "Connected: local model · {model}",
+  "Локальная модель недоступна": "Local model unavailable",
+  "Настройка ключа — в Python-редакции": "Key setup is in the Python edition",
 };

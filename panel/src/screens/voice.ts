@@ -594,7 +594,7 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
         field(
           t("Фраза для озвучки"),
           testInput,
-          t("Синтез через активный движок; 503 — TTS не инициализирован"),
+          t("Синтез через активный движок; при 503 в ответе указана причина"),
         ),
         h("div", { class: "row-actions" }, speakBtn, recordBtn, listenBtn),
         testErrorBox,

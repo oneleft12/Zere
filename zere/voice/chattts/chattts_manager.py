@@ -226,7 +226,20 @@ class ChatTTSManager:
     # ─── Модель ─────────────────────────────────────────────
 
     def load_model(self) -> Any:
-        """Загружает модель ChatTTS при первом обращении (ленивая загрузка)."""
+        """Загружает модель ChatTTS при первом обращении (ленивая загрузка).
+
+        Ассеты берём с HuggingFace (`source="huggingface"`), а НЕ дефолтным
+        `source="local"`: в ChatTTS 0.2.5 «локальный» путь кладёт ~1 ГБ в
+        ТЕКУЩИЙ каталог (то есть в корень ZERE) и для скачивания запускает
+        сторонний бинарник `rvcmd` (RVC-Models-Downloader), который падает в
+        процессе без консоли — `panic: The handle is invalid` (проверено на
+        живом запуске). Путь через HuggingFace — чистый Python
+        (`huggingface_hub.snapshot_download`), качает в кэш HF
+        (`~/.cache/huggingface`) и докачивает после обрыва связи.
+
+        `compile=False` — из эталонной инициализации: torch.compile может
+        падать на неподдерживаемом железе.
+        """
         if self._chat is not None:
             return self._chat
 
@@ -244,9 +257,21 @@ class ChatTTSManager:
 
             chat = ChatTTS.Chat()
 
-            # compile=False для стабильности при первом запуске
-            # (torch.compile может падать на неподдерживаемом железе).
-            chat.load(compile=False)
+            try:
+                loaded = chat.load(source="huggingface", compile=False)
+            except TypeError:
+                # Старые версии ChatTTS без параметра source — эталонный вызов.
+                loaded = chat.load(compile=False)
+
+            # load() возвращает False, когда ассеты не скачались: без проверки
+            # ошибка всплывала позже и невнятно ('Chat' object has no attribute
+            # 'speaker').
+            if loaded is False:
+                raise ChatTtsUnavailable(
+                    "ChatTTS не загрузил ассеты модели: нет доступа к "
+                    "https://huggingface.co/2Noise/ChatTTS "
+                    "(проверьте сеть/прокси; кэш — ~/.cache/huggingface)."
+                )
 
             self._chat = chat
             return chat
@@ -382,6 +407,15 @@ class ChatTTSManager:
 
     def _speaker(self, chat: Any) -> Any:
         """Детерминированный эмбеддинг говорящего для профиля голоса."""
+        # speaker создаётся внутри ChatTTS.load(): если его нет, модель не
+        # загрузилась. Без проверки наружу уходило невнятное
+        # «'Chat' object has no attribute 'speaker'».
+        if getattr(chat, "speaker", None) is None:
+            raise ChatTtsUnavailable(
+                "модель ChatTTS не загружена (нет объекта speaker): "
+                "ассеты не скачались — см. сообщение о загрузке выше"
+            )
+
         if self.voice not in self._speaker_cache:
             try:
                 import torch  # noqa: PLC0415

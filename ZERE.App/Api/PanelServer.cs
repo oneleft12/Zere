@@ -1591,7 +1591,14 @@ public sealed class PanelServer : IDisposable
 
             if (!_voice.IsTtsAvailable)
             {
-                await SendErrorAsync(response, 503, "NOT_READY", "Синтез речи недоступен.");
+                // Причина в тексте: иначе пользователь видит «недоступен» без
+                // объяснения (например, не установлен uv или сайдкар ChatTTS).
+                var reason = _voice.TtsUnavailableReason;
+                var message = string.IsNullOrWhiteSpace(reason)
+                    ? "Синтез речи недоступен."
+                    : $"Синтез речи недоступен: {reason}";
+
+                await SendErrorAsync(response, 503, "NOT_READY", message);
                 return;
             }
 

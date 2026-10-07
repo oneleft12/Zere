@@ -26,6 +26,12 @@ body {
   height: 100%;
 }
 
+/* Атрибут hidden обязан скрывать всегда: собственные display у классов
+   (.nav-item, .progress-block и др.) иначе перебивают правило браузера. */
+[hidden] {
+  display: none !important;
+}
+
 button,
 input,
 select,

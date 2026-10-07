@@ -7,7 +7,7 @@ import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/components.css";
 
-import { apiGet, type AiStatus, type Health, type UpdateStatus } from "./api";
+import { aiSupport, apiGet, type AiStatus, type AiSupport, type Health, type UpdateStatus } from "./api";
 import { logEvent } from "./events";
 import { initLang, onLangChange, t } from "./i18n";
 import { initToasts, toast } from "./ui";
@@ -75,24 +75,57 @@ startRouter(shell.content, (route) => {
 let updateNoticeShown = false;
 let aiNoticeShown = false;
 
+// Редакция бэкенда: Python-панель умеет настройку ИИ, C#-панель — нет.
+// Определяем один раз, чтобы не показывать «Маршрут не найден» и не
+// скрывать рабочие экраны там, где бэкенд просто не ответил.
+let aiSupportState: AiSupport = "unknown";
+
+void aiSupport().then((state) => {
+  aiSupportState = state;
+
+  if (state === "unsupported") {
+    // C#-редакция: настройка облачного ключа не реализована — прячем пункт меню.
+    shell.setNavVisible("/ai", false);
+    logEvent("Настройка облачного ключа недоступна: C#-редакция панели");
+  } else if (state === "restart-required") {
+    toast(t("Перезапустите ZERE: настройка ИИ включится после обновления сервера"), "warn");
+    logEvent("Сервер ZERE старее панели: нужен перезапуск для настройки ИИ");
+  }
+
+  void refreshStatus();
+});
+
 async function refreshStatus(): Promise<void> {
   try {
-    const [health, update, ai] = await Promise.all([
+    const [health, update] = await Promise.all([
       apiGet<Health>("/api/health"),
       apiGet<UpdateStatus>("/api/update").catch(() => null),
-      // Состояние ИИ — из кэша пробы: запрос локальный и дешёвый.
-      apiGet<AiStatus>("/api/ai").catch(() => null),
     ]);
+
+    // Состояние ИИ спрашиваем только у бэкенда, который его умеет.
+    const canAskAi = aiSupportState === "ready" || aiSupportState === "unknown";
+    const ai = canAskAi
+      ? await apiGet<AiStatus>("/api/ai").catch(() => null)
+      : null;
+
     const ollama = health.ollama === "ok" ? "Ollama OK" : t("Ollama недоступен");
     const whisper = health.whisper === "ok" ? "Whisper OK" : t("Whisper отсутствует");
     const memory = t("память: {count}", { count: health.memory.count });
-    const aiLabel = ai
-      ? ai.activeProvider === "cloud"
-        ? t("ИИ: облако")
-        : ai.activeProvider === "local"
-          ? t("ИИ: локально")
-          : t("ИИ: не настроен")
-      : "";
+
+    let aiLabel = "";
+    if (canAskAi) {
+      aiLabel = ai
+        ? ai.activeProvider === "cloud"
+          ? t("ИИ: облако")
+          : ai.activeProvider === "local"
+            ? t("ИИ: локально")
+            : t("ИИ: не настроен")
+        : "";
+    } else if (aiSupportState === "restart-required") {
+      aiLabel = t("ИИ: перезапустите ZERE");
+    } else {
+      aiLabel = t("ИИ: только локально");
+    }
 
     shell.statusLeft.textContent =
       `● ${ollama} · ${whisper} · ${health.tts.engine} · ${memory}` +

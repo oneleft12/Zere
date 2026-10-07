@@ -69,8 +69,8 @@ export const VOICE_EN: Record<string, string> = {
   "Тестирование": "Testing",
   "Фраза для озвучки": "Phrase to speak",
   "Фраза для озвучки (до 500 символов)": "Phrase to speak (up to 500 characters)",
-  "Синтез через активный движок; 503 — TTS не инициализирован":
-    "Synthesis via the active engine; 503 — TTS is not initialized",
+  "Синтез через активный движок; при 503 в ответе указана причина":
+    "Synthesis via the active engine; on 503 the response contains the reason",
   "Проверка голоса. Привет!": "Voice test. Hello!",
   "Озвучить": "Speak",
   "Записать референс (15 с)": "Record reference (15 s)",
