@@ -21,7 +21,7 @@
 | **ZERE.AI** | Клиент Ollama (HTTP) для генерации ответов |
 | **ZERE.Memory** | SQLite-память: воспоминания + история разговоров |
 | **ZERE.Tools** | Инструменты: приложения, файлы, игры, Windows, система |
-| **ZERE.Voice** | Голосовой ввод (GigaAM-v3, откат на Whisper) и вывод (Piper / PocketTTS-клонирование) |
+| **ZERE.Voice** | Голосовой ввод (GigaAM-v3, откат на Whisper) и вывод (ChatTTS / PocketTTS-клонирование) |
 | **ZERE.Speaker** | C#-хелпер озвучки: DSP + вывод звука (NAudio/WASAPI) для Python-редакции |
 
 ---
@@ -64,7 +64,7 @@
 - Подробности: `docs/DRAWING.md`
 
 ### Voice (`ZERE.Voice/`)
-- **VoiceManager** — оркестратор STT (роутинг `sttEngine`: `gigaam` — GigaAM-v3 основной, автоматический откат на `whisper`) + TTS (движок выбирается: PocketTTS с клонированием, откат на Piper)
+- **VoiceManager** — оркестратор STT (роутинг `sttEngine`: `gigaam` — GigaAM-v3 основной, автоматический откат на `whisper`) + TTS (движок выбирается: PocketTTS с клонированием, откат на ChatTTS)
 - **ISttService** — общий контракт STT-движков (`IsInstalled`/`Preload`/`TranscribeAsync`), за ним скрыт выбор активного движка
 - **GigaAmService** — основной STT: sherpa-onnx + GigaAM-v3 punct (русский, с пунктуацией; модель ~163 МБ качается при установке или при `Preload`, SHA-256)
 - **AudioRecorder** — запись с микрофона (и запись референса голоса для клонирования)
@@ -74,13 +74,15 @@
 - **AudioPlayer** — воспроизведение WAV
 - **StreamPlayer** — потоковое воспроизведение PCM (играет, пока TTS ещё синтезирует)
 - **WhisperService** — распознавание речи (откатный STT + wake word — детектор просыпания намеренно остаётся на Whisper)
-- **PiperService** — синтез речи (text-to-speech), попредложенное стримирование
+- **ChatTtsService (C#)** — синтез речи ChatTTS (нейросетевой TTS, замена Piper): ленивая загрузка, тяжёлая часть — в Python-сайдкаре `tools/zere_chattts_server.py` (HTTP), попредложенное стримирование. Подробности: `docs/TTS_CHATTTS.md`
+- **ChatTtsService (Python, `zere/voice/chattts/`)** — адаптер под прежний контракт PiperService (сам Piper заменён на ChatTTS): `is_loaded`/`initialize`/`speak`/`set_voice`/`set_inference_params`/`get_available_voices`/`close` + `ChatTTSManager` с ленивой загрузкой модели; профиль голоса — детерминированное зерно (crc32 имени)
 - **PocketTtsService** — клиент к серверу xVibePocketTTS: клонирование голоса, PCM-поток, первый звук через ~150–700 мс
 - **SpeechText** — чистка текста от TTS-мусора + разбивка на предложения
 - **VoiceConfig** — конфигурация голоса (`sttEngine` и др.)
 
 ### Tools (`tools/`, в git входит только сервер)
 - **zere_tts_server.py** — HTTP-сервер TTS (`/health`, потоковый `/tts`), поднимается PocketTtsService автоматически
+- **zere_chattts_server.py** — HTTP-сервер ChatTTS (`/health`, потоковый `/tts` → PCM s16le 24 кГц), поднимается C#-ChatTtsService через `tools/uv.exe` с `--python 3.12`
 - **uv.exe**, **xVibePocketTTS/** — менеджер Python и репозиторий движка (gitignored, ставятся отдельно)
 
 ---
@@ -230,15 +232,15 @@ Zere/
 │       ├── ProcessManager.cs
 │       └── PowerController.cs
 ├── ZERE.Voice/                   # Голос
-│   ├── VoiceManager.cs           # Оркестратор STT (gigaam→whisper) + TTS (pocket→piper)
+│   ├── VoiceManager.cs           # Оркестратор STT (gigaam→whisper) + TTS (pocket→chattts)
 │   ├── VoiceConfig.cs            # Конфигурация голоса (sttEngine, ttsEngine, ...)
 │   ├── ISttService.cs            # Контракт STT-движков (распознавание)
 │   ├── Sherpa/
 │   │   └── GigaAmService.cs      # Основной STT: sherpa-onnx + GigaAM-v3 punct (модель качается сама)
 │   ├── Whisper/
 │   │   └── WhisperService.cs     # STT-откат + wake word (speech-to-text)
-│   ├── Piper/
-│   │   └── PiperService.cs       # TTS (попредложенное стримирование)
+│   ├── ChatTts/
+│   │   └── ChatTtsService.cs     # TTS ChatTTS через сайдкар (попредложенное стримирование)
 │   ├── Pocket/
 │   │   └── PocketTtsService.cs   # TTS с клонированием голоса (HTTP → xVibePocketTTS)
 │   ├── Text/
@@ -252,7 +254,8 @@ Zere/
 │   ├── ZERE.Speaker.csproj       # NAudio + исходники DSP/плеера ссылкой из ZERE.Voice
 │   └── Program.cs                # режим host (JSON-строки): speak/stop/ping/quit
 ├── tools/                        # TTS-инструментарий
-│   └── zere_tts_server.py        # HTTP-сервер клонирования (uv.exe, xVibePocketTTS — gitignored)
+│   ├── zere_tts_server.py        # HTTP-сервер клонирования (uv.exe, xVibePocketTTS — gitignored)
+│   └── zere_chattts_server.py    # HTTP-сервер ChatTTS (uv.exe, PCM s16le 24 кГц)
 ├── panel/                        # Web-панель (SPA, Vite + vanilla TS)
 │   ├── src/                      # main/shell/router/ui/i18n + 12 экранов (screens/)
 │   ├── e2e/                      # Playwright-смоук (npm run test:e2e)
@@ -272,6 +275,7 @@ Zere/
 │   ├── test_audio_device.py      # Тесты звуковых устройств (WASAPI+auto_convert, откат, регрессия -9997, живой микрофон)
 │   ├── test_voice_mode.py        # Тесты голосового режима (сбой записи/озвучки не убивает цикл)
 │   ├── test_wake_word.py         # Тесты слова-триггера «зере» (варианты имени, ложные срабатывания)
+│   ├── test_chattts.py           # Тесты ChatTTS (ленивая загрузка, профили голоса, [speed_N], контракт сайдкара)
 │   ├── test_db_compat.py         # Тесты совместимости базы (старая колонка JarvisResponse, переименование jarvis.db)
 │   ├── test_csharp_speaker.py    # Тесты C#-озвучки (протокол хелпера, stop, откат на Python; без устройств)
 │   ├── fake_speaker.py           # Фейковый C#-хелпер для тестов озвучки (звук не играет)

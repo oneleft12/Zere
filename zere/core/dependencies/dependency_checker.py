@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import enum
+import importlib.util
 import os
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,6 +70,24 @@ def _open_url(url: str) -> None:
         subprocess.Popen([url], shell=True, creationflags=_NO_WINDOW)
 
 
+def _chattts_availability() -> "tuple[bool, str]":
+    """Есть ли ChatTTS с зависимостями — БЕЗ импорта (веса не грузятся).
+
+    Зеркало ChatTTSManager.availability(), но без импорта голосового пакета:
+    проверка зависимостей ядра не должна тянуть голосовой модуль.
+    """
+    missing = [
+        name
+        for name in ("ChatTTS", "torch", "soundfile")
+        if importlib.util.find_spec(name) is None
+    ]
+
+    if missing:
+        return False, "нет модулей: " + ", ".join(missing)
+
+    return True, "ChatTTS доступен"
+
+
 class DependencyChecker:
     def __init__(self, config: ZereConfig) -> None:
         self._config = config
@@ -91,7 +111,7 @@ class DependencyChecker:
         self._check_model()
         self._check_sqlite()
         self._check_whisper()
-        self._check_piper()
+        self._check_chattts()
 
         return list(self._results)
 
@@ -164,7 +184,7 @@ class DependencyChecker:
             r for r in self._results
             if r.status != CheckStatus.Ok
             and not r.critical
-            and ("Whisper" in r.name or "Piper" in r.name)
+            and ("Whisper" in r.name or "ChatTTS" in r.name)
         ]
 
         if len(voice_missing) > 0:
@@ -273,8 +293,8 @@ class DependencyChecker:
             self._install_sqlite()
         elif "Whisper" in dep.name:
             self._install_whisper()
-        elif "Piper" in dep.name:
-            self._install_piper()
+        elif "ChatTTS" in dep.name:
+            self._install_chattts()
         else:
             print(f"  Нет способа автоматической установки: {dep.name}")
 
@@ -450,206 +470,33 @@ class DependencyChecker:
         else:
             print("  Ошибка: файл не был скачан.")
 
-    def _install_piper(self) -> None:
-        print("  Piper (TTS) не найден.")
+    def _install_chattts(self) -> None:
+        """Установка ChatTTS: только pip, бинарников и zip-архивов нет.
 
-        # C#: AppContext.BaseDirectory/../../../../ → PROJECT_ROOT (zere.paths)
-        piper_dir = paths.piper_dir()
-        piper_dir.mkdir(parents=True, exist_ok=True)
+        Веса ChatTTS скачиваются самим движком при первой загрузке модели,
+        поэтому здесь достаточно `pip install`. Тяжёлая часть — torch
+        (~2–3 ГБ), поэтому шаг интерактивный и отменяемый.
+        """
+        print("  ChatTTS (TTS) не найден.")
+        print("  Установка: pip install ChatTTS soundfile")
+        print("  Требуется Python ≤ 3.12 (torch/numba) и ~2–3 ГБ на диске.\n")
 
-        # Check if piper.exe exists
-        piper_exe = piper_dir / "piper.exe"
-        piper_linux = piper_dir / "piper"
+        if not self._ask_confirmation("Установить ChatTTS через pip?"):
+            print("  Пропущено. Источник: https://github.com/2Noise/ChatTTS\n")
+            return
 
-        if not piper_exe.exists() and not piper_linux.exists():
-            print("  Piper не установлен.")
+        self._execute_command_with_confirmation(
+            f'"{sys.executable}" -m pip install ChatTTS soundfile',
+            "Устанавливаю ChatTTS...",
+        )
 
-            # Try to find piper_windows_amd64.zip in common locations
-            zip_path = self._find_piper_zip()
+        ok, reason = _chattts_availability()
 
-            if zip_path is not None:
-                print(f"  Найден архив: {zip_path}")
-                print("  Распаковываю...")
-
-                if self._extract_piper_zip(zip_path, piper_dir):
-                    print("  Piper установлен.")
-                else:
-                    print("  Ошибка распаковки. Установите вручную.")
-                    self._offer_manual_piper_install(piper_dir)
-            else:
-                print("  Архив piper_windows_amd64.zip не найден.")
-                print("  Источник: https://github.com/rhasspy/piper/releases\n")
-
-                self._offer_manual_piper_install(piper_dir)
-
-        # Check for voice models (Directory.GetFiles(piperDir, "*.onnx") — верхний уровень)
-        onnx_files = list(piper_dir.glob("*.onnx"))
-        if len(onnx_files) == 0:
-            print("  Голосовые модели не найдены.")
-            print("  Нужна модель ru_RU-irina-medium.onnx\n")
-
-            if self._ask_confirmation("Скачать русскую голосовую модель?"):
-                voice_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx"
-                voice_target = piper_dir / "ru_RU-irina-medium.onnx"
-
-                if self._command_exists("curl"):
-                    self._execute_command_with_confirmation(
-                        f'curl -L -o "{voice_target}" "{voice_url}"',
-                        "Скачиваю голосовую модель...",
-                    )
-                elif self._command_exists("powershell"):
-                    self._execute_command_with_confirmation(
-                        f"powershell -Command \"Invoke-WebRequest -Uri '{voice_url}' -OutFile '{voice_target}'\"",
-                        "Скачиваю голосовую модель через PowerShell...",
-                    )
-
-                # Also download the JSON config for the voice
-                config_url = "https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx.json"
-                config_target = piper_dir / "ru_RU-irina-medium.onnx.json"
-
-                if self._command_exists("curl"):
-                    self._execute_command_with_confirmation(
-                        f'curl -L -o "{config_target}" "{config_url}"',
-                        "Скачиваю конфигурацию голоса...",
-                    )
-
-                if voice_target.exists():
-                    print("  Голосовая модель установлена.")
-                else:
-                    print("  Ошибка: модель не была скачана.")
-
-    def _find_piper_zip(self) -> Optional[str]:
-        # Search common locations for piper_windows_amd64.zip
-        search_paths = [
-            # Downloads folder
-            Path.home() / "Downloads",
-            # Desktop
-            Path.home() / "Desktop",
-            # Current directory
-            Path.cwd(),
-            # Project root
-            Path(self._find_project_root()) if self._find_project_root() else Path(""),
-        ]
-
-        zip_names = [
-            "piper_windows_amd64.zip",
-            "piper-windows-amd64.zip",
-            "piper_windows.zip",
-        ]
-
-        for directory in search_paths:
-            directory_str = str(directory)
-            if not directory_str or not directory.exists():
-                continue
-
-            for name in zip_names:
-                path = directory / name
-                if path.exists():
-                    return str(path)
-
-            # Also search for any piper*.zip
-            try:
-                piper_zips = list(directory.glob("piper*.zip"))
-                if len(piper_zips) > 0:
-                    return str(piper_zips[0])
-            except OSError:
-                # Ignore access errors
-                pass
-
-        return None
-
-    def _extract_piper_zip(self, zip_path: str, target_dir: Path) -> bool:
-        try:
-            # Use PowerShell to extract (available on all Windows 10+)
-            extract_dir = target_dir / "_temp_piper"
-            extract_dir.mkdir(parents=True, exist_ok=True)
-
-            print(f"  Распаковываю в {extract_dir}...")
-
-            process = subprocess.run(
-                [
-                    "powershell",
-                    "-NoProfile",
-                    "-Command",
-                    f"Expand-Archive -Path '{zip_path}' -DestinationPath '{extract_dir}' -Force",
-                ],
-                capture_output=True,
-                timeout=30,
-                creationflags=_NO_WINDOW,
-            )
-
-            if process.returncode != 0:
-                error = process.stderr.decode(encoding="utf-8", errors="replace")
-                print(f"  Ошибка распаковки: {error}")
-                return False
-
-            # Find piper.exe in extracted files
-            piper_exe = self._find_file_recursive(str(extract_dir), "piper.exe")
-
-            if piper_exe is None:
-                print("  piper.exe не найден в архиве.")
-                return False
-
-            # Move piper.exe to target directory
-            target_exe = target_dir / "piper.exe"
-            shutil.copy2(piper_exe, target_exe)
-
-            # Also copy any .dll files from the same directory
-            exe_dir = Path(piper_exe).parent
-            if exe_dir is not None:
-                for dll in exe_dir.glob("*.dll"):
-                    target_dll = target_dir / dll.name
-                    if not target_dll.exists():
-                        shutil.copy2(dll, target_dll)
-
-            # Cleanup temp directory
-            try:
-                shutil.rmtree(extract_dir)
-            except OSError:
-                pass
-
-            print("  Piper установлен успешно.")
-            return True
-        except subprocess.TimeoutExpired:
-            print("  Ошибка: процесс распаковки не завершился за 30 секунд.")
-            return False
-        except Exception as ex:
-            print(f"  Ошибка: {ex}")
-            return False
-
-    @staticmethod
-    def _find_file_recursive(dir_path: str, file_name: str) -> Optional[str]:
-        try:
-            file = Path(dir_path) / file_name
-            if file.exists():
-                return str(file)
-
-            for sub_dir in Path(dir_path).iterdir():
-                if sub_dir.is_dir():
-                    result = DependencyChecker._find_file_recursive(str(sub_dir), file_name)
-                    if result is not None:
-                        return result
-        except OSError:
-            # Ignore access errors
-            pass
-
-        return None
-
-    @staticmethod
-    def _offer_manual_piper_install(piper_dir: Path) -> None:
-        if DependencyChecker._ask_confirmation(
-            "Открыть страницу загрузки Piper в браузере?"
-        ):
-            try:
-                _open_url("https://github.com/rhasspy/piper/releases")
-            except Exception:
-                print("  Не удалось открыть браузер.")
-
-        print("\n  Скачайте piper_windows_amd64.zip")
-        print("  Положите его в папку Downloads или на Рабочий стол")
-        print(f"  или распакуйте piper.exe в: {piper_dir}\n")
-        print("  После установки нажмите Enter...")
-        _pause()
+        if ok:
+            print("  ChatTTS установлен.")
+        else:
+            print(f"  ChatTTS всё ещё недоступен: {reason}")
+            print("  Источник: https://github.com/2Noise/ChatTTS\n")
 
     @staticmethod
     def _find_project_root() -> Optional[str]:
@@ -837,11 +684,16 @@ class DependencyChecker:
                 )
             )
 
-    def _check_piper(self) -> None:
+    def _check_chattts(self) -> None:
+        """ChatTTS (TTS) — замена Piper: бинарников нет, только pip-пакет.
+
+        critical=False: без TTS ZERE работает в текстовом режиме. Проверка
+        дешёвая — `importlib.find_spec` без импорта, веса не грузятся.
+        """
         if not self._config.VoiceEnabled:
             self._results.append(
                 DependencyResult(
-                    name="Piper (TTS)",
+                    name="ChatTTS (TTS)",
                     status=CheckStatus.Ok,
                     critical=False,
                     message="Отключен в конфиге.",
@@ -849,49 +701,34 @@ class DependencyChecker:
             )
             return
 
-        # C#: AppContext.BaseDirectory/../../../../ → zere.paths
-        piper_dir = paths.piper_dir()
+        ok, reason = _chattts_availability()
 
-        # Check for piper executable
-        has_piper_exe = (piper_dir / "piper.exe").exists() or (piper_dir / "piper").exists()
-
-        # Check for voice models
-        has_onnx = piper_dir.exists() and len(list(piper_dir.glob("*.onnx"))) > 0
-
-        if has_piper_exe and has_onnx:
+        if ok:
             self._results.append(
                 DependencyResult(
-                    name="Piper (TTS)",
+                    name="ChatTTS (TTS)",
                     status=CheckStatus.Ok,
                     critical=False,
+                    message="Голос ChatTTS доступен (модель грузится при первом синтезе).",
                 )
             )
-        elif not has_piper_exe:
-            self._results.append(
-                DependencyResult(
-                    name="Piper (TTS)",
-                    status=CheckStatus.Missing,
-                    critical=False,
-                    message=f"Исполняемый файл piper не найден в {piper_dir}",
-                    install_url="https://github.com/rhasspy/piper/releases",
-                )
+            return
+
+        self._results.append(
+            DependencyResult(
+                name="ChatTTS (TTS)",
+                status=CheckStatus.Missing,
+                critical=False,
+                message=f"{reason} (нужно: pip install ChatTTS soundfile, Python ≤ 3.12)",
+                install_url="https://github.com/2Noise/ChatTTS",
             )
-        else:
-            self._results.append(
-                DependencyResult(
-                    name="Piper (TTS)",
-                    status=CheckStatus.Missing,
-                    critical=False,
-                    message=f"Голосовые модели не найдены в {piper_dir}",
-                    install_url="https://huggingface.co/rhasspy/piper-voices",
-                )
-            )
+        )
 
     def offer_voice_install(self) -> None:
         voice_missing = [
             r for r in self._results
             if r.status != CheckStatus.Ok
-            and ("Whisper" in r.name or "Piper" in r.name)
+            and ("Whisper" in r.name or "ChatTTS" in r.name)
         ]
 
         if len(voice_missing) == 0:

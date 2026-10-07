@@ -611,7 +611,7 @@ public sealed class PanelServer : IDisposable
             ? "ok"
             : "missing";
 
-        var engineName = _config.TtsEngine is "pocket" or "piper" ? _config.TtsEngine : "piper";
+        var engineName = _config.TtsEngine is "pocket" or "chattts" ? _config.TtsEngine : "chattts";
 
         int count;
 
@@ -753,8 +753,8 @@ public sealed class PanelServer : IDisposable
 
         var engine = supplied["ttsEngine"].GetString();
 
-        if (engine is not ("pocket" or "piper"))
-            return "Ключ «ttsEngine» допускает только «pocket» или «piper».";
+        if (engine is not ("pocket" or "chattts"))
+            return "Ключ «ttsEngine» допускает только «pocket» или «chattts».";
 
         // Необязательный sttEngine: проверяем только если прислан.
         if (supplied.TryGetValue("sttEngine", out var sttEngine))
@@ -1415,7 +1415,7 @@ public sealed class PanelServer : IDisposable
     {
         recordReference = true,   // запись референса — только в C#-версии
         pocketCloning = true,     // PocketTTS только в C#-версии
-        speechSpeedConfig = true, // piper получает --length_scale при Initialize
+        speechSpeedConfig = true, // ChatTTS получает темп как [speed_N] из speechSpeed
         liveVolumeApply = true,   // Volume читается на каждое воспроизведение
         sttTest = voiceAvailable,
     };
@@ -1735,8 +1735,8 @@ public sealed class PanelServer : IDisposable
         }
 
         if (supplied.TryGetValue("ttsEngine", out var engine) &&
-            (engine.ValueKind != JsonValueKind.String || engine.GetString() is not ("pocket" or "piper")))
-            return "Ключ «ttsEngine» допускает только «pocket» или «piper».";
+            (engine.ValueKind != JsonValueKind.String || engine.GetString() is not ("pocket" or "chattts")))
+            return "Ключ «ttsEngine» допускает только «pocket» или «chattts».";
 
         if (supplied.TryGetValue("voiceReferencePath", out var referencePath) &&
             referencePath.ValueKind != JsonValueKind.String)

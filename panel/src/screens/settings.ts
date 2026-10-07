@@ -235,7 +235,7 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
             value: d.ttsEngine,
             options: [
               { value: "pocket", label: t("pocket — клонирование голоса") },
-              { value: "piper", label: t("piper — быстрый, без клонирования") },
+              { value: "chattts", label: t("chattts — реалистичный голос, без клонирования") },
             ],
             onChange: (v) => {
               d.ttsEngine = v as Config["ttsEngine"];

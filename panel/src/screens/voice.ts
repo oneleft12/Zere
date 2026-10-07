@@ -205,7 +205,7 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
             value: draft.ttsEngine,
             options: [
               { value: "pocket", label: t("pocket — клонирование голоса") },
-              { value: "piper", label: t("piper — быстрый, без клонирования") },
+              { value: "chattts", label: t("chattts — реалистичный голос, без клонирования") },
             ],
             onChange: (v) => {
               draft.ttsEngine = v as Draft["ttsEngine"];
@@ -215,7 +215,7 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
           t("Смена движка вступает в силу после перезапуска"),
         ),
         field(
-          t("DSP-обработка озвучки (Piper)"),
+          t("DSP-обработка озвучки (ChatTTS)"),
           toggle({
             label: t("EQ + мягкая компрессия + нормализация"),
             checked: draft.audioProcessing,
@@ -224,7 +224,7 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
               updateDirty();
             },
           }),
-          t("Применяется сразу; выключено — «сырой» выход piper без фильтров"),
+          t("Применяется сразу; выключено — «сырой» выход TTS без фильтров"),
         ),
         field(
           t("Референс голоса (WAV)"),

@@ -18,7 +18,8 @@
 .PARAMETER RemoveAssets
     Дополнительно удалить голосовые артефакты:
     ZERE.Voice\Models\*.bin, папку модели GigaAM (sherpa-onnx-*),
-    бинарники Piper (piper.exe, *.dll, espeak-ng-data, *.onnx).
+    менеджер Python tools\uv.exe (на нём работают ChatTTS и клонирование),
+    временные WAV синтеза ChatTTS.
     Git-трекаемые файлы не удаляются.
 
 .PARAMETER PurgeData
@@ -99,7 +100,8 @@ $plan = @(
     'C#-публикация publish\app'
 )
 if ($RemoveAssets) {
-    $plan += 'Голосовые артефакты: ZERE.Voice\Models\*.bin и sherpa-onnx-*, бинарники Piper (*.exe, *.dll, espeak-ng-data, *.onnx)'
+    $plan += 'Голосовые артефакты: ZERE.Voice\Models\*.bin и sherpa-onnx-*, tools\uv.exe, ZERE.Voice\ChatTts\output_*.wav'
+    $plan += 'Наследие Piper: бинарники и голоса в ZERE.Voice\Piper (движок заменён на ChatTTS)'
 }
 if ($PurgeData) {
     $plan += 'Пользовательские данные: zere.db, logs\, backups\, config\panel.token, voice\reference.wav, voice\input\'
@@ -158,17 +160,37 @@ if ($RemoveAssets) {
             if (Test-Path $p) { $null = Remove-ItemSafe -Path $p -Label ('модель GigaAM ' + $gigaam) }
         }
     }
-    $piperDir = Join-Path $Prefix 'ZERE.Voice\Piper'
-    if (Test-Path $piperDir) {
+    # Наследие Piper: движок заменён на ChatTTS (код и модели удалены из
+    # репозитория), но у кого Piper стоял раньше — бинарники остались в
+    # рабочей копии. Убираем их по флагу -RemoveAssets.
+    $legacyPiperDir = Join-Path $Prefix 'ZERE.Voice\Piper'
+    if (Test-Path $legacyPiperDir) {
         foreach ($pattern in @('*.exe', '*.dll', '*.onnx')) {
-            Get-ChildItem -LiteralPath $piperDir -Filter $pattern -File -ErrorAction SilentlyContinue | ForEach-Object {
-                try { Remove-Item -LiteralPath $_.FullName -Force; Write-Ok ('удалено: ' + $_.Name) }
+            Get-ChildItem -LiteralPath $legacyPiperDir -Filter $pattern -File -ErrorAction SilentlyContinue | ForEach-Object {
+                try { Remove-Item -LiteralPath $_.FullName -Force; Write-Ok ('удалено (наследие Piper): ' + $_.Name) }
                 catch { Write-Warn2 ('не удалось удалить ' + $_.Name) }
             }
         }
         foreach ($dirName in @('espeak-ng-data', 'pkgconfig')) {
-            $p = Join-Path $piperDir $dirName
+            $p = Join-Path $legacyPiperDir $dirName
             if (Test-Path $p) { $null = Remove-ItemSafe -Path $p -Label ('ZERE.Voice\Piper\' + $dirName) }
+        }
+    }
+
+    # Менеджер Python uv (нужен ChatTTS и клонированию голоса) — это скачанный
+    # установщиком бинарник, не исходник: удаляем вместе с голосовыми артефактами.
+    $toolsDir = Join-Path $Prefix 'tools'
+    foreach ($tool in @('uv.exe', 'uvx.exe', 'uvw.exe')) {
+        $p = Join-Path $toolsDir $tool
+        if (Test-Path $p) { $null = Remove-ItemSafe -Path $p -Label ('tools\' + $tool) }
+    }
+
+    # Временные WAV синтеза ChatTTS (создаются и удаляются на лету)
+    $chatTtsDir = Join-Path $Prefix 'ZERE.Voice\ChatTts'
+    if (Test-Path $chatTtsDir) {
+        Get-ChildItem -LiteralPath $chatTtsDir -Filter 'output_*.wav' -File -ErrorAction SilentlyContinue | ForEach-Object {
+            try { Remove-Item -LiteralPath $_.FullName -Force; Write-Ok ('удалено: ' + $_.Name) }
+            catch { Write-Warn2 ('не удалось удалить ' + $_.Name) }
         }
     }
 }

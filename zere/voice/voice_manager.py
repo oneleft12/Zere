@@ -1,4 +1,4 @@
-"""Оркестратор STT (GigaAM/Whisper) + TTS (Piper) (порт ZERE.Voice/VoiceManager.cs).
+"""Оркестратор STT (GigaAM/Whisper) + TTS (ChatTTS) (порт ZERE.Voice/VoiceManager.cs).
 
 Отмена (CancellationToken в C#) → threading.Event.
 """
@@ -18,7 +18,7 @@ from zere.voice.audio.audio_player import AudioPlayer
 from zere.voice.audio.audio_processor import DEFAULT_SAMPLE_RATE, AudioProcessor
 from zere.voice.audio.audio_recorder import AudioRecorder
 from zere.voice.audio.csharp_speaker import CSharpSpeaker
-from zere.voice.piper.piper_service import PiperService
+from zere.voice.chattts.chattts_service import ChatTtsService
 from zere.voice.sherpa.gigaam_service import GigaamService
 from zere.voice.voice_config import VoiceConfig
 from zere.voice.wakeword.wake_word_detector import WakeWordDetector
@@ -72,19 +72,21 @@ class VoiceManager:
         self._speaker_fallback_logged = False
         self._whisper = WhisperService()
         self._gigaam = GigaamService()
-        self._piper = PiperService()
+        self._chattts = ChatTtsService()
         self.config = VoiceConfig()  # Config { get; } — публичный атрибут
         self._wake_word_detector: WakeWordDetector | None = None
         # Семафор записи: панель и консоль не должны писать микрофон
         # одновременно (анализ F4).
         self._record_lock = threading.Lock()
 
+        # Профили голоса ChatTTS под стиль личности (паритет с C#, где раньше
+        # были голоса Piper): имя профиля → детерминированный голос ChatTTS.
         self._personality_voices: dict[str, str] = {
-            "Friendly": "ru_RU-ruslan-medium",
-            "Formal": "ru_RU-dmitri-medium",
-            "Sarcastic": "ru_RU-ruslan-medium",
-            "Professional": "ru_RU-dmitri-medium",
-            "Casual": "ru_RU-ruslan-medium",
+            "Friendly": "zere-warm",
+            "Formal": "zere-strict",
+            "Sarcastic": "zere-ironic",
+            "Professional": "zere-business",
+            "Casual": "zere-casual",
         }
 
     @property
@@ -111,35 +113,46 @@ class VoiceManager:
 
     @property
     def is_tts_available(self) -> bool:
-        """Доступен ли TTS (Piper)."""
-        return self._piper.is_loaded
+        """Доступен ли TTS (ChatTTS)."""
+        return self._chattts.is_loaded
 
     def initialize(self, personality_style: str | None = None) -> bool:
-        """Инициализирует TTS, подбирая голос под стиль личности (порт Initialize)."""
-        voice_name = self.config.piper_voice
+        """Инициализирует TTS, подбирая голос под стиль личности (порт Initialize).
+
+        Модель ChatTTS здесь НЕ загружается: initialize только проверяет
+        окружение, а веса попадают в память при первом speak() (ленивая
+        загрузка — старт ZERE не платит за неё временем и памятью).
+        """
+        voice_name = self.config.chattts_voice
 
         if personality_style is not None and personality_style in self._personality_voices:
             voice_name = self._personality_voices[personality_style]
 
-        tts_ready = self._piper.initialize(voice_name)
+        # Параметры инференса (темп, пауза после предложения) — до инициализации,
+        # у ChatTTS они применяются на каждый запрос (рестарт не нужен).
+        self._chattts.set_inference_params(
+            self.config.speech_speed, self.config.sentence_silence
+        )
+
+        tts_ready = self._chattts.initialize(voice_name)
 
         if tts_ready:
-            print(f"[Voice] TTS готов. Голос: {self._piper.current_voice}")
+            print(f"[Voice] TTS готов. Голос: {self._chattts.current_voice}")
         else:
             print("[Voice] TTS недоступен. Только текстовый режим.")
 
         return tts_ready
 
     def set_personality_voice(self, style: str) -> None:
-        """Меняет голос Piper под стиль личности (порт SetPersonalityVoice)."""
+        """Меняет профиль голоса ChatTTS под стиль личности (порт SetPersonalityVoice)."""
         voice = self._personality_voices.get(style)
         if voice is not None:
-            self._piper.set_voice(voice)
+            self._chattts.set_voice(voice)
             print(f"[Voice] Голос изменён на: {voice} (стиль: {style})")
 
     def set_voice(self, voice_name: str) -> None:
-        """Прямая смена голоса Piper (контракт спецификации; в C# — PiperService.SetVoice)."""
-        self._piper.set_voice(voice_name)
+        """Прямая смена голоса (контракт спецификации; в C# — ChatTtsService.SetVoice)."""
+        self._chattts.set_voice(voice_name)
 
     def preload_stt(self) -> None:
         """Предзагрузка активного STT-движка в фоне при старте (ROADMAP 1.3):
@@ -168,7 +181,7 @@ class VoiceManager:
         """Распознавание через активный STT-движок с откатом на Whisper.
 
         Сбой GigaAM (например, битый файл модели) уводит на Whisper —
-        зеркало отката pocket→piper (§5 плана STT-исследования).
+        зеркало отката TTS-движков (§5 плана STT-исследования).
         """
         engine = self._active_stt
 
@@ -214,32 +227,32 @@ class VoiceManager:
                 pass
 
     def speak(self, text: str) -> None:
-        """Озвучивает текст через Piper (порт SpeakAsync); без TTS или при ошибке
-        синтеза — печатает текст в консоль (fallback «Piper не отвечает →
+        """Озвучивает текст через ChatTTS (порт SpeakAsync); без TTS или при
+        ошибке синтеза — печатает текст в консоль (fallback «TTS не отвечает →
         текстовый вывод», ROADMAP 1.1).
         """
-        if not self._piper.is_loaded:
+        if not self._chattts.is_loaded:
             print(f"[ZERE] {text}")
             return
 
         started = time.monotonic()
 
         try:
-            wav_file = self._piper.speak(text)
+            wav_file = self._chattts.speak(text)
         except Exception as ex:  # noqa: BLE001
             log_error("VoiceManager", f"speak: {ex}")
             print(f"[ZERE] {text}")
             return
 
         if not wav_file:
-            # Синтез не удался (после reconnect в PiperService) — текстовый вывод
+            # Синтез не удался (нет ChatTTS/ошибка инференса) — текстовый вывод
             print(f"[ZERE] {text}")
             return
 
         # Этап 0 (метрики): готовность первого аудиофайла (синтез) —
         # дальше DSP + воспроизведение.
         synth_ms = int((time.monotonic() - started) * 1000)
-        print(f"[Perf] TTS synth={synth_ms} мс (piper)")
+        print(f"[Perf] TTS synth={synth_ms} мс (chattts)")
 
         # Озвучка на C# (ZERE.Speaker): DSP и вывод звука — NAudio/WASAPI.
         # Если хелпер не собран или упал — озвучиваем сами (sounddevice).
@@ -270,8 +283,8 @@ class VoiceManager:
 
         try:
             # Профессиональная DSP-обработка: ресемплинг под устройство, EQ,
-            # страховка по пикам. Ресемплинг здесь обязателен: piper отдаёт
-            # 22050 Гц, и если отдать их как есть, sounddevice/PortAudio будет
+            # страховка по пикам. Ресемплинг здесь обязателен: ChatTTS отдаёт
+            # 24000 Гц, и если отдать их как есть, sounddevice/PortAudio будет
             # конвертировать сам — своим слабым ресемплером, что и даёт
             # «металлический» призвук на выходе.
             if self.config.audio_processing:
@@ -458,6 +471,7 @@ class VoiceManager:
         self._recorder.close()
         self._player.close()
         self._speaker.close()
+        self._chattts.close()
         if self._wake_word_detector is not None:
             self._wake_word_detector.close()
 

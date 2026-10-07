@@ -8,3 +8,12 @@ psutil>=6.0
 mss>=9.0
 pillow>=10.0
 wmi>=1.5.1; sys_platform == "win32"
+
+# ── TTS: ChatTTS (замена Piper) ─────────────────────────────────────
+# ChatTTS тянет torch и numba, у которых нет сборок под Python 3.13+,
+# поэтому пакет ставится только на совместимом интерпретаторе (маркер ниже);
+# для C#-редакции то же самое делает tools/uv.exe с `--python 3.12`
+# (см. ZERE.Voice/ChatTts/ChatTtsService.cs). Если ChatTTS нет — ZERE
+# работает в текстовом режиме, старт не ломается.
+ChatTTS>=0.2.1; python_version < "3.13"
+soundfile>=0.12

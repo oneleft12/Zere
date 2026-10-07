@@ -55,7 +55,7 @@ ZERE.App
         │     └── System
         └── ZERE.Voice
               ├── Whisper (STT)
-              └── Piper (TTS)
+              └── ChatTts (TTS)
 
 ZERE.Core/Plugins/
   ├── Interfaces/
@@ -171,7 +171,7 @@ public interface ICommandHandlerPlugin : IPlugin
 | Ollama | HTTP localhost:11434 | Генерация ответов LLM |
 | SQLite | Microsoft.Data.Sqlite | Хранение данных |
 | Whisper | ggml-base.bin | Распознавание речи |
-| Piper | .onnx модели | Синтез речи |
+| ChatTTS | модель ChatTTS + сайдкар `tools/zere_chattts_server.py` (поднимает uv) | Синтез речи |
 
 ---
 

@@ -48,7 +48,7 @@ if (args.Contains("--panel"))
     var panelEngine = panelServices.GetRequiredService<ZereEngine>();
     var panelMemory = panelServices.GetRequiredService<MemoryRepository>();
 
-    // Ленивые сервисы (Whisper/Piper/Pocket): конструктор только строит пути,
+    // Ленивые сервисы (Whisper/ChatTTS/Pocket): конструктор только строит пути,
     // поэтому панель в режиме --panel получает голос без инициализации звука.
     var panelVoice = new VoiceManager();
 

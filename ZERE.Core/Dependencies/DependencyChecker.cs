@@ -31,7 +31,7 @@ public class DependencyChecker : IDisposable
         CheckModel();
         CheckSQLite();
         CheckWhisper();
-        CheckPiper();
+        CheckChatTts();
 
         return _results;
     }
@@ -113,7 +113,7 @@ public class DependencyChecker : IDisposable
         // Offer to install non-critical voice dependencies
         var voiceMissing = _results.Where(r =>
             r.Status != CheckStatus.Ok && !r.Critical &&
-            (r.Name.Contains("Whisper") || r.Name.Contains("Piper"))).ToList();
+            (r.Name.Contains("Whisper") || r.Name.Contains("ChatTTS"))).ToList();
 
         if (voiceMissing.Count > 0)
         {
@@ -243,8 +243,8 @@ public class DependencyChecker : IDisposable
             InstallSQLite();
         else if (dep.Name.Contains("Whisper"))
             InstallWhisper();
-        else if (dep.Name.Contains("Piper"))
-            InstallPiper();
+        else if (dep.Name.Contains("ChatTTS"))
+            InstallChatTts();
         else
             Console.WriteLine($"  Нет способа автоматической установки: {dep.Name}");
     }
@@ -508,261 +508,39 @@ public class DependencyChecker : IDisposable
             Console.WriteLine("  Ошибка: файл не был скачан.");
     }
 
-    private void InstallPiper()
+    private void InstallChatTts()
     {
-        Console.WriteLine("  Piper (TTS) не найден.");
+        Console.WriteLine("  ChatTTS (TTS) не найден.");
 
-        var root = Path.GetFullPath(
+        var root = FindProjectRoot() ?? Path.GetFullPath(
             Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
 
-        var piperDir = Path.Combine(root, "ZERE.Voice", "Piper");
-        Directory.CreateDirectory(piperDir);
+        var uvExe = Path.Combine(root, "tools", "uv.exe");
+        var script = Path.Combine(root, "tools", "zere_chattts_server.py");
 
-        // Check if piper.exe exists
-        var piperExe = Path.Combine(piperDir, "piper.exe");
-        var piperLinux = Path.Combine(piperDir, "piper");
-
-        if (!File.Exists(piperExe) && !File.Exists(piperLinux))
+        if (!File.Exists(uvExe) || !File.Exists(script))
         {
-            Console.WriteLine("  Piper не установлен.");
-
-            // Try to find piper_windows_amd64.zip in common locations
-            var zipPath = FindPiperZip();
-
-            if (zipPath != null)
-            {
-                Console.WriteLine($"  Найден архив: {zipPath}");
-                Console.WriteLine("  Распаковываю...");
-
-                if (ExtractPiperZip(zipPath, piperDir))
-                {
-                    Console.WriteLine("  Piper установлен.");
-                }
-                else
-                {
-                    Console.WriteLine("  Ошибка распаковки. Установите вручную.");
-                    OfferManualPiperInstall(piperDir);
-                }
-            }
-            else
-            {
-                Console.WriteLine("  Архив piper_windows_amd64.zip не найден.");
-                Console.WriteLine("  Источник: https://github.com/rhasspy/piper/releases\n");
-
-                OfferManualPiperInstall(piperDir);
-            }
+            Console.WriteLine("  Нет инструментария: tools/uv.exe или tools/zere_chattts_server.py.");
+            Console.WriteLine("  Запустите installer\\install.ps1 — он скачает uv; ChatTTS затем ставится сам.");
+            Console.WriteLine();
+            return;
         }
 
-        // Check for voice models
-        var onnxFiles = Directory.GetFiles(piperDir, "*.onnx");
-        if (onnxFiles.Length == 0)
-        {
-            Console.WriteLine("  Голосовые модели не найдены.");
-            Console.WriteLine("  Нужна модель ru_RU-irina-medium.onnx\n");
+        // Отдельного «архива движка» у ChatTTS нет: uv сам скачивает пакет
+        // ChatTTS, soundfile и совместимый Python 3.12 (у torch/numba нет
+        // сборок под 3.13+). То есть установка = первый запуск сайдкара.
+        Console.WriteLine("  ChatTTS ставится сам при первом синтезе:");
+        Console.WriteLine("  uv скачает пакет ChatTTS и Python 3.12 (примерно 2–3 ГБ).");
+        Console.WriteLine();
 
-            if (AskConfirmation("Скачать русскую голосовую модель?"))
-            {
-                var voiceUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx";
-                var voiceTarget = Path.Combine(piperDir, "ru_RU-irina-medium.onnx");
+        if (!AskConfirmation("Прогреть движок сейчас (скачает ~2–3 ГБ)?"))
+            return;
 
-                if (CommandExists("curl"))
-                {
-                    ExecuteCommandWithConfirmation(
-                        $"curl -L -o \"{voiceTarget}\" \"{voiceUrl}\"",
-                        "Скачиваю голосовую модель...");
-                }
-                else if (CommandExists("powershell"))
-                {
-                    ExecuteCommandWithConfirmation(
-                        $"powershell -Command \"Invoke-WebRequest -Uri '{voiceUrl}' -OutFile '{voiceTarget}'\"",
-                        "Скачиваю голосовую модель через PowerShell...");
-                }
+        Console.WriteLine();
 
-                // Also download the JSON config for the voice
-                var configUrl = "https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/irina/medium/ru_RU-irina-medium.onnx.json";
-                var configTarget = Path.Combine(piperDir, "ru_RU-irina-medium.onnx.json");
-
-                if (CommandExists("curl"))
-                {
-                    ExecuteCommandWithConfirmation(
-                        $"curl -L -o \"{configTarget}\" \"{configUrl}\"",
-                        "Скачиваю конфигурацию голоса...");
-                }
-
-                if (File.Exists(voiceTarget))
-                    Console.WriteLine("  Голосовая модель установлена.");
-                else
-                    Console.WriteLine("  Ошибка: модель не была скачана.");
-            }
-        }
-    }
-
-    private string? FindPiperZip()
-    {
-        // Search common locations for piper_windows_amd64.zip
-        var searchPaths = new[]
-        {
-            // Downloads folder
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "Downloads"),
-            // Desktop
-            Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
-            // Current directory
-            Directory.GetCurrentDirectory(),
-            // Project root
-            FindProjectRoot() ?? ""
-        };
-
-        var zipNames = new[]
-        {
-            "piper_windows_amd64.zip",
-            "piper-windows-amd64.zip",
-            "piper_windows.zip"
-        };
-
-        foreach (var dir in searchPaths)
-        {
-            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
-                continue;
-
-            foreach (var name in zipNames)
-            {
-                var path = Path.Combine(dir, name);
-                if (File.Exists(path))
-                    return path;
-            }
-
-            // Also search for any piper*.zip
-            try
-            {
-                var piperZips = Directory.GetFiles(dir, "piper*.zip", SearchOption.TopDirectoryOnly);
-                if (piperZips.Length > 0)
-                    return piperZips[0];
-            }
-            catch
-            {
-                // Ignore access errors
-            }
-        }
-
-        return null;
-    }
-
-    private bool ExtractPiperZip(string zipPath, string targetDir)
-    {
-        try
-        {
-            // Use PowerShell to extract (available on all Windows 10+)
-            var extractDir = Path.Combine(targetDir, "_temp_piper");
-            Directory.CreateDirectory(extractDir);
-
-            Console.WriteLine($"  Распаковываю в {extractDir}...");
-
-            var psi = new ProcessStartInfo
-            {
-                FileName = "powershell",
-                Arguments = $"-NoProfile -Command \"Expand-Archive -Path '{zipPath}' -DestinationPath '{extractDir}' -Force\"",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
-
-            using var process = Process.Start(psi);
-            process?.WaitForExit(30000);
-
-            if (process?.ExitCode != 0)
-            {
-                var error = process?.StandardError.ReadToEnd();
-                Console.WriteLine($"  Ошибка распаковки: {error}");
-                return false;
-            }
-
-            // Find piper.exe in extracted files
-            var piperExe = FindFileRecursive(extractDir, "piper.exe");
-
-            if (piperExe == null)
-            {
-                Console.WriteLine("  piper.exe не найден в архиве.");
-                return false;
-            }
-
-            // Move piper.exe to target directory
-            var targetExe = Path.Combine(targetDir, "piper.exe");
-            File.Copy(piperExe, targetExe, overwrite: true);
-
-            // Also copy any .dll files from the same directory
-            var exeDir = Path.GetDirectoryName(piperExe);
-            if (exeDir != null)
-            {
-                foreach (var dll in Directory.GetFiles(exeDir, "*.dll"))
-                {
-                    var targetDll = Path.Combine(targetDir, Path.GetFileName(dll));
-                    if (!File.Exists(targetDll))
-                        File.Copy(dll, targetDll);
-                }
-            }
-
-            // Cleanup temp directory
-            try { Directory.Delete(extractDir, recursive: true); } catch { }
-
-            Console.WriteLine("  Piper установлен успешно.");
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"  Ошибка: {ex.Message}");
-            return false;
-        }
-    }
-
-    private string? FindFileRecursive(string dir, string fileName)
-    {
-        try
-        {
-            var file = Path.Combine(dir, fileName);
-            if (File.Exists(file))
-                return file;
-
-            foreach (var subDir in Directory.GetDirectories(dir))
-            {
-                var result = FindFileRecursive(subDir, fileName);
-                if (result != null)
-                    return result;
-            }
-        }
-        catch
-        {
-            // Ignore access errors
-        }
-
-        return null;
-    }
-
-    private void OfferManualPiperInstall(string piperDir)
-    {
-        if (AskConfirmation("Открыть страницу загрузки Piper в браузере?"))
-        {
-            try
-            {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = "https://github.com/rhasspy/piper/releases",
-                    UseShellExecute = true
-                });
-            }
-            catch
-            {
-                Console.WriteLine("  Не удалось открыть браузер.");
-            }
-        }
-
-        Console.WriteLine("\n  Скачайте piper_windows_amd64.zip");
-        Console.WriteLine("  Положите его в папку Downloads или на Рабочий стол");
-        Console.WriteLine($"  или распакуйте piper.exe в: {piperDir}\n");
-        Console.WriteLine("  После установки нажмите Enter...");
-        Console.ReadLine();
+        ExecuteCommandWithConfirmation(
+            $"\"{uvExe}\" run --python 3.12 --with ChatTTS --with soundfile python -c \"import ChatTTS\"",
+            "Готовлю ChatTTS...");
     }
 
     private string? FindProjectRoot()
@@ -984,13 +762,13 @@ public class DependencyChecker : IDisposable
         }
     }
 
-    private void CheckPiper()
+    private void CheckChatTts()
     {
         if (!_config.VoiceEnabled)
         {
             _results.Add(new DependencyResult
             {
-                Name = "Piper (TTS)",
+                Name = "ChatTTS (TTS)",
                 Status = CheckStatus.Ok,
                 Critical = false,
                 Message = "Отключен в конфиге."
@@ -998,51 +776,35 @@ public class DependencyChecker : IDisposable
             return;
         }
 
-        var root = Path.GetFullPath(
-            Path.Combine(AppContext.BaseDirectory,
-                "..", "..", "..", ".."));
+        var root = FindProjectRoot() ?? Path.GetFullPath(
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
 
-        var piperDir = Path.Combine(root, "ZERE.Voice", "Piper");
+        var uvExe = Path.Combine(root, "tools", "uv.exe");
+        var script = Path.Combine(root, "tools", "zere_chattts_server.py");
 
-        // Check for piper executable
-        var hasPiperExe = File.Exists(Path.Combine(piperDir, "piper.exe")) ||
-                          File.Exists(Path.Combine(piperDir, "piper"));
-
-        // Check for voice models
-        var hasOnnx = Directory.Exists(piperDir) &&
-                      Directory.GetFiles(piperDir, "*.onnx").Length > 0;
-
-        if (hasPiperExe && hasOnnx)
+        // ChatTTS — Python-библиотека, поэтому проверяем не «файл модели на
+        // диске», а инструментарий сайдкара (uv + сервер). Веса качает сам
+        // движок при первой загрузке (лениво) — проверка мгновенная.
+        if (File.Exists(uvExe) && File.Exists(script))
         {
             _results.Add(new DependencyResult
             {
-                Name = "Piper (TTS)",
+                Name = "ChatTTS (TTS)",
                 Status = CheckStatus.Ok,
-                Critical = false
-            });
-        }
-        else if (!hasPiperExe)
-        {
-            _results.Add(new DependencyResult
-            {
-                Name = "Piper (TTS)",
-                Status = CheckStatus.Missing,
                 Critical = false,
-                Message = $"Исполняемый файл piper не найден в {piperDir}",
-                InstallUrl = "https://github.com/rhasspy/piper/releases"
+                Message = "Инструментарий на месте; модель грузится при первом синтезе."
             });
+            return;
         }
-        else
+
+        _results.Add(new DependencyResult
         {
-            _results.Add(new DependencyResult
-            {
-                Name = "Piper (TTS)",
-                Status = CheckStatus.Missing,
-                Critical = false,
-                Message = $"Голосовые модели не найдены в {piperDir}",
-                InstallUrl = "https://huggingface.co/rhasspy/piper-voices"
-            });
-        }
+            Name = "ChatTTS (TTS)",
+            Status = CheckStatus.Missing,
+            Critical = false,
+            Message = "Нет tools/uv.exe или tools/zere_chattts_server.py — ChatTTS недоступен.",
+            InstallUrl = "https://github.com/2Noise/ChatTTS"
+        });
     }
 
     private static bool CommandExists(string command)
@@ -1079,7 +841,7 @@ public class DependencyChecker : IDisposable
     {
         var voiceMissing = _results.Where(r =>
             r.Status != CheckStatus.Ok &&
-            (r.Name.Contains("Whisper") || r.Name.Contains("Piper"))).ToList();
+            (r.Name.Contains("Whisper") || r.Name.Contains("ChatTTS"))).ToList();
 
         if (voiceMissing.Count == 0)
             return;

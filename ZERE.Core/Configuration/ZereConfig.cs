@@ -42,24 +42,25 @@ public class ZereConfig
 
     // ── TTS (Etap 2: klonirovanie golosa) ─────────────────
     // Движок озвучки: "pocket" — xVibePocketTTS (клонирование, потоковый PCM),
-    // "piper" — классический синтез. При сбое pocket всегда откат на piper.
+    // "chattts" — ChatTTS (нейросетевой синтез, замена Piper; ленивая загрузка).
+    // При сбое pocket всегда откат на chattts.
     public string TtsEngine { get; set; } = "pocket";
 
     // ── STT (отчёт docs/STT_ENGINE_RESEARCH.md, §5) ───────
     // Движок распознавания речи: "gigaam" — GigaAM-v3 punct (sherpa-onnx,
     // основной; модель качается установщиком или при первой предзагрузке),
     // "whisper" — откат на Whisper (ggml). При сбое gigaam всегда откат
-    // на whisper — зеркало отката pocket→piper.
+    // на whisper — зеркало отката TTS-движков (pocket→chattts).
     public string SttEngine { get; set; } = "gigaam";
 
     // Путь к WAV-референсу голоса пользователя (пусто = встроенный голос).
     // Заполняется командой «записать голос».
     public string VoiceReferencePath { get; set; } = "";
 
-    // DSP-обработка озвучки Piper (EQ + мягкий компрессор + нормализация).
+    // DSP-обработка озвучки ChatTTS (EQ + мягкий компрессор + нормализация).
     // Ключ config.json: audioProcessing. Читается на каждое предложение
     // (VoiceManager), поэтому переключается на лету из панели; false —
-    // «сырой» выход piper без единого фильтра.
+    // «сырой» выход TTS без единого фильтра.
     public bool AudioProcessing { get; set; } = true;
 
     private static readonly string ConfigPath =

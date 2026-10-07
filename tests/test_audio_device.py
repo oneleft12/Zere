@@ -368,7 +368,7 @@ def test_recorders_open_input_with_auto_convert() -> None:
 
 
 def test_audio_player_plays_through_wasapi_with_auto_convert() -> None:
-    """Озвучка: Piper отдаёт 22.05 кГц, микшер вывода — 44.1 кГц."""
+    """Озвучка: TTS (ChatTTS) отдаёт 24 кГц, микшер вывода — 44.1 кГц."""
     from zere.voice.audio.audio_player import AudioPlayer
 
     played: list[dict] = []

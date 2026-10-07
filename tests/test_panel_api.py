@@ -2099,7 +2099,7 @@ def test_voice_post_applies_on_restart() -> None:
         initial = json.loads(raw.decode("utf-8"))
 
         # ttsEngine: переключаем и возвращаем исходное (репозиторий/темп чистые)
-        other_engine = "piper" if initial["ttsEngine"] != "piper" else "pocket"
+        other_engine = "chattts" if initial["ttsEngine"] != "chattts" else "pocket"
 
         status, raw, _ = call(panel, "POST", "/api/voice", body={"ttsEngine": other_engine})
         assert status == 200, raw

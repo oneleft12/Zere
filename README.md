@@ -4,7 +4,7 @@
 
 ## Возможности
 
-- **Голосовой ввод/вывод** — GigaAM-v3 (STT, откат на Whisper) + Piper/PocketTTS (TTS)
+- **Голосовой ввод/вывод** — GigaAM-v3 (STT, откат на Whisper) + ChatTTS/PocketTTS (TTS)
 - **Локальная LLM** — Ollama с моделью qwen3.5:2b
 - **Управление компьютером** — запуск приложений, процессы, файлы, громкость
 - **Память** — SQLite-хранилище фактов о пользователе
@@ -21,12 +21,12 @@
 - Модель: `ollama pull qwen3.5:2b`
 - **Для C#-версии:** [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - **Для Python-версии:** Python 3.12+ и `pip install -r requirements.txt`
-- **Опционально:** Whisper (модель ggml-base.bin), Piper (TTS)
+- **Опционально:** Whisper (модель ggml-base.bin); TTS — PocketTTS (клонирование голоса) или ChatTTS (офлайн-откат; нужен `tools/uv.exe`)
 
 ## Установка (Windows)
 
 ```powershell
-# полная установка: Python-окружение, Ollama + модель, Whisper/Piper, ярлыки
+# полная установка: Python-окружение, Ollama + модель, Whisper + uv (для ChatTTS), ярлыки
 powershell -ExecutionPolicy Bypass -File installer\install.ps1
 
 # только проверка, ничего не меняет
@@ -47,7 +47,11 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Требуется Python 3.12+. Структура: пакет `zere/` (ai, core, memory, tools, voice), точка входа `main.py`. Спецификация порта: `docs/PYTHON_PORT_SPEC.md`.
+Требуется Python 3.12+. Пакет ChatTTS не ставится на Python 3.13+ (маркер в
+`requirements.txt`) — ZERE продолжит работать в текстовом режиме без ошибок;
+C#-редакция запускает ChatTTS через `tools/uv.exe` с `--python 3.12`.
+Структура: пакет `zere/` (ai, core, memory, tools, voice), точка входа `main.py`.
+Спецификация порта: `docs/PYTHON_PORT_SPEC.md`. Движок TTS: `docs/TTS_CHATTTS.md`.
 
 ### C#-версия (.NET 10)
 
@@ -85,7 +89,7 @@ ZERE.Core            — ядро: engine, обработчики, плагин�
 ZERE.AI              — клиент Ollama
 ZERE.Memory          — SQLite-память
 ZERE.Tools           — инструменты: приложения, файлы, процессы
-ZERE.Voice           — голос: GigaAM + Piper
+ZERE.Voice           — голос: GigaAM/Whisper (STT) + ChatTTS/PocketTTS (TTS)
 ZERE.Speaker         — C#-хелпер озвучки (DSP + вывод звука)
 panel/               — web-панель (Vite + TypeScript)
 docs/UPDATE.md       — обновление из GitHub (проверка, применение, откат)

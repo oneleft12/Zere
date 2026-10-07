@@ -108,7 +108,7 @@ const CORE_EN: Record<string, string> = {
   "От 1 до 120 минут": "From 1 to 120 minutes",
   "Голосовой вывод включён": "Voice output enabled",
   "pocket — клонирование голоса": "pocket — voice cloning",
-  "piper — быстрый, без клонирования": "piper — fast, no cloning",
+  "chattts — реалистичный голос, без клонирования": "chattts — realistic voice, no cloning",
   "Референс голоса (WAV)": "Voice reference (WAV)",
   "путь к WAV-референсу, пусто = встроенный голос":
     "path to the WAV reference, empty = built-in voice",

@@ -29,12 +29,12 @@ export const VOICE_EN: Record<string, string> = {
   "Применяется сразу, без перезапуска": "Applied immediately, without a restart",
   "TTS-движок": "TTS engine",
   "pocket — клонирование голоса": "pocket — voice cloning",
-  "piper — быстрый, без клонирования": "piper — fast, no cloning",
+  "chattts — реалистичный голос, без клонирования": "chattts — realistic voice, no cloning",
   "Смена движка вступает в силу после перезапуска": "Engine change takes effect after restart",
-  "DSP-обработка озвучки (Piper)": "Speech DSP (Piper)",
+  "DSP-обработка озвучки (ChatTTS)": "Speech DSP (ChatTTS)",
   "EQ + мягкая компрессия + нормализация": "EQ + gentle compression + normalization",
-  "Применяется сразу; выключено — «сырой» выход piper без фильтров":
-    "Applied immediately; off — raw piper output without filters",
+  "Применяется сразу; выключено — «сырой» выход TTS без фильтров":
+    "Applied immediately; off — raw TTS output without filters",
   "Референс голоса (WAV)": "Voice reference (WAV)",
   "путь к WAV-референсу, пусто = встроенный голос":
     "path to the WAV reference, empty = built-in voice",

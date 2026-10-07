@@ -8,7 +8,8 @@
       1. Проверка/установка Python 3.12+ (winget) и создание виртуального окружения .venv
       2. Установка зависимостей из requirements.txt
       3. Установка/запуск Ollama и загрузка модели из config/config.json (по умолчанию qwen3.5:2b)
-      4. Загрузка голосовых артефактов: GigaAM-v3 (основной STT), Whisper ggml-base.bin, Piper, голос ru_RU-ruslan-medium
+      4. Загрузка голосовых артефактов: GigaAM-v3 (основной STT), Whisper ggml-base.bin,
+         uv (менеджер Python для ChatTTS и клонирования голоса)
          (все скачивания проверяются по SHA-256)
       5. Опционально: .NET SDK 10 + dotnet publish C#-версии (-Edition dotnet|both)
       6. Сборка web-панели (npm), если отсутствует panel/dist
@@ -38,7 +39,7 @@
     Не устанавливать/проверять Ollama и модель.
 
 .PARAMETER SkipVoice
-    Не скачивать голосовые артефакты (GigaAM, Whisper, Piper, голос).
+    Не скачивать голосовые артефакты (GigaAM, Whisper, uv).
 
 .PARAMETER SkipShortcuts
     Не создавать ярлыки на рабочем столе и в меню «Пуск».
@@ -80,23 +81,11 @@ $Artifacts = @{
         Size   = 147951465
         Label  = 'модель Whisper ggml-base.bin (~141 МБ)'
     }
-    Piper        = @{
-        Url    = 'https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip'
-        Sha256 = 'f3c58906402b24f3a96d92145f58acba6d86c9b5db896d207f78dc80811efcea'
-        Size   = 22477236
-        Label  = 'движок Piper TTS (~21 МБ)'
-    }
-    PiperVoice   = @{
-        Url    = 'https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/ruslan/medium/ru_RU-ruslan-medium.onnx'
-        Sha256 = '72a5f88e0b20928064eb45d88e1daa21f8af62d18613580d32cbb4aed48dcf7f'
-        Size   = 63201294
-        Label  = 'голос Piper ru_RU-ruslan-medium (~60 МБ)'
-    }
-    PiperVoiceJs = @{
-        Url    = 'https://huggingface.co/rhasspy/piper-voices/resolve/main/ru/ru_RU/ruslan/medium/ru_RU-ruslan-medium.onnx.json'
-        Sha256 = '706a4fb17bc304abd07809b552deae615e64dcbffbfbd09854ba37ca59e88117'
-        Size   = 4882
-        Label  = 'конфигурация голоса Piper'
+    Uv           = @{
+        Url    = 'https://github.com/astral-sh/uv/releases/download/0.12.23/uv-x86_64-pc-windows-msvc.zip'
+        Sha256 = '75d05de6762778c31ee183398de7dd15093fad0ed90b1f236d8205ea5ec00c90'
+        Size   = 18043715
+        Label  = 'менеджер Python uv (~18 МБ; нужен для ChatTTS и клонирования)'
     }
 }
 
@@ -110,7 +99,7 @@ $DefaultConfigJson = @'
   "voiceVolume": 0.5,
   "autoMemory": true,
   "ollamaTimeoutMinutes": 10,
-  "ttsEngine": "piper",
+  "ttsEngine": "chattts",
   "sttEngine": "gigaam",
   "voiceReferencePath": "",
   "llmKeepAlive": -1,
@@ -523,7 +512,7 @@ function Install-OllamaModel {
 function Install-VoiceAssets {
     param([string]$Root)
     $modelsDir = Join-Path $Root 'ZERE.Voice\Models'
-    $piperDir = Join-Path $Root 'ZERE.Voice\Piper'
+    $toolsDir = Join-Path $Root 'tools'
     $ok = $true
 
     # 1. Whisper
@@ -569,47 +558,29 @@ function Install-VoiceAssets {
         }
     }
 
-    # 2. Движок Piper
-    $piperExe = Join-Path $piperDir 'piper.exe'
-    $espeakData = Join-Path $piperDir 'espeak-ng-data'
-    if ((Test-Path -LiteralPath $piperExe) -and (Test-Path -LiteralPath $espeakData)) {
-        Write-Info 'движок Piper уже установлен'
+    # 2. uv — менеджер Python: на нём работают ChatTTS (TTS-движок) и
+    # клонирование голоса (xVibePocketTTS). Отдельного «архива движка TTS»
+    # больше нет: ChatTTS uv скачивает сам при первом синтезе (~2–3 ГБ с torch).
+    $uvExe = Join-Path $toolsDir 'uv.exe'
+    if (Test-Path -LiteralPath $uvExe) {
+        Write-Info 'uv уже установлен'
     } else {
-        Write-Info $Artifacts.Piper.Label
-        $zipPath = Join-Path $env:TEMP 'zere-installer\piper_windows_amd64.zip'
-        if (-not (Get-Artifact -Url $Artifacts.Piper.Url -Dest $zipPath -Sha256 $Artifacts.Piper.Sha256 -Size $Artifacts.Piper.Size)) {
-            Write-Fail2 'не удалось скачать/проверить архив Piper'
+        Write-Info $Artifacts.Uv.Label
+        $zipPath = Join-Path $env:TEMP 'zere-installer\uv-windows.zip'
+        if (-not (Get-Artifact -Url $Artifacts.Uv.Url -Dest $zipPath -Sha256 $Artifacts.Uv.Sha256 -Size $Artifacts.Uv.Size)) {
+            Write-Fail2 'не удалось скачать/проверить архив uv'
             $ok = $false
         } else {
-            $stage = Join-Path $env:TEMP 'zere-installer\piper-extract'
-            if (Test-Path $stage) { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
             try {
-                Expand-Archive -LiteralPath $zipPath -DestinationPath $stage -Force
-                $src = Join-Path $stage 'piper'
-                if (-not (Test-Path $src)) { $src = $stage }
-                if (-not (Test-Path $piperDir)) { New-Item -ItemType Directory -Path $piperDir -Force | Out-Null }
-                Copy-Item -Path (Join-Path $src '*') -Destination $piperDir -Recurse -Force
-                Write-Info 'Piper распакован в ZERE.Voice\Piper'
+                if (-not (Test-Path -LiteralPath $toolsDir)) {
+                    New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
+                }
+                Expand-Archive -LiteralPath $zipPath -DestinationPath $toolsDir -Force
+                Write-Ok 'uv распакован в tools\'
             } catch {
-                Write-Fail2 ('ошибка распаковки Piper: ' + $_.Exception.Message)
+                Write-Fail2 ('ошибка распаковки uv: ' + $_.Exception.Message)
                 $ok = $false
             }
-        }
-    }
-
-    # 3. Голос по умолчанию (соответствует voice_config.py)
-    $voiceDest = Join-Path $piperDir 'ru_RU-ruslan-medium.onnx'
-    $voiceJsDest = Join-Path $piperDir 'ru_RU-ruslan-medium.onnx.json'
-    if ((Test-FileIntegrity -Path $voiceDest -Size $Artifacts.PiperVoice.Size -Sha256 $Artifacts.PiperVoice.Sha256) -and
-        (Test-Path -LiteralPath $voiceJsDest)) {
-        Write-Info 'голос ru_RU-ruslan-medium уже на месте'
-    } else {
-        Write-Info $Artifacts.PiperVoice.Label
-        $v1 = Get-Artifact -Url $Artifacts.PiperVoice.Url -Dest $voiceDest -Sha256 $Artifacts.PiperVoice.Sha256 -Size $Artifacts.PiperVoice.Size
-        $v2 = Get-Artifact -Url $Artifacts.PiperVoiceJs.Url -Dest $voiceJsDest -Sha256 $Artifacts.PiperVoiceJs.Sha256 -Size $Artifacts.PiperVoiceJs.Size
-        if (-not ($v1 -and $v2)) {
-            Write-Fail2 'не удалось скачать голос Piper'
-            $ok = $false
         }
     }
     return $ok
@@ -842,11 +813,10 @@ $venvState = Get-VenvState -VenvPy $venvPy
 $ollamaState = Get-OllamaState -WantedModel $Model
 
 $whisperPath = Join-Path $Prefix 'ZERE.Voice\Models\ggml-base.bin'
-$piperExePath = Join-Path $Prefix 'ZERE.Voice\Piper\piper.exe'
-$voicePath = Join-Path $Prefix 'ZERE.Voice\Piper\ru_RU-ruslan-medium.onnx'
+$uvExePath = Join-Path $Prefix 'tools\uv.exe'
 $whisperOk = Test-FileIntegrity -Path $whisperPath -Size $Artifacts.Whisper.Size -Sha256 $Artifacts.Whisper.Sha256
-$piperOk = (Test-Path $piperExePath) -and (Test-Path (Join-Path (Split-Path $piperExePath) 'espeak-ng-data'))
-$voiceOk = Test-FileIntegrity -Path $voicePath -Size $Artifacts.PiperVoice.Size -Sha256 $Artifacts.PiperVoice.Sha256
+# uv — менеджер Python: без него не работают ни ChatTTS (TTS), ни клонирование голоса
+$uvOk = Test-Path -LiteralPath $uvExePath
 
 $dotnetExe = Get-DotnetExe
 $dotnetOk = ($null -ne $dotnetExe) -and (Test-DotnetSdk10 -Exe $dotnetExe)
@@ -865,8 +835,7 @@ $needOllama = (-not $SkipOllama) -and (-not $ollamaState.Installed)
 $needServer = (-not $SkipOllama) -and $ollamaState.Installed -and (-not $ollamaState.Running)
 $needModel = (-not $SkipOllama) -and $ollamaState.Running -and (-not $ollamaState.Model)
 $needWhisper = (-not $SkipVoice) -and (-not $whisperOk)
-$needPiper = (-not $SkipVoice) -and (-not $piperOk)
-$needVoice = (-not $SkipVoice) -and (-not $voiceOk)
+$needUv = (-not $SkipVoice) -and (-not $uvOk)
 $needDotnetSdk = (($Edition -eq 'dotnet') -or ($Edition -eq 'both')) -and (-not $dotnetOk)
 $needPublish = (($Edition -eq 'dotnet') -or ($Edition -eq 'both')) -and (-not $publishOk)
 $needSpeaker = $dotnetOk -and (-not $speakerOk)
@@ -898,9 +867,9 @@ if ($CheckOnly) {
         Write-Info 'Голос: пропущено (-SkipVoice)'
     } else {
         _line $whisperOk ('Whisper ggml-base.bin: ' + $(if ($whisperOk) { 'SHA-256 совпал' } else { 'не установлен или битый' }))
-        _line $piperOk 'Движок Piper (piper.exe + espeak-ng-data)'
-        _line $voiceOk 'Голос ru_RU-ruslan-medium.onnx (SHA-256)'
-        if ($needWhisper -or $needPiper -or $needVoice) { Write-Info '=> потребуется скачивание голосовых артефактов (~220 МБ)' }
+        _line $uvOk ('uv (tools\uv.exe): ' + $(if ($uvOk) { 'на месте' } else { 'не установлен' }))
+        if ($needWhisper -or $needUv) { Write-Info '=> потребуется скачивание голосовых артефактов (~165 МБ)' }
+        Write-Info 'ChatTTS (TTS-движок) uv скачает сам при первом синтезе (~2–3 ГБ)'
     }
     if (($Edition -eq 'dotnet') -or ($Edition -eq 'both')) {
         _line $dotnetOk ('.NET SDK 10: ' + $(if ($dotnetOk) { 'найден' } else { 'не найден' }))
@@ -914,7 +883,7 @@ if ($CheckOnly) {
     if ($needPython) { $problems += 'Python' }
     if ($needVenv) { $problems += '.venv/зависимости' }
     if ($needOllama -or $needServer -or $needModel) { $problems += 'Ollama/модель' }
-    if ($needWhisper -or $needPiper -or $needVoice) { $problems += 'голос' }
+    if ($needWhisper -or $needUv) { $problems += 'голос' }
     if ($needDotnetSdk -or $needPublish) { $problems += '.NET/публикация' }
     if ($needPanel) { $problems += 'панель' }
     if ($needLauncher) { $problems += 'лаунчер' }
@@ -936,8 +905,7 @@ if ($needOllama)   { $plan += 'Установить Ollama (winget)' }
 if ($needServer)   { $plan += 'Запустить сервер Ollama' }
 if ($needModel)    { $plan += ('Загрузить модель Ollama "' + $Model + '" (интернет)' ) }
 if ($needWhisper)  { $plan += ('Скачать ' + $Artifacts.Whisper.Label) }
-if ($needPiper)    { $plan += ('Скачать ' + $Artifacts.Piper.Label) }
-if ($needVoice)    { $plan += ('Скачать ' + $Artifacts.PiperVoice.Label) }
+if ($needUv)       { $plan += ('Скачать ' + $Artifacts.Uv.Label) }
 if ($needDotnetSdk) { $plan += 'Установить .NET SDK 10 (winget)' }
 if ($needPublish)  { $plan += 'Опубликовать C#-версию (dotnet publish)' }
 if ($needSpeaker)  { $plan += 'Опубликовать C#-озвучку (dotnet publish ZERE.Speaker)' }
@@ -1037,13 +1005,13 @@ if (-not $SkipOllama) {
 
 # --- 4. Голос ---
 if (-not $SkipVoice) {
-    Write-Step 'Голосовые компоненты (Whisper, Piper, голос)'
+    Write-Step 'Голосовые компоненты (Whisper, uv)'
     $voiceOkAll = $true
-    if ($needWhisper -or $needPiper -or $needVoice) {
+    if ($needWhisper -or $needUv) {
         $voiceOkAll = Install-VoiceAssets -Root $Prefix
         Finish -Ok $voiceOkAll -Name 'Голосовые компоненты' -OkDetail 'скачано и проверено по SHA-256' -FailDetail 'часть артефактов не скачалась/не прошла проверку'
     } else {
-        Skip-Result -Name 'Голосовые компоненты' -Detail 'Whisper + Piper + голос на месте (SHA-256 совпали)'
+        Skip-Result -Name 'Голосовые компоненты' -Detail 'Whisper + uv на месте (SHA-256 совпали)'
     }
 } else {
     Add-Result -Name 'Голосовые компоненты' -Status skip -Detail 'пропущено (-SkipVoice)'

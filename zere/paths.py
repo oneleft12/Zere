@@ -59,8 +59,9 @@ def voice_dir() -> Path:
     return VOICE_DIR
 
 
-def piper_dir() -> Path:
-    return VOICE_DIR / "Piper"
+def chattts_dir() -> Path:
+    """Папка ChatTTS: вывод синтеза (output_*.wav) и профили голоса (voices/)."""
+    return VOICE_DIR / "ChatTts"
 
 
 def whisper_models_dir() -> Path:

@@ -58,25 +58,25 @@ class ZereConfig:
 
     # --- TTS (паритет с C# ZereConfig) -------------------
     # Движок озвучки: "pocket" — xVibePocketTTS (клонирование голоса),
-    # "piper" — классический синтез. У Python-порта PocketTTS пока нет,
-    # поэтому при любом значении фактически работает Piper (эквивалент
-    # отката pocket→piper из C#-версии).
+    # "chattts" — ChatTTS (нейросетевой синтез, замена Piper). У Python-порта
+    # PocketTTS нет, поэтому при любом значении фактически работает ChatTTS
+    # (эквивалент отката pocket→chattts из C#-версии).
     tts_engine: str = "pocket"
 
     # --- STT (паритет с C# ZereConfig, отчёт docs/STT_ENGINE_RESEARCH.md) ---
     # Движок распознавания речи: "gigaam" — GigaAM-v3 punct (sherpa-onnx,
     # основной; модель качается установщиком или при первой предзагрузке),
     # "whisper" — откат на Whisper. При сбое gigaam всегда откат на whisper
-    # (зеркало отката pocket→piper).
+    # (зеркало отката TTS-движков).
     stt_engine: str = "gigaam"
 
     # Путь к WAV-референсу голоса пользователя (пусто = встроенный голос).
     voice_reference_path: str = ""
 
-    # DSP-обработка озвучки Piper (EQ + мягкий компрессор + нормализация),
+    # DSP-обработка озвучки ChatTTS (EQ + мягкий компрессор + нормализация),
     # паритет с C# ZereConfig.AudioProcessing. Ключ config.json:
     # audioProcessing. Читается на каждое предложение (VoiceManager), поэтому
-    # переключается из панели на лету; false — «сырой» выход piper.
+    # переключается из панели на лету; false — «сырой» выход TTS.
     audio_processing: bool = True
 
     # --- Совместимость с C#-стилем обращений (Version, AssistantName, ...) ---

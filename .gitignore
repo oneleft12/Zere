@@ -140,16 +140,19 @@ Desktop.ini
 *.pt
 *.pb
 
-# Piper TTS (внешние бинарники)
-ZERE.Voice/Piper/*.exe
-ZERE.Voice/Piper/*.dll
-ZERE.Voice/Piper/espeak-ng-data/
-ZERE.Voice/Piper/pkgconfig/
+# ChatTTS (TTS-движок): вывод синтеза и пользовательские голоса — рантайм-данные
 # Промежуточные WAV синтеза и DSP (создаются и удаляются на лету)
-ZERE.Voice/Piper/output_*.wav
-ZERE.Voice/Piper/processed_*.wav
+ZERE.Voice/ChatTts/output_*.wav
+ZERE.Voice/ChatTts/processed_*.wav
+# Профили голоса пользователя (эмбеддинги *.pt закрыты общим правилом выше)
+ZERE.Voice/ChatTts/voices/
 
-# Если есть папка с бинарными моделями ML (Whisper, Piper и т.д.)
+# Наследие Piper: движок заменён на ChatTTS, код и модели удалены из репозитория.
+# У кого Piper был установлен раньше, бинарники остаются в рабочей копии —
+# в git они не попадают (удалить их можно `uninstall.ps1 -RemoveAssets`).
+ZERE.Voice/Piper/
+
+# Если есть папка с бинарными моделями ML (Whisper и т.д.)
 ZERE.Voice/Models/
 ZERE.AI/Models/
 # Записи микрофона (wake word и команды) — рантайм-данные, там голос пользователя

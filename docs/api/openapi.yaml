@@ -1099,7 +1099,7 @@ components:
           properties:
             engine:
               type: string
-              enum: [pocket, piper]
+              enum: [pocket, chattts]
             status:
               type: string
               enum: [configured]
@@ -1162,7 +1162,7 @@ components:
           maximum: 120
         ttsEngine:
           type: string
-          enum: [pocket, piper]
+          enum: [pocket, chattts]
         sttEngine:
           type: string
           enum: [gigaam, whisper]
@@ -1176,9 +1176,9 @@ components:
         audioProcessing:
           type: boolean
           description: >-
-            DSP-обработка озвучки Piper (EQ, мягкая компрессия, нормализация);
-            false — «сырой» выход piper. Необязательный ключ: старые клиенты
-            могут его не присылать.
+            DSP-обработка озвучки ChatTTS (EQ, мягкая компрессия,
+            нормализация); false — «сырой» выход TTS. Необязательный ключ:
+            старые клиенты могут его не присылать.
         llmKeepAlive:
           type: integer
           minimum: -1
@@ -1591,8 +1591,8 @@ components:
         speechSpeedConfig:
           type: boolean
           description: >
-            C# задаёт speechSpeed при Initialize; Python-пайплайн хардкодит
-            --length_scale 1.15 — настройка не подключена
+            speechSpeed передаётся в движок: ChatTTS получает темп токеном
+            [speed_N] (1.15 → 4) на каждый запрос, перезапуск не нужен
         liveVolumeApply:
           type: boolean
           description: Громкость читается на каждое воспроизведение (обе реализации)
@@ -1619,15 +1619,15 @@ components:
           maximum: 1
         ttsEngine:
           type: string
-          enum: [pocket, piper]
+          enum: [pocket, chattts]
         voiceReferencePath:
           type: string
         audioProcessing:
           type: boolean
           description: >
-            DSP-обработка озвучки Piper (EQ, мягкая компрессия, нормализация).
+            DSP-обработка озвучки ChatTTS (EQ, мягкая компрессия, нормализация).
             Читается на каждое предложение — переключается без перезапуска;
-            false — «сырой» выход piper
+            false — «сырой» выход TTS
         capabilities:
           $ref: "#/components/schemas/VoiceCapabilities"
 
@@ -1650,7 +1650,7 @@ components:
           maximum: 1
         ttsEngine:
           type: string
-          enum: [pocket, piper]
+          enum: [pocket, chattts]
         voiceReferencePath:
           type: string
         audioProcessing:
@@ -1678,7 +1678,7 @@ components:
           maximum: 1
         ttsEngine:
           type: string
-          enum: [pocket, piper]
+          enum: [pocket, chattts]
         voiceReferencePath:
           type: string
         audioProcessing:

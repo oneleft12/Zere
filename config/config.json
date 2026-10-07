@@ -7,7 +7,7 @@
   "voiceVolume": 0.5,
   "autoMemory": true,
   "ollamaTimeoutMinutes": 10,
-  "ttsEngine": "piper",
+  "ttsEngine": "chattts",
   "sttEngine": "gigaam",
   "voiceReferencePath": "",
   "audioProcessing": true,

@@ -1,5 +1,5 @@
 using ZERE.Voice.Audio;
-using ZERE.Voice.Piper;
+using ZERE.Voice.ChatTts;
 using ZERE.Voice.Pocket;
 using ZERE.Voice.Sherpa;
 using ZERE.Voice.WakeWord;
@@ -13,28 +13,33 @@ public class VoiceManager : IDisposable
     private readonly AudioPlayer _player = new();
     private readonly WhisperService _whisper = new();
     private readonly GigaAmService _gigaam = new();
-    private readonly PiperService _piper = new();
+    private readonly ChatTtsService _chattts = new();
     private readonly PocketTtsService _pocket = new();
     private readonly VoiceConfig _config = new();
     private readonly SemaphoreSlim _recordGate = new(1, 1);
     private WakeWordDetector? _wakeWordDetector;
     private CancellationTokenSource? _speakCts;
     private StreamPlayer? _activePlayer;
-    private string _ttsEngine = "piper";
+    private string _ttsEngine = "chattts";
     private string _voiceReferencePath = "";
     private string _sttEngine = "gigaam";
 
+    /// <summary>
+    /// Профили голоса ChatTTS под стиль личности. У ChatTTS нет именованных
+    /// голосов: профиль — детерминированное зерно эмбеддинга говорящего,
+    /// поэтому один профиль всегда звучит одинаково.
+    /// </summary>
     private readonly Dictionary<string, string> _personalityVoices = new()
     {
-        ["Friendly"] = "ru_RU-ruslan-medium",
-        ["Formal"] = "ru_RU-dmitri-medium",
-        ["Sarcastic"] = "ru_RU-ruslan-medium",
-        ["Professional"] = "ru_RU-dmitri-medium",
-        ["Casual"] = "ru_RU-ruslan-medium"
+        ["Friendly"] = "zere-warm",
+        ["Formal"] = "zere-strict",
+        ["Sarcastic"] = "zere-ironic",
+        ["Professional"] = "zere-business",
+        ["Casual"] = "zere-casual"
     };
 
     public bool IsVoiceAvailable => ActiveStt.IsInstalled();
-    public bool IsTtsAvailable => _pocket.IsAvailable || _piper.IsLoaded;
+    public bool IsTtsAvailable => _pocket.IsAvailable || _chattts.IsLoaded;
     public VoiceConfig Config => _config;
 
     /// <summary>
@@ -74,7 +79,7 @@ public class VoiceManager : IDisposable
     /// <summary>
     /// Настройка движка озвучки ДО Initialize.
     /// engine: "pocket" — клонирование голоса (xVibePocketTTS, потоковый PCM),
-    /// "piper" — классический синтез по предложениям.
+    /// "chattts" — нейросетевой синтез ChatTTS (попредложенно, замена Piper).
     /// voiceReferencePath — WAV с образцом голоса пользователя (пусто = встроенный).
     /// </summary>
     public void ConfigureTts(string engine, string voiceReferencePath)
@@ -85,7 +90,7 @@ public class VoiceManager : IDisposable
 
     public bool Initialize(string? personalityStyle = null)
     {
-        var voiceName = _config.PiperVoice;
+        var voiceName = _config.ChatTtsVoice;
 
         if (personalityStyle != null &&
             _personalityVoices.TryGetValue(personalityStyle, out var styleVoice))
@@ -93,22 +98,22 @@ public class VoiceManager : IDisposable
             voiceName = styleVoice;
         }
 
-        // Параметры инференса (скорость речи, пауза после предложения) —
-        // до Initialize, чтобы процесс piper сразу стартовал с ними.
-        _piper.SetInferenceParams(_config.SpeechSpeed, _config.SentenceSilence);
+        // Параметры инференса (темп речи, пауза после предложения) — до
+        // Initialize; у ChatTTS они уходят в каждый запрос, перезапуск не нужен.
+        _chattts.SetInferenceParams(_config.SpeechSpeed, _config.SentenceSilence);
 
-        var ttsReady = _piper.Initialize(voiceName);
+        var ttsReady = _chattts.Initialize(voiceName);
 
         if (ttsReady)
         {
-            Console.WriteLine($"[Voice] TTS готов. Голос: {_piper.CurrentVoice}");
+            Console.WriteLine($"[Voice] TTS готов. Голос: {_chattts.CurrentVoice}");
         }
         else
         {
             Console.WriteLine("[Voice] TTS недоступен. Только текстовый режим.");
         }
 
-        // Этап 2: клонирование голоса (PocketTTS); при сбое — откат на Piper.
+        // Этап 2: клонирование голоса (PocketTTS); при сбое — откат на ChatTTS.
         if (_ttsEngine.Equals("pocket", StringComparison.OrdinalIgnoreCase))
         {
             if (_pocket.Initialize(_voiceReferencePath))
@@ -117,7 +122,7 @@ public class VoiceManager : IDisposable
             }
             else
             {
-                Console.WriteLine("[Voice] PocketTTS недоступен — используем Piper.");
+                Console.WriteLine("[Voice] PocketTTS недоступен — используем ChatTTS.");
             }
         }
 
@@ -128,7 +133,7 @@ public class VoiceManager : IDisposable
     {
         if (_personalityVoices.TryGetValue(style, out var voice))
         {
-            _piper.SetVoice(voice);
+            _chattts.SetVoice(voice);
             Console.WriteLine($"[Voice] Голос изменён на: {voice} (стиль: {style})");
         }
     }
@@ -166,8 +171,8 @@ public class VoiceManager : IDisposable
 
     /// <summary>
     /// Транскрибация через активный STT-движок с автоматическим откатом:
-    /// сбой GigaAM уводит на Whisper — зеркало отката pocket→piper (§5 плана
-    /// STT-исследования).
+    /// сбой GigaAM уводит на Whisper — зеркало отката TTS-движков
+    /// (pocket→chattts, §5 плана STT-исследования).
     /// </summary>
     private async Task<string> TranscribeSttAsync(string wavFile, int timeoutSeconds = 30)
     {
@@ -237,7 +242,7 @@ public class VoiceManager : IDisposable
 
     public async Task SpeakAsync(string text)
     {
-        if (!_pocket.IsAvailable && !_piper.IsLoaded)
+        if (!_pocket.IsAvailable && !_chattts.IsLoaded)
         {
             Console.WriteLine($"[ZERE] {text}");
             return;
@@ -258,7 +263,7 @@ public class VoiceManager : IDisposable
         {
             spoken = _pocket.IsAvailable
                 ? await SpeakPocketAsync(text, ct)
-                : await SpeakPiperAsync(text, ct);
+                : await SpeakChatTtsAsync(text, ct);
         }
         catch (OperationCanceledException)
         {
@@ -278,16 +283,16 @@ public class VoiceManager : IDisposable
     }
 
     /// <summary>
-    /// Попредложенное воспроизведение через Piper: первое предложение играет,
+    /// Попредложенное воспроизведение через ChatTTS: первое предложение играет,
     /// пока следующее ещё синтезируется. Здесь же применяется DSP-обработка.
     /// </summary>
-    private async Task<int> SpeakPiperAsync(string text, CancellationToken ct)
+    private async Task<int> SpeakChatTtsAsync(string text, CancellationToken ct)
     {
         var spoken = 0;
         var firstAudioLogged = false;
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
-        await foreach (var wavFile in _piper.SynthesizeStreamAsync(text, ct))
+        await foreach (var wavFile in _chattts.SynthesizeStreamAsync(text, ct))
         {
             if (ct.IsCancellationRequested)
             {
@@ -298,8 +303,8 @@ public class VoiceManager : IDisposable
             string fileToPlay = wavFile;
 
             // Профессиональная DSP-обработка: ресемплинг под устройство, EQ,
-            // компрессия, нормализация. Ресемплинг здесь обязателен: piper
-            // отдаёт 22050 Гц, и если отдать их как есть, NAudio/WASAPI будет
+            // компрессия, нормализация. Ресемплинг здесь обязателен: ChatTTS
+            // отдаёт 24000 Гц, и если отдать их как есть, NAudio/WASAPI будет
             // конвертировать сам — своим слабым ресемплером, что и даёт
             // «металлический» призвук на выходе.
             if (_config.AudioProcessing)
@@ -310,7 +315,7 @@ public class VoiceManager : IDisposable
             if (!firstAudioLogged)
             {
                 firstAudioLogged = true;
-                Console.WriteLine($"[Perf] TTS first audio={sw.ElapsedMilliseconds} мс (piper)");
+                Console.WriteLine($"[Perf] TTS first audio={sw.ElapsedMilliseconds} мс (chattts)");
             }
 
             await _player.PlayAsync(fileToPlay, _config.Volume);
@@ -366,16 +371,16 @@ public class VoiceManager : IDisposable
             {
                 // Анализ F2: сбой потока TTS не должен оставлять движок
                 // «мертвым» до конца сессии — помечаем недоступным, запускаем
-                // фоновое восстановление сервера и откатываемся на Piper
+                // фоновое восстановление сервера и откатываемся на ChatTTS
                 // уже для этой же реплики.
                 Console.WriteLine($"[Pocket] Сбой потока TTS: {ex.Message}");
                 _pocket.MarkUnavailableAndRecover();
 
-                if (_piper.IsLoaded)
+                if (_chattts.IsLoaded)
                 {
-                    Console.WriteLine("[Voice] Откат на Piper для этой реплики.");
+                    Console.WriteLine("[Voice] Откат на ChatTTS для этой реплики.");
                     player.Stop();
-                    return await SpeakPiperAsync(text, ct);
+                    return await SpeakChatTtsAsync(text, ct);
                 }
 
                 return received > 0 ? 1 : 0;
@@ -679,7 +684,7 @@ public class VoiceManager : IDisposable
         _speakCts?.Dispose();
         _activePlayer?.Dispose();
         _pocket.Dispose();
-        _piper.Dispose();
+        _chattts.Dispose();
         _recorder.Dispose();
         _player.Dispose();
         _wakeWordDetector?.Dispose();

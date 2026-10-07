@@ -32,7 +32,7 @@ from zere.core.logging.log_service import log_error
 from zere.core.plugins.plugin_config import PluginConfig
 from zere.core.update.updater import UpdateBusyError, UpdateService
 # Только раннер: он тянет лишь log_error/threading — сервер панели
-# по-прежнему собирается без тяжёлых голосовых зависимостей (Whisper/Piper).
+# по-прежнему собирается без тяжёлых голосовых зависимостей (Whisper/ChatTTS).
 from zere.voice.voice_mode import VoiceModeRunner
 # Только enum: сам SafeActionManager тянет psutil (ProcessService),
 # а сервер панели обязан собираться без голосовых/системных зависимостей.
@@ -43,7 +43,7 @@ _MAX_BODY_BYTES = 64 * 1024
 _MAX_TEXT_LENGTH = 4000
 
 _ALLOWED_HOSTS = frozenset({"127.0.0.1", "localhost"})
-_ALLOWED_TTS_ENGINES = ("pocket", "piper")
+_ALLOWED_TTS_ENGINES = ("pocket", "chattts")
 # STT: gigaam — GigaAM-v3 (основной), whisper — откат
 # (отчёт docs/STT_ENGINE_RESEARCH.md, §5).
 _ALLOWED_STT_ENGINES = ("gigaam", "whisper")
@@ -538,7 +538,7 @@ class _PanelHandler(BaseHTTPRequestHandler):
 
         engine_name = config.tts_engine
         if engine_name not in _ALLOWED_TTS_ENGINES:
-            engine_name = "piper"
+            engine_name = "chattts"
 
         try:
             count = len(self.panel.memory.get_all())
@@ -957,7 +957,7 @@ class _PanelHandler(BaseHTTPRequestHandler):
             # Python-порт не записывает референс: у VoiceManager нет метода
             "recordReference": hasattr(voice, "record_voice_reference"),
             "pocketCloning": False,  # PocketTTS только в C#-версии
-            "speechSpeedConfig": False,  # piper хардкодит --length_scale
+            "speechSpeedConfig": True,  # ChatTTS получает [speed_N] из speech_speed
             "liveVolumeApply": True,  # громкость читается на каждое воспроизведение
             "sttTest": bool(getattr(voice, "is_voice_available", False)),
         }
@@ -1859,7 +1859,7 @@ def _validate_config_payload(payload: Any) -> Optional[str]:
         return "Ключ «language» допускает только «ru» или «en»."
 
     if payload["ttsEngine"] not in _ALLOWED_TTS_ENGINES:
-        return "Ключ «ttsEngine» допускает только «pocket» или «piper»."
+        return "Ключ «ttsEngine» допускает только «pocket» или «chattts»."
 
     if "sttEngine" in payload and payload["sttEngine"] not in _ALLOWED_STT_ENGINES:
         return "Ключ «sttEngine» допускает только «gigaam» или «whisper»."
@@ -1942,7 +1942,7 @@ def _validate_voice_payload(payload: Any) -> Optional[str]:
             return "Ключ «voiceVolume» должен быть в диапазоне 0…1."
 
     if "ttsEngine" in payload and payload["ttsEngine"] not in _ALLOWED_TTS_ENGINES:
-        return "Ключ «ttsEngine» допускает только «pocket» или «piper»."
+        return "Ключ «ttsEngine» допускает только «pocket» или «chattts»."
 
     if "voiceReferencePath" in payload and not isinstance(payload["voiceReferencePath"], str):
         return "Ключ «voiceReferencePath» должен быть строкой."

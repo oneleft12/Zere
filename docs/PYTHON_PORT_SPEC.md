@@ -14,7 +14,7 @@
 8. Логика, форматирование строк, порядок проверок — максимально близко к исходнику. Это **порт**, а не редизайн: не добавлять фичи, не менять поведение.
 9. **Типизация:** аннотации типов во всех публичных функциях; `typing.Optional`/`| None`.
 10. **Запрещено:** использовать `backups/`, менять C#-файлы, выполнять git-команды, создавать файлы вне своей подсистемы, использовать asyncio, DI-фреймворки (порт Microsoft.Extensions.DI — свой мини-контейнер в `zere/core/services.py`).
-11. **Бинарники не копировать.** Ресурсы берём по существующим путям через `zere.paths` (см. ниже): модели Whisper, Piper, `config/config.json`, `zere.db`, `logs/`.
+11. **Бинарники не копировать.** Ресурсы берём по существующим путям через `zere.paths` (см. ниже): модели Whisper, папка ChatTTS (`ZERE.Voice/ChatTts`), `config/config.json`, `zere.db`, `logs/`.
 12. Каждый записанный файл **обязательно проверить**: `python3 -m py_compile <файл>`.
 
 ## Целевая структура (модульный маппинг)
@@ -73,7 +73,7 @@ zere/voice/
   voice_manager.py   VoiceManager
   voice_config.py    VoiceConfig
   whisper/whisper_service.py  WhisperService
-  piper/piper_service.py      PiperService
+  chattts/{chattts_manager,chattts_service}.py  ChatTTSManager + ChatTtsService
   wakeword/wake_word_detector.py  WakeWordDetector
   audio/{audio_recorder,audio_player,audio_preprocessor,audio_processor,
          continuous_audio_recorder}.py
@@ -94,7 +94,7 @@ zere/voice/
 | P/Invoke CoreAudio (громкость) | `pycaw` (+ `comtypes` если нужен COM напрямую) |
 | `System.Drawing` (скриншот) | `mss` (захват) + `Pillow` (сохранение PNG) |
 | `Whisper.net` (ggml) | `faster-whisper`: `WhisperModel(размер_или_путь, device="cpu", compute_type="int8")`; по умолчанию `"base"`; путь к локальной CT2-модели — из конфига. В комментарии указать, что ggml-base.bin whisper.cpp формата и faster-whisper сам скачает/или модель конвертируется. |
-| Запуск `piper.exe` | как в C#: `subprocess` с поиском исполняемого в `zere.paths.voice_dir()/Piper` (логику FindPiperExecutable повторить) |
+| TTS в C# (`ChatTtsService` + сайдкар `tools/zere_chattts_server.py`) | в Python-порте — `zere/voice/chattts/` (`pip install ChatTTS soundfile`); сайдкар нужен только C#-редакции, чтобы не тянуть Python в процесс |
 | P/Invoke питание (ExitWindowsEx и т.п.) | повторить через `ctypes.windll` если в исходнике P/Invoke; иначе `subprocess` |
 | `Microsoft.Extensions.DependencyInjection` | мини-контейнер в `zere/core/services.py` |
 

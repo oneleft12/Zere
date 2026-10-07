@@ -43,17 +43,11 @@ EXPECTED_ARTIFACTS = {
         "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
         147951465,
     ),
-    "Piper": (
-        "f3c58906402b24f3a96d92145f58acba6d86c9b5db896d207f78dc80811efcea",
-        22477236,
-    ),
-    "PiperVoice": (
-        "72a5f88e0b20928064eb45d88e1daa21f8af62d18613580d32cbb4aed48dcf7f",
-        63201294,
-    ),
-    "PiperVoiceJs": (
-        "706a4fb17bc304abd07809b552deae615e64dcbffbfbd09854ba37ca59e88117",
-        4882,
+    # ChatTTS (TTS-движок) отдельным артефактом не скачивается: его ставит uv
+    # при первом синтезе. Установщик качает сам менеджер Python — uv.
+    "Uv": (
+        "75d05de6762778c31ee183398de7dd15093fad0ed90b1f236d8205ea5ec00c90",
+        18043715,
     ),
 }
 

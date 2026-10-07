@@ -20,7 +20,12 @@ public class VoiceConfig
     /// </summary>
     public string SttEngine { get; set; } = "gigaam";
 
-    public string PiperVoice { get; set; } = "ru_RU-ruslan-medium";
+    /// <summary>
+    /// Профиль голоса ChatTTS. У ChatTTS нет именованных голосов: профиль —
+    /// детерминированное зерно эмбеддинга говорящего (crc32 имени), поэтому
+    /// один профиль всегда звучит одинаково. Паритет с Python VoiceConfig.
+    /// </summary>
+    public string ChatTtsVoice { get; set; } = "zere-standard";
 
     public int MicrophoneIndex { get; set; } = 0;
 
@@ -34,20 +39,21 @@ public class VoiceConfig
     /// Включить DSP-обработку голоса (EQ, мягкая компрессия, нормализация).
     /// Делает звук более «кинематографичным». Значение приходит из config.json
     /// (ключ audioProcessing) через VoiceManager/панель и читается на каждое
-    /// предложение — переключается без перезапуска. false = «сырой» выход piper.
+    /// предложение — переключается без перезапуска. false = «сырой» выход TTS.
     /// </summary>
     public bool AudioProcessing { get; set; } = true;
 
     /// <summary>
     /// Множитель скорости речи (1.0 = норма, меньше = быстрее, больше = медленнее).
     /// 1.15 — медленная, уверенная подача для кинематографичного стиля.
-    /// Передаётся piper как --length_scale.
+    /// Передаётся ChatTTS как токен [speed_N] (дискретная шкала 1…9): 1.15 → 4.
     /// </summary>
     public float SpeechSpeed { get; set; } = 1.15f;
 
     /// <summary>
-    /// Пауза (в секундах) после каждого предложения во время синтеза
-    /// (piper --sentence_silence). Меньше — отзывчивее.
+    /// Пауза (в секундах) после каждого предложения во время синтеза:
+    /// сервер ChatTTS дописывает эту тишину в конец WAV-предложения.
+    /// Меньше — отзывчивее.
     /// </summary>
     public float SentenceSilence { get; set; } = 0.2f;
 
