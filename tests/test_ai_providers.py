@@ -240,16 +240,57 @@ def test_redact_secrets_masks_keys_in_logs() -> None:
 # ── 2. Проверка облачного ключа ────────────────────────────────────
 
 
-def test_cloud_test_key_ok_via_models() -> None:
-    session = FakeSession().route("GET", "/models", models_response(["gpt-4o-mini", "o3-mini"]))
+def test_cloud_test_key_probes_chat_even_with_public_models() -> None:
+    """У части шлюзов /models публичный: ключ подтверждаем мини-запросом.
+
+    OpenCode Go отдаёт список моделей без ключа, поэтому проверка только по
+    /models показывала бы «рабочий» при опечатке в ключе.
+    """
+    session = (
+        FakeSession()
+        .route("GET", "/models", models_response(["gpt-4o-mini", "o3-mini"]))
+        .route("POST", "/chat/completions", chat_response("pong"))
+    )
     result = CloudClient(session).test_key("https://api.openai.com/v1", GOOD_KEY, "gpt-4o-mini")
 
     assert result["ok"] is True
-    assert result["checkedWith"] == "models"
-    assert result["models"] == ["gpt-4o-mini", "o3-mini"]
+    assert result["checkedWith"] == "chat"
+    assert result["models"] == ["gpt-4o-mini", "o3-mini"], "список моделей всё равно показываем"
+    assert session.json_bodies("POST")[0]["max_tokens"] == 1, "мини-запрос, а не полный ответ"
     # Ключ уходит в заголовке Authorization — и нигде больше.
     _method, _url, kwargs = session.calls[0]
     assert kwargs["headers"]["Authorization"] == f"Bearer {GOOD_KEY}"
+
+
+def test_cloud_test_key_detects_wrong_key_with_public_models() -> None:
+    """Публичный /models + неверный ключ: проверка обязана его отклонить."""
+    session = (
+        FakeSession()
+        .route("GET", "/models", models_response(["gpt-4o-mini"]))
+        .route("POST", "/chat/completions", error_response(401, "invalid api key"))
+    )
+
+    try:
+        CloudClient(session).test_key("https://opencode.ai/zen/go/v1", "oc-wrong-key", "glm-5.3-flash")
+    except AiError as ex:
+        assert ex.code == CODE_KEY_INVALID, ex.code
+    else:
+        raise AssertionError("неверный ключ не должен считаться рабочим")
+
+
+def test_cloud_client_identifies_itself_to_opencode() -> None:
+    """OpenCode Go просит свой User-Agent и стабильный x-opencode-session."""
+    session = FakeSession().route("GET", "/models", models_response(["glm-5.3-flash"]))
+    CloudClient(session).list_models("https://opencode.ai/zen/go/v1", GOOD_KEY)
+
+    headers = session.calls[0][2]["headers"]
+    assert headers["User-Agent"] == "ZERE/1.8.0"
+    assert headers["x-opencode-session"], "идентификатор сессии нужен для кэша промптов"
+
+    # Для других провайдеров лишний заголовок не отправляем.
+    other = FakeSession().route("GET", "/models", models_response(["gpt-4o-mini"]))
+    CloudClient(other).list_models("https://api.openai.com/v1", GOOD_KEY)
+    assert "x-opencode-session" not in other.calls[0][2]["headers"]
 
 
 def test_cloud_test_key_falls_back_to_chat_probe() -> None:
@@ -710,7 +751,12 @@ def test_proxy_matches_ollama_client_interface() -> None:
 def test_presets_cover_requested_providers() -> None:
     ids = [preset["id"] for preset in PROVIDER_PRESETS]
     assert ids[:4] == ["openai", "deepseek", "openrouter", "groq"]
+    assert "opencode-go" in ids, "подписка OpenCode Go — готовый пресет"
     assert ids[-1] == "custom"
+
+    opencode = next(preset for preset in PROVIDER_PRESETS if preset["id"] == "opencode-go")
+    assert opencode["baseUrl"] == "https://opencode.ai/zen/go/v1"
+    assert opencode["model"] == "glm-5.3-flash"
 
     for preset in PROVIDER_PRESETS:
         assert preset["label"]

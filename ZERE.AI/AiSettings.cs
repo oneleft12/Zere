@@ -68,6 +68,11 @@ public sealed class AiSettings
             "https://openrouter.ai/keys"),
         new("groq", "Groq", "https://api.groq.com/openai/v1", "llama-3.1-8b-instant",
             "https://console.groq.com/keys"),
+        // OpenAI-совместимый Chat Completions: https://opencode.ai/zen/go/v1
+        // Модели Responses/Anthropic (grok, gpt-*-luna, minimax, qwen) здесь
+        // не подходят — выбран glm как дешёвый и с большим месячным лимитом.
+        new("opencode-go", "OpenCode Go (подписка)", "https://opencode.ai/zen/go/v1",
+            "glm-5.3-flash", "https://opencode.ai/console"),
         new("custom", "Свой OpenAI-совместимый сервер", "", "", ""),
     ];
 

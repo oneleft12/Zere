@@ -2731,8 +2731,16 @@ def _require_inprocess_ai() -> bool:
 
 
 def _ai_session_with_key() -> FakeSession:
-    """HTTP-фейк: облачный /models отвечает, локальный сервер не запущен."""
-    return FakeSession().route("GET", "/models", models_response(["gpt-4o-mini"]))
+    """HTTP-фейк: облачный /models и мини-запрос к чату отвечают.
+
+    Мини-запрос нужен потому, что ключ подтверждается ещё и запросом к
+    модели (`max_tokens=1`) — /models у части шлюзов публичный.
+    """
+    return (
+        FakeSession()
+        .route("GET", "/models", models_response(["gpt-4o-mini"]))
+        .route("POST", "/chat/completions", chat_response("pong"))
+    )
 
 
 def _ai_session_with_local(model: str = "qwen3.5:2b") -> FakeSession:

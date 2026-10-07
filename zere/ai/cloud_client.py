@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Any, Optional
 
 import requests
@@ -40,6 +41,13 @@ MESSAGE_EMPTY_ANSWER = "Провайдер вернул пустой ответ"
 
 DEFAULT_TIMEOUT = 60
 TEST_TIMEOUT = 20
+
+# Клиент представляется своим именем (OpenCode Go просит не выглядеть
+# безликой HTTP-библиотекой) и держит стабильный идентификатор сессии на
+# процесс — по нему шлюз оптимизирует маршрутизацию и кэш промптов.
+USER_AGENT = "ZERE/1.8.0"
+SESSION_HEADER = "x-opencode-session"
+_SESSION_ID = uuid.uuid4().hex
 
 
 class AiError(Exception):
@@ -119,10 +127,14 @@ class CloudClient:
         return (base_url or "").strip().rstrip("/")
 
     @staticmethod
-    def _auth_headers(api_key: str) -> dict[str, str]:
-        headers = {"Content-Type": "application/json"}
+    def _auth_headers(api_key: str, base_url: str = "") -> dict[str, str]:
+        headers = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
+        # Шлюзу OpenCode нужен идентификатор сессии: без него теряется
+        # кэш промптов, а трафик может выглядеть как анонимный.
+        if "opencode.ai" in base_url:
+            headers[SESSION_HEADER] = _SESSION_ID
         return headers
 
     # ── Проверка ключа (требование 3) ───────────────────────────────
@@ -136,7 +148,7 @@ class CloudClient:
         try:
             response = self._session.get(
                 url,
-                headers=self._auth_headers(api_key),
+                headers=self._auth_headers(api_key, base_url),
                 timeout=timeout or self._test_timeout,
             )
         except requests.exceptions.RequestException as ex:
@@ -163,7 +175,12 @@ class CloudClient:
     def test_key(
         self, base_url: str, api_key: str, model: str
     ) -> dict[str, Any]:
-        """Проверяет ключ рабочим запросом: сначала /models, затем мини-запрос.
+        """Проверяет ключ рабочими запросами: список моделей + мини-запрос к чату.
+
+        Одного `/models` мало: у части шлюзов (например, OpenCode Go) он
+        публичный и отдаёт список даже с неверным ключом — тогда «рабочий»
+        показывался бы при опечатке. Поэтому ключ всегда проверяется ещё и
+        минимальным запросом к выбранной модели (`max_tokens=1`).
 
         Возвращает {ok, models, checkedWith, message}. Ошибка — AiError.
         """
@@ -178,23 +195,26 @@ class CloudClient:
             # Прочие ответы (404/405 у части совместимых серверов, сеть)
             # не приговор: проверяем ключ минимальным запросом к чату.
 
-        if models:
-            return {
-                "ok": True,
-                "models": models[:100],
-                "checkedWith": "models",
-                "message": f"Ключ рабочий — доступно моделей: {len(models)}.",
-            }
+        try:
+            self._chat_probe(base_url, api_key, model)
+        except AiError as ex:
+            # Сеть дала сбой на мини-запросе, но список моделей уже пришёл:
+            # доступность и ключ подтверждены, сетевой сбой не считаем
+            # приговором ключу. Остальные ошибки (ключ, баланс, лимит,
+            # модель) — окончательные.
+            if not (ex.code == CODE_NETWORK and models):
+                raise
 
-        # Ключ рабочий, но /models недоступен или пуст: минимальный
-        # тестовый запрос к чату (max_tokens=1) — это и есть «рабочая» проверка.
-        self._chat_probe(base_url, api_key, model)
+        message = f"Ключ рабочий — тестовый запрос к модели «{model}» прошёл."
+
+        if models:
+            message += f" Доступно моделей: {len(models)}."
 
         return {
             "ok": True,
-            "models": [],
+            "models": models[:100],
             "checkedWith": "chat",
-            "message": "Ключ рабочий — тестовый запрос к модели прошёл.",
+            "message": message,
         }
 
     def _chat_probe(self, base_url: str, api_key: str, model: str) -> None:
@@ -210,7 +230,7 @@ class CloudClient:
         try:
             response = self._session.post(
                 url,
-                headers=self._auth_headers(api_key),
+                headers=self._auth_headers(api_key, base_url),
                 json=body,
                 timeout=self._test_timeout,
             )
@@ -258,7 +278,7 @@ class CloudClient:
         try:
             response = self._session.post(
                 url,
-                headers=self._auth_headers(api_key),
+                headers=self._auth_headers(api_key, base_url),
                 json=body,
                 timeout=self._timeout,
             )

@@ -3,15 +3,15 @@
   "assistantName": "ZERE",
   "language": "ru",
   "model": "qwen3.5:2b",
-  "voiceEnabled": true,
+  "voiceEnabled": false,
   "voiceVolume": 0.5,
   "autoMemory": true,
   "ollamaTimeoutMinutes": 10,
+  "llmKeepAlive": -1,
+  "llmMaxTokens": 96,
+  "llmTimeoutSeconds": 60,
   "ttsEngine": "chattts",
   "sttEngine": "gigaam",
   "voiceReferencePath": "",
-  "audioProcessing": true,
-  "llmKeepAlive": -1,
-  "llmMaxTokens": 96,
-  "llmTimeoutSeconds": 60
+  "audioProcessing": true
 }

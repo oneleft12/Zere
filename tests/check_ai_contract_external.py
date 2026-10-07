@@ -148,6 +148,12 @@ def run_full_flow() -> list[str]:
             status, raw, _ = panel.call(external, "GET", "/api/ai")
             record("--full: панель отвечает", status == 200, status)
 
+            # Режим мог быть «локальная модель» (настройка пользователя): тогда
+            # ключ игнорируется и чат уходит в Ollama. На время проверки
+            # переключаем на облако — config/ai.json восстанавливается в finally.
+            status, _, _ = panel.call(external, "POST", "/api/ai/settings", body={"mode": "cloud"})
+            record("--full: режим cloud на время проверки", status == 200, status)
+
             status, raw, _ = panel.call(
                 external,
                 "POST",

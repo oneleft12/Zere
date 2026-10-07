@@ -66,6 +66,16 @@ PROVIDER_PRESETS: tuple[dict[str, str], ...] = (
         "docsUrl": "https://console.groq.com/keys",
     },
     {
+        # OpenAI-совместимый Chat Completions: https://opencode.ai/zen/go/v1
+        # Модели Responses/Anthropic (grok, gpt-*-luna, minimax, qwen) здесь
+        # не подходят — выбран glm как дешёвый и с большим месячным лимитом.
+        "id": "opencode-go",
+        "label": "OpenCode Go (подписка)",
+        "baseUrl": "https://opencode.ai/zen/go/v1",
+        "model": "glm-5.3-flash",
+        "docsUrl": "https://opencode.ai/console",
+    },
+    {
         "id": "custom",
         "label": "Свой OpenAI-совместимый сервер",
         "baseUrl": "",

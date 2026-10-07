@@ -31,6 +31,17 @@ public sealed class CloudClient : IDisposable
     public const int DefaultTimeoutSeconds = 60;
     public const int TestTimeoutSeconds = 20;
 
+    /// <summary>
+    /// Клиент представляется своим именем (OpenCode Go просит не выглядеть
+    /// безликой HTTP-библиотекой) и держит стабильный идентификатор сессии
+    /// на процесс — по нему шлюз оптимизирует маршрутизацию и кэш промптов.
+    /// </summary>
+    private const string UserAgent = "ZERE/1.8.0";
+
+    private const string SessionHeader = "x-opencode-session";
+
+    private static readonly string SessionId = Guid.NewGuid().ToString("N");
+
     private readonly HttpClient _http;
     private readonly bool _ownsHttp;
 
@@ -128,22 +139,28 @@ public sealed class CloudClient : IDisposable
             // не приговор: проверяем ключ минимальным запросом к чату.
         }
 
-        if (models.Count > 0)
+        // Одного списка моделей мало: у части шлюзов (например, OpenCode Go)
+        // он публичный и отдаётся даже с неверным ключом, поэтому ключ всегда
+        // подтверждаем мини-запросом к выбранной модели (max_tokens=1).
+        try
         {
-            return new KeyTestResult(
-                true,
-                $"Ключ рабочий — доступно моделей: {models.Count}.",
-                models.Take(100).ToList(),
-                "models",
-                AiSettings.MaskKey(apiKey));
+            await ChatProbeAsync(baseUrl, apiKey, model, cancellationToken);
+        }
+        catch (AiError ex) when (ex.Code == AiErrorCodes.Network && models.Count > 0)
+        {
+            // Сеть дала сбой на мини-запросе, но список моделей уже пришёл:
+            // ключ и доступность подтверждены — сбой не приговор.
         }
 
-        await ChatProbeAsync(baseUrl, apiKey, model, cancellationToken);
+        var message = $"Ключ рабочий — тестовый запрос к модели «{model}» прошёл.";
+
+        if (models.Count > 0)
+            message += $" Доступно моделей: {models.Count}.";
 
         return new KeyTestResult(
             true,
-            "Ключ рабочий — тестовый запрос к модели прошёл.",
-            [],
+            message,
+            models.Take(100).ToList(),
             "chat",
             AiSettings.MaskKey(apiKey));
     }
@@ -292,8 +309,15 @@ public sealed class CloudClient : IDisposable
     {
         using var request = new HttpRequestMessage(method, url);
 
+        request.Headers.TryAddWithoutValidation("User-Agent", UserAgent);
+
         if (!string.IsNullOrEmpty(apiKey))
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+
+        // Шлюзу OpenCode нужен идентификатор сессии: без него теряется кэш
+        // промптов, а трафик может выглядеть как анонимный.
+        if (url.Contains("opencode.ai", StringComparison.Ordinal))
+            request.Headers.TryAddWithoutValidation(SessionHeader, SessionId);
 
         if (body is not null)
         {

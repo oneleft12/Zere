@@ -2186,7 +2186,7 @@ components:
       properties:
         id:
           type: string
-          enum: [openai, deepseek, openrouter, groq, custom]
+          enum: [openai, deepseek, openrouter, groq, opencode-go, custom]
         label:
           type: string
         baseUrl:
@@ -2246,7 +2246,7 @@ components:
       properties:
         provider:
           type: string
-          enum: [openai, deepseek, openrouter, groq, custom]
+          enum: [openai, deepseek, openrouter, groq, opencode-go, custom]
         baseUrl:
           type: string
         model:
