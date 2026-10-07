@@ -10,10 +10,12 @@ pillow>=10.0
 wmi>=1.5.1; sys_platform == "win32"
 
 # ── TTS: ChatTTS (замена Piper) ─────────────────────────────────────
-# ChatTTS тянет torch и numba, у которых нет сборок под Python 3.13+,
-# поэтому пакет ставится только на совместимом интерпретаторе (маркер ниже);
-# для C#-редакции то же самое делает tools/uv.exe с `--python 3.12`
+# Ставится из исходников (на PyPI только sdist) и тянет torch/torchaudio/
+# numba: ~2–3 ГБ и несколько минут. Зависимости имеют колёса для Python
+# 3.10–3.14 (проверено по PyPI: torch 2.14, torchaudio 2.11, numba 0.68,
+# pybase16384 0.3.9), поэтому маркеров по версии Python нет. Для C#-редакции
+# то же окружение поднимает tools/uv.exe с `--python 3.12`
 # (см. ZERE.Voice/ChatTts/ChatTtsService.cs). Если ChatTTS нет — ZERE
 # работает в текстовом режиме, старт не ломается.
-ChatTTS>=0.2.1; python_version < "3.13"
+ChatTTS>=0.2.5
 soundfile>=0.12

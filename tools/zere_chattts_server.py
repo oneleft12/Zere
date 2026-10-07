@@ -10,9 +10,9 @@ ChatTtsService поднимает этот сайдкар — тот же при
         --with num2words python tools/zere_chattts_server.py \\
         --port 8472 --voice zere-standard
 
-`--python 3.12` здесь принципиален: ChatTTS тянет torch/numba, у которых нет
-сборок под Python 3.13+; uv скачивает совместимый интерпретатор сам и не
-трогает системный Python — поэтому установка ZERE не зависит от его версии.
+`--python 3.12` — проверенная версия стека ChatTTS (torch/torchaudio/numba):
+uv скачивает её сам и не трогает системный Python — поэтому установка ZERE
+не зависит от его версии.
 
 Эндпоинты:
     GET  /health   -> {"status": "loading"|"ready"|"error", "detail": str,

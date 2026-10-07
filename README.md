@@ -47,9 +47,11 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Требуется Python 3.12+. Пакет ChatTTS не ставится на Python 3.13+ (маркер в
-`requirements.txt`) — ZERE продолжит работать в текстовом режиме без ошибок;
-C#-редакция запускает ChatTTS через `tools/uv.exe` с `--python 3.12`.
+Требуется Python 3.12+. Пакет ChatTTS ставится из исходников (sdist) и тянет
+`torch`/`torchaudio`/`numba` — это ~2–3 ГБ и несколько минут; колёса этих
+зависимостей есть для Python 3.10–3.14. Если ChatTTS не установлен, ZERE
+работает в текстовом режиме без ошибок. C#-редакция поднимает движок в
+отдельном окружении через `tools/uv.exe` с `--python 3.12`.
 Структура: пакет `zere/` (ai, core, memory, tools, voice), точка входа `main.py`.
 Спецификация порта: `docs/PYTHON_PORT_SPEC.md`. Движок TTS: `docs/TTS_CHATTTS.md`.
 

@@ -209,8 +209,8 @@ class ChatTTSManager:
             return False, (
                 "нет модулей: "
                 + ", ".join(missing)
-                + " (нужно: pip install ChatTTS soundfile, Python ≤ 3.12; "
-                "для C#-редакции движок поднимает uv с --python 3.12)"
+                + " (нужно: pip install ChatTTS soundfile — это ~2–3 ГБ с torch; "
+                "C#-редакция поднимает движок через uv с --python 3.12)"
             )
 
         return True, "ChatTTS доступен (ленивая загрузка при первом синтезе)"
@@ -239,7 +239,7 @@ class ChatTTSManager:
             except ImportError as ex:  # noqa: BLE001
                 raise ChatTtsUnavailable(
                     f"ChatTTS не импортируется: {ex}. "
-                    "Установите: pip install ChatTTS soundfile (Python ≤ 3.12)"
+                    "Установите: pip install ChatTTS soundfile (~2–3 ГБ с torch)"
                 ) from ex
 
             chat = ChatTTS.Chat()

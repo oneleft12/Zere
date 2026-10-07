@@ -527,8 +527,8 @@ public class DependencyChecker : IDisposable
         }
 
         // Отдельного «архива движка» у ChatTTS нет: uv сам скачивает пакет
-        // ChatTTS, soundfile и совместимый Python 3.12 (у torch/numba нет
-        // сборок под 3.13+). То есть установка = первый запуск сайдкара.
+        // ChatTTS, soundfile и проверенный Python 3.12 для их стека
+        // (torch/torchaudio/numba). То есть установка = первый запуск сайдкара.
         Console.WriteLine("  ChatTTS ставится сам при первом синтезе:");
         Console.WriteLine("  uv скачает пакет ChatTTS и Python 3.12 (примерно 2–3 ГБ).");
         Console.WriteLine();

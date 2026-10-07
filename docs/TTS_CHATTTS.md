@@ -158,23 +158,32 @@ tools/uv.exe run --python 3.12 --with ChatTTS --with soundfile --with num2words 
     python tools/zere_chattts_server.py --port 8472 --voice <профиль>
 ```
 
-`--python 3.12` здесь принципиален: у `torch`/`numba` нет сборок под Python 3.13+,
-а `uv` скачивает совместимый интерпретатор сам и **не трогает системный Python** —
+`--python 3.12` — проверенная версия стека ChatTTS (`torch`/`torchaudio`/`numba`);
+`uv` скачивает нужный интерпретатор сам и **не трогает системный Python** —
 установка ZERE не зависит от его версии.
 
 ---
 
 ## 8. Зависимости и установка
 
-- `requirements.txt`: `ChatTTS>=0.2.1; python_version < "3.13"` и `soundfile>=0.12`.
-  Маркер версии обязателен: на Python 3.13+ пакет не ставится, и pip не должен
-  ломать установку остальных зависимостей.
+- `requirements.txt`: `ChatTTS>=0.2.5` и `soundfile>=0.12` (без маркеров по версии
+  Python). ChatTTS на PyPI — только sdist: pip собирает пакет из исходников и
+  тянет `torch`, `torchaudio`, `numba`, `pybase16384`; колёса всех этих
+  зависимостей есть для Python 3.10–3.14 (проверено по PyPI: torch 2.14.1,
+  torchaudio 2.11.0, numba 0.68.0, pybase16384 0.3.9 — cp314 включительно).
+  Ожидаемый объём — ~2–3 ГБ, время — несколько минут.
 - Установщик (`installer/install.ps1`) вместо артефактов Piper скачивает **`uv`**
   (релиз 0.12.23, SHA-256 `75d05de6762778c31ee183398de7dd15093fad0ed90b1f236d8205ea5ec00c90`,
   размер 18043715 байт) и распаковывает в `tools/`. Артефакты `Piper`, `PiperVoice`,
   `PiperVoiceJs` из установщика удалены, из `uninstall.ps1` — бинарники Piper.
 - **Веса ChatTTS установщик не качает**: `uv` приносит их сам при первом синтезе
   (~2–3 ГБ вместе с torch) и кэширует.
+- **Python-редакция** получает ChatTTS из `requirements.txt`: шаг «Установка
+  зависимостей из requirements.txt» в установщике (и ручной
+  `pip install -r requirements.txt`) ставит пакет и тянет torch — это те же
+  ~2–3 ГБ и несколько минут. Проверка зависимостей ZERE (`python main.py` →
+  «Проверка зависимостей») показывает ChatTTS как необязательный компонент и
+  предлагает установку (метод `_install_chattts` в `zere/core/dependencies/`).
 - `.gitignore`: рантайм-данные движка — `ZERE.Voice/ChatTts/output_*.wav`,
   `processed_*.wav`, `voices/`.
 
@@ -192,15 +201,17 @@ tools/uv.exe run --python 3.12 --with ChatTTS --with soundfile --with num2words 
    инференс на CPU медленный (RTF заметно больше 1). Поэтому задержка первого звука
    у ChatTTS **выше**, чем была у Piper (~40 мс). PocketTTS остаётся основным
    движком, ChatTTS — откат/офлайн-вариант **без клонирования** голоса.
-4. **Python 3.13+.** Пакет ChatTTS не ставится на Python 3.13+ (маркер в
-   `requirements.txt`) → Python-редакция уходит в текстовый режим **без ошибок**.
-   Для C#-редакции это решено через `uv` с `--python 3.12`.
+4. **Установка тяжёлая и собирается из исходников.** ChatTTS на PyPI — sdist,
+   поэтому pip собирает пакет и качает `torch` (~2–3 ГБ). Если сборка не прошла
+   (нет сети/компилятора под конкретный Python), ZERE уходит в текстовый режим
+   **без ошибок**; для C#-редакции движок ставится в отдельное окружение
+   `uv` с `--python 3.12` и системный Python не затрагивается.
 
 ---
 
 ## 10. Тесты
 
-`tests/test_chattts.py` (33 теста; запуск — `python3 tests/test_chattts.py` или
+`tests/test_chattts.py` (36 тестов; запуск — `python3 tests/test_chattts.py` или
 `pytest tests/ -q`). Тяжёлые зависимости не нужны: `ChatTTS`, `numpy`, `soundfile`
 подменяются фейками через `sys.modules` — это заодно доказывает, что ленивость
 настоящая (импорт внутри методов, а не на уровне модуля). Проверяется:

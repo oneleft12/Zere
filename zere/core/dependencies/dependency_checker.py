@@ -247,10 +247,21 @@ class DependencyChecker:
             return False
 
     @staticmethod
-    def _run_streaming(command_line: str, shell_args: List[str]) -> int:
-        """Запуск с перехватом вывода (stdout+stderr) и печатью строк с отступом."""
+    def _run_streaming(command: str) -> int:
+        """Запуск команды через cmd.exe с перехватом вывода и печатью строк.
+
+        Команда передаётся СТРОКОЙ и с `shell=True` — только так cmd.exe получает
+        её дословно. Вариант `subprocess.run(["cmd.exe", "/c", command])` ломается
+        на кавычках: Python экранирует внутренние кавычки обратными слэшами, а
+        cmd.exe такого экранирования не понимает. Команда установки ChatTTS
+        (`"<venv>\\python.exe" -m pip install ...`) из-за этого превращалась в
+        `"\\"<venv>\\python.exe\\" -m pip ..."` и падала с «не является внутренней
+        или внешней командой» — воспроизведено и закрыто тестом
+        tests/test_chattts.py::test_command_runner_passes_command_verbatim.
+        """
         process = subprocess.run(
-            shell_args,
+            command,
+            shell=True,
             capture_output=True,
             creationflags=_NO_WINDOW,
         )
@@ -273,7 +284,7 @@ class DependencyChecker:
             return
 
         try:
-            exit_code = self._run_streaming(command, ["cmd.exe", "/c", command])
+            exit_code = self._run_streaming(command)
 
             if exit_code == 0:
                 print("  Готово.")
@@ -473,17 +484,17 @@ class DependencyChecker:
     def _install_chattts(self) -> None:
         """Установка ChatTTS: только pip, бинарников и zip-архивов нет.
 
-        Веса ChatTTS скачиваются самим движком при первой загрузке модели,
-        поэтому здесь достаточно `pip install`. Тяжёлая часть — torch
-        (~2–3 ГБ), поэтому шаг интерактивный и отменяемый.
+        ChatTTS публикуется на PyPI как sdist (сборка из исходников) и тянет
+        torch/torchaudio/numba — это ~2–3 ГБ и несколько минут. Зависимости
+        имеют колёса для Python 3.10–3.14 (проверено по PyPI: torch 2.14,
+        torchaudio 2.11, numba 0.68, pybase16384 0.3.9), поэтому ставим в
+        текущее окружение — тот же интерпретатор, которым запущен ZERE.
+        Веса модели движок скачивает сам при первой загрузке.
         """
         print("  ChatTTS (TTS) не найден.")
         print("  Установка: pip install ChatTTS soundfile")
-        print("  Требуется Python ≤ 3.12 (torch/numba) и ~2–3 ГБ на диске.\n")
-
-        if not self._ask_confirmation("Установить ChatTTS через pip?"):
-            print("  Пропущено. Источник: https://github.com/2Noise/ChatTTS\n")
-            return
+        print("  Это ~2–3 ГБ (torch) и несколько минут: ChatTTS собирается из исходников.")
+        print(f"  Окружение: {sys.executable}\n")
 
         self._execute_command_with_confirmation(
             f'"{sys.executable}" -m pip install ChatTTS soundfile',
@@ -494,9 +505,13 @@ class DependencyChecker:
 
         if ok:
             print("  ChatTTS установлен.")
-        else:
-            print(f"  ChatTTS всё ещё недоступен: {reason}")
-            print("  Источник: https://github.com/2Noise/ChatTTS\n")
+            return
+
+        print(f"  ChatTTS всё ещё недоступен: {reason}")
+        print("  Если pip не смог собрать зависимости — поставьте движок отдельным")
+        print("  окружением через uv (Python 3.12, системный Python не трогается):")
+        print('    tools\\uv.exe run --python 3.12 --with ChatTTS --with soundfile python -c "import ChatTTS"')
+        print("  Подробности: https://github.com/2Noise/ChatTTS\n")
 
     @staticmethod
     def _find_project_root() -> Optional[str]:
@@ -719,7 +734,7 @@ class DependencyChecker:
                 name="ChatTTS (TTS)",
                 status=CheckStatus.Missing,
                 critical=False,
-                message=f"{reason} (нужно: pip install ChatTTS soundfile, Python ≤ 3.12)",
+                message=f"{reason} (нужно: pip install ChatTTS soundfile — ~2–3 ГБ)",
                 install_url="https://github.com/2Noise/ChatTTS",
             )
         )

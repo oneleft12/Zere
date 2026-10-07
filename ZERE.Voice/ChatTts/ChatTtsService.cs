@@ -17,8 +17,9 @@ namespace ZERE.Voice.ChatTts;
 /// Как это устроено:
 ///  - ChatTTS — Python-библиотека, поэтому тяжёлая часть живёт в сайдкаре
 ///    tools/zere_chattts_server.py (тот же приём, что у PocketTTS);
-///  - сайдкар поднимается uv с `--python 3.12`: torch/numba не собираются под
-///    Python 3.13+, а uv приносит совместимый интерпретатор сам;
+///  - сайдкар поднимается uv с `--python 3.12`: это проверенная версия стека
+///    ChatTTS (torch/torchaudio/numba), uv приносит её сам и не трогает
+///    системный Python;
 ///  - ЛЕНИВАЯ загрузка в двух слоях: Initialize только проверяет инструментарий
 ///    (ничего не грузит), сервер и веса поднимаются при первом синтезе;
 ///  - текст идёт ПОПРЕДЛОЖЕННО (как у Piper): первое предложение играет, пока
@@ -250,8 +251,8 @@ public sealed class ChatTtsService : IDisposable
         var uvExe = Path.Combine(_root, "tools", "uv.exe");
         var script = Path.Combine(_root, "tools", "zere_chattts_server.py");
 
-        // --python 3.12: у torch/numba нет сборок под Python 3.13+, uv
-        // приносит совместимый интерпретатор сам (системный Python не трогаем).
+        // --python 3.12: проверенная версия стека ChatTTS (torch/torchaudio/
+        // numba); uv приносит нужный интерпретатор сам, системный не трогает.
         var args = new StringBuilder();
         args.Append("run --python 3.12");
         args.Append(" --with ChatTTS");

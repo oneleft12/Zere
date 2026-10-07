@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -726,6 +727,80 @@ def test_server_rejects_empty_text_and_unknown_path() -> None:
 
         assert status_text == 400
         assert status_path == 404
+
+
+def test_command_runner_passes_command_verbatim() -> None:
+    """Команда установки уходит в cmd.exe ДОСЛОВНО, без экранирования кавычек.
+
+    Регрессия реального сбоя: `subprocess.run(["cmd.exe", "/c", command])`
+    заставляет Python экранировать внутренние кавычки обратными слэшами, а
+    cmd.exe такого не понимает. Строка установки ChatTTS
+    (`"<venv>\\python.exe" -m pip install ...`) превращалась в
+    `"\\"<venv>\\python.exe\\" ..."` и падала с сообщением «не является
+    внутренней или внешней командой» — установка не доходила до pip.
+    """
+    from zere.core.dependencies import dependency_checker as dc
+
+    captured: dict[str, Any] = {}
+
+    def fake_run(command: Any, **kwargs: Any) -> Any:
+        captured["command"] = command
+        captured["kwargs"] = kwargs
+        return subprocess.CompletedProcess(command, 0, b"", b"")
+
+    command = '"C:\\path with spaces\\python.exe" -m pip install ChatTTS soundfile'
+
+    with mock.patch.object(dc.subprocess, "run", side_effect=fake_run):
+        exit_code = dc.DependencyChecker._run_streaming(command)
+
+    assert exit_code == 0
+    assert isinstance(captured["command"], str), "команда идёт строкой, а не списком"
+    assert captured["command"] == command, "кавычки не должны переэкранироваться"
+    assert '\\"' not in captured["command"]
+    assert captured["kwargs"].get("shell") is True, (
+        "только shell=True отдаёт команду в cmd.exe дословно"
+    )
+
+
+def test_install_chattts_targets_current_interpreter() -> None:
+    """Установка ChatTTS идёт в текущее окружение и без лишних кавычек."""
+    from zere.core.dependencies import dependency_checker as dc
+
+    executed: list[tuple[str, str]] = []
+
+    def fake_execute(command: str, description: str) -> None:
+        executed.append((command, description))
+
+    checker = dc.DependencyChecker.__new__(dc.DependencyChecker)
+    # Подменяем на экземпляре: метод вызывается как self._execute_command_...
+    checker._execute_command_with_confirmation = fake_execute  # noqa: SLF001
+
+    with mock.patch.object(
+        dc, "_chattts_availability", return_value=(True, "ChatTTS доступен")
+    ):
+        dc.DependencyChecker._install_chattts(checker)
+
+    assert len(executed) == 1
+    command, _description = executed[0]
+
+    assert sys.executable in command, "ставим в тот же Python, которым запущен ZERE"
+    assert "pip install ChatTTS soundfile" in command
+    assert '\\"' not in command
+
+
+def test_availability_message_has_no_stale_python_limit() -> None:
+    """Сообщение о недоступности не обещает несуществующего ограничения версии.
+
+    Проверено по PyPI: у зависимостей ChatTTS (torch, torchaudio, numba,
+    pybase16384) есть колёса для Python 3.10–3.14, поэтому «Python ≤ 3.12»
+    в тексте вводило бы в заблуждение.
+    """
+    from zere.voice.chattts.chattts_manager import ChatTTSManager
+
+    _ok, reason = ChatTTSManager.availability()
+
+    assert "≤ 3.12" not in reason
+    assert "3.13" not in reason
 
 
 def main() -> None:
