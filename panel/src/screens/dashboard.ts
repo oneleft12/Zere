@@ -151,13 +151,13 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
     statusesCard.classList.add("col-12");
 
     // ── ИИ: облачный ключ или локальная модель (требование 1) ────
-    // Без /api/ai (C#-редакция или не перезапущенный сервер) показываем
+    // Без /api/ai (старая сборка или не перезапущенный сервер) показываем
     // фактическое состояние локальной модели из /api/health и честно
     // объясняем, почему настройки ключа тут нет.
     const fallbackNote =
       support === "restart-required"
         ? t("Сервер ZERE старее панели: закройте и снова запустите ZERE — появится настройка облачного ключа.")
-        : t("В этой редакции доступна только локальная модель (Ollama); облачный ключ настраивается в Python-редакции.");
+        : t("Настройка облачного ключа появится после перезапуска ZERE; пока работает локальная модель (Ollama).");
 
     const aiCard = card(
       t("ИИ и модель"),
@@ -203,7 +203,7 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
           "div",
           { class: "pill-row" },
           support === "unsupported"
-            ? badge(t("Настройка ключа — в Python-редакции"), "plain")
+            ? badge(t("Настройка ключа — после перезапуска ZERE"), "plain")
             : button(t("Настроить ИИ"), () => navigate("/ai"), "primary"),
         ),
       ),

@@ -102,7 +102,7 @@ Pipeline обработки команд (порядок важен):
 9. **DrawingHandler** — рисование в Krita/Paint: «нарисуй круг», «напиши на холсте привет», «рисуй в крите» *(только Python-редакция)*
 10. **AIHandler** — fallback → генерация ответа через провайдера ИИ
     (облачный ключ пользователя или локальная Ollama — выбор в
-    `zere/ai/ai_service.py`)
+    `zere/ai/ai_service.py` и `ZERE.AI/AiService.cs` через `IAiClient`)
 
 ---
 
@@ -158,9 +158,13 @@ Pipeline обработки команд (порядок важен):
 
 ## Подключение ИИ (ключ облачной модели / локальная модель)
 
-**Только Python-редакция**: модули `zere/ai/ai_settings.py`,
-`zere/ai/cloud_client.py`, `zere/ai/local_model.py`, `zere/ai/ai_service.py`
-(у C#-редакции этих эндпоинтов нет).
+**Обе редакции, контракт общий** (docs/api/openapi.yaml, раздел `ai`):
+
+- Python: `zere/ai/ai_settings.py`, `cloud_client.py`, `local_model.py`,
+  `ai_service.py`; маршруты — `zere/api/server.py`.
+- C#: `ZERE.AI/AiSettings.cs`, `CloudClient.cs`, `LocalModelService.cs`,
+  `AiService.cs`, `IAiClient.cs`, `AiError.cs`; маршруты —
+  `ZERE.App/Api/PanelServer.cs`; прокси в `AIHandler` — через `IAiClient`.
 
 - Режимы: `auto` — сначала облачный ключ, иначе локальная модель; `cloud` —
   только ключ; `local` — только локальная модель. `AiProviderProxy` встаёт
@@ -179,20 +183,29 @@ Pipeline обработки команд (порядок важен):
 - Панель: экран «Подключение ИИ» (`panel/src/screens/ai.ts`, маршрут `/ai`),
   карточка «ИИ и модель» на дашборде, бейдж и подсказка в чате, отметка
   `ИИ: облако|локально|не настроен` в статус-строке.
-- `panel/dist` общий для двух редакций, а маршруты `/api/ai*` есть только
-  в Python: фронтенд определяет возможности бэкенда (`aiSupport()` в
-  `panel/src/api.ts`) — старый процесс Python просит перезапуск
-  (`ИИ: перезапустите ZERE`), C#-редакция скрывает пункт меню и показывает
-  `ИИ: только локально` вместо «Маршрут не найден».
+- `panel/dist` общий для двух редакций: фронтенд определяет возможности
+  бэкенда (`aiSupport()` в `panel/src/api.ts`) — процесс старше `panel/dist`
+  просит перезапуск (`ИИ: перезапустите ZERE`), а старая сборка без
+  `/api/ai` скрывает пункт меню и показывает `ИИ: только локально` вместо
+  «Маршрут не найден».
 - Локальная модель: Ollama (`http://127.0.0.1:11434/v1`) или другой
   OpenAI-совместимый сервер; по умолчанию предлагаются лёгкие модели
   (`qwen3.5:2b`, 0.5B–3B) — тяжёлые для слабых ПК не предлагаются.
 - Если настроен облачный ключ, Ollama перестаёт быть критической
   зависимостью (`zere/core/dependencies/dependency_checker.py`,
   `cloud_available=True`) — ZERE стартует и отвечает через облако.
+- Сборка C#: `dotnet build ZERE.slnx`; панель только с API —
+  `dotnet run --project ZERE.App --no-build -- --panel --port 8091`
+  (порт нужен, если 8080 занят работающим ZERE); проверка контракта против
+  уже запущенной панели — `python tests/check_ai_contract_external.py 8091`.
+  CI (джоба `csharp` в `.github/workflows/ci.yml`) собирает C#-решение,
+  поднимает панель, гоняет контрактные тесты и полный цикл ИИ на фейковом
+  провайдере (`tests/fake_openai_server.py`) — без интернета и без
+  настоящих API.
 - Подробности: `docs/AI_PROVIDERS.md`; тесты — `tests/test_ai_providers.py`
-  (юнит, фейковый HTTP `tests/fake_http.py`) и контрактные `/api/ai*`
-  в `tests/test_panel_api.py`.
+  (юнит, фейковый HTTP `tests/fake_http.py`), контрактные `/api/ai*`
+  в `tests/test_panel_api.py` (обе редакции: форма и валидация — всегда,
+  живой провайдер — только внутрипроцессно).
 
 ## Карта структуры проекта
 
@@ -241,9 +254,15 @@ Zere/
 │       └── Settings/
 │           └── SettingsMenu.cs
 ├── ZERE.AI/                      # AI-клиент
-│   ├── OllamaClient.cs           # HTTP → Ollama API
+│   ├── OllamaClient.cs           # HTTP → Ollama API (IAiClient)
 │   ├── OllamaUrlResolver.cs      # Общий резолвер URL Ollama
 │   ├── SystemPrompt.cs           # Системный промпт
+│   ├── IAiClient.cs              # Контракт генерации для AIHandler
+│   ├── AiSettings.cs             # config/ai.json: режим, ключ (маска), env владельца
+│   ├── CloudClient.cs            # OpenAI-совместимый API: проверка ключа, генерация
+│   ├── LocalModelService.cs      # Проверка Ollama/локального сервера, ollama pull
+│   ├── AiService.cs              # Приоритет провайдеров + AiProviderProxy
+│   ├── AiError.cs                # Коды/тексты ошибок ИИ + SecretRedactor
 │   └── Models/                   # DTO для ответов
 │                                 # Python-редакция (zere/ai/): ollama_client +
 │                                 # ai_settings/cloud_client/local_model/ai_service
@@ -328,6 +347,7 @@ Zere/
 │   ├── test_updater.py           # Тесты обновления из GitHub (git в temp: fetch/pull, отказы, зависимости)
 │   ├── test_ai_providers.py      # Тесты ИИ (приоритет облако/локально, проверка ключа, Ollama, маскирование)
 │   ├── fake_http.py              # Фейковый requests.Session для тестов ИИ (без сети)
+│   ├── check_ai_contract_external.py  # /api/ai* против запущенной панели (C# и Python)
 │   └── e2e_server.py             # Раннер панели с фейками для E2E
 ├── docs/                         # Планы, отчёты, openapi.yaml (UPDATE.md, AI_PROVIDERS.md)
 ├── logs/                         # Логи

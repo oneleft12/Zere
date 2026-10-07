@@ -66,6 +66,23 @@ public sealed class PanelServer : IDisposable
         ["/api/voice/test"] = ["POST"],
         ["/api/voice/listen"] = ["POST"],
         ["/api/voice/mode"] = ["GET", "POST"],
+        // ИИ: облачный ключ пользователя или локальная модель
+        // (docs/AI_PROVIDERS.md; паритет с Python-редакцией):
+        //   GET    /api/ai            — состояние подключения ИИ;
+        //   POST   /api/ai/settings   — режим авто/облако/локально, адреса, модели;
+        //   POST   /api/ai/key        — проверка + сохранение ключа;
+        //   DELETE /api/ai/key        — удаление ключа пользователя;
+        //   POST   /api/ai/key/test   — «Проверить ключ» без сохранения;
+        //   GET    /api/ai/local      — запущен ли локальный сервер, какие модели;
+        //   POST   /api/ai/local/test — тестовый запрос к локальной модели;
+        //   GET    /api/ai/local/pull — SSE-прогресс загрузки модели (Ollama).
+        ["/api/ai"] = ["GET"],
+        ["/api/ai/settings"] = ["POST"],
+        ["/api/ai/key"] = ["POST", "DELETE"],
+        ["/api/ai/key/test"] = ["POST"],
+        ["/api/ai/local"] = ["GET"],
+        ["/api/ai/local/test"] = ["POST"],
+        ["/api/ai/local/pull"] = ["GET"],
     };
 
     private const string MemoryPrefix = "/api/memory/";
@@ -89,6 +106,17 @@ public sealed class PanelServer : IDisposable
     private const int MaxMemoryKeyLength = 200;
     private const int MaxMemoryValueLength = 2000;
     private const int MaxMemoryCategoryLength = 100;
+
+    // ── ИИ: границы полей (docs/AI_PROVIDERS.md) ──────────────────
+    private const int MaxAiKeyLength = 500;
+    private const int MaxAiUrlLength = 500;
+    private const int MaxAiModelLength = 120;
+
+    private static readonly string[] AiSettingsKeys =
+        ["mode", "cloudProvider", "cloudBaseUrl", "cloudModel", "localBaseUrl", "localModel"];
+
+    private static readonly Regex AiModelNameRegex =
+        new(@"^[A-Za-z0-9._\-/:]{1,120}$", RegexOptions.Compiled);
 
     private static readonly string[] StringFields =
         ["version", "assistantName", "language", "model", "ttsEngine", "voiceReferencePath"];
@@ -120,6 +148,12 @@ public sealed class PanelServer : IDisposable
     // «wake word → команда → engine → озвучка»; null, если голос не подключён.
     private readonly VoiceModeLoop? _voiceMode;
 
+    // Сервис выбора провайдера ИИ (облачный ключ / локальная модель).
+    // Создаётся лениво при первом обращении: сервер панели не трогает сеть
+    // и локальные серверы на старте, если настройки ИИ не открывали.
+    private readonly AiService? _aiInjected;
+    private AiService? _ai;
+
     private readonly object _challengeLock = new();
 
     // Одноразовый токен подтверждения (kill/power): (token, action, issuedAt).
@@ -143,6 +177,7 @@ public sealed class PanelServer : IDisposable
         ApplicationLauncher? apps = null,
         VoiceManager? voice = null,
         RuntimeContext? runtime = null,
+        AiService? ai = null,
         string? token = null,
         int port = DefaultPort)
     {
@@ -163,11 +198,21 @@ public sealed class PanelServer : IDisposable
             ? null
             : new VoiceModeLoop(voice, engine, runtime, _log);
 
+        _aiInjected = ai;
         _token = token ?? PanelToken.LoadOrCreate();
         _port = port;
     }
 
     public int Port => _port;
+
+    /// <summary>
+    /// Сервис ИИ: внедрённый (боевой запуск и тесты) или созданный по
+    /// конфигурации — без сети на старте.
+    /// </summary>
+    private AiService Ai => _ai ??= _aiInjected ?? new AiService(new AiTimeouts(
+        _config.LlmTimeoutSeconds,
+        _config.OllamaTimeoutMinutes,
+        _config.LlmKeepAlive));
 
     public string Token => _token;
 
@@ -411,6 +456,37 @@ public sealed class PanelServer : IDisposable
                     await HandleVoiceModeGetAsync(response);
                 else
                     await HandleVoiceModePostAsync(request, response);
+            }
+            else if (path == "/api/ai")
+            {
+                await HandleAiGetAsync(response);
+            }
+            else if (path == "/api/ai/settings")
+            {
+                await HandleAiSettingsAsync(request, response);
+            }
+            else if (path == "/api/ai/key")
+            {
+                if (string.Equals(request.HttpMethod, "POST", StringComparison.Ordinal))
+                    await HandleAiKeyPostAsync(request, response);
+                else
+                    await HandleAiKeyDeleteAsync(response);
+            }
+            else if (path == "/api/ai/key/test")
+            {
+                await HandleAiKeyTestAsync(request, response);
+            }
+            else if (path == "/api/ai/local")
+            {
+                await HandleAiLocalGetAsync(response);
+            }
+            else if (path == "/api/ai/local/test")
+            {
+                await HandleAiLocalTestAsync(request, response);
+            }
+            else if (path == "/api/ai/local/pull")
+            {
+                await HandleAiLocalPullAsync(request, response);
             }
             else
             {
@@ -2170,6 +2246,461 @@ public sealed class PanelServer : IDisposable
         // появится, когда OllamaClient откроет посимвольный стриминг.
         await WriteEventAsync(response, "token", new { text = answer });
         await WriteEventAsync(response, "done", new { answer });
+    }
+
+    // ── ИИ: облачный ключ пользователя и локальная модель ─────────
+
+    private async Task HandleAiGetAsync(HttpListenerResponse response)
+    {
+        await SendJsonAsync(response, 200, await Ai.StatusAsync());
+    }
+
+    private async Task HandleAiSettingsAsync(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        var read = await ReadObjectAsync(request, response);
+
+        if (!read.Ok)
+            return;
+
+        var error = ValidateAiSettingsPayload(read.Payload);
+
+        if (error is not null)
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", error);
+            return;
+        }
+
+        try
+        {
+            var status = await Ai.UpdateSettingsAsync(new AiSettingsUpdate(
+                OptString(read.Payload, "mode"),
+                OptString(read.Payload, "cloudProvider"),
+                OptString(read.Payload, "cloudBaseUrl"),
+                OptString(read.Payload, "cloudModel"),
+                OptString(read.Payload, "localBaseUrl"),
+                OptString(read.Payload, "localModel")));
+
+            await SendJsonAsync(response, 200, status);
+        }
+        catch (AiError ex)
+        {
+            await SendErrorAsync(response, ex.Status, ex.Code, ex.Message);
+        }
+    }
+
+    private async Task HandleAiKeyPostAsync(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        var read = await ReadObjectAsync(request, response);
+
+        if (!read.Ok)
+            return;
+
+        var error = ValidateAiKeyPayload(read.Payload);
+
+        if (error is not null)
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", error);
+            return;
+        }
+
+        var validate = !read.Payload.TryGetValue("validate", out var validateElement)
+                       || validateElement.ValueKind == JsonValueKind.True;
+
+        try
+        {
+            var status = await Ai.SaveKeyAsync(new AiKeyRequest(
+                OptString(read.Payload, "apiKey") ?? "",
+                OptString(read.Payload, "cloudProvider"),
+                OptString(read.Payload, "cloudBaseUrl"),
+                OptString(read.Payload, "cloudModel"),
+                validate));
+
+            await SendJsonAsync(response, 200, status);
+        }
+        catch (AiError ex)
+        {
+            // Ключ не сохранён: клиент видит понятную причину
+            // (AI_KEY_INVALID / AI_NO_CREDITS / AI_RATE_LIMIT / ...).
+            await SendErrorAsync(response, ex.Status, ex.Code, ex.Message);
+        }
+    }
+
+    private async Task HandleAiKeyDeleteAsync(HttpListenerResponse response)
+    {
+        await SendJsonAsync(response, 200, await Ai.DeleteKeyAsync());
+    }
+
+    private async Task HandleAiKeyTestAsync(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        var read = await ReadObjectAsync(request, response);
+
+        if (!read.Ok)
+            return;
+
+        var error = ValidateAiKeyTestPayload(read.Payload);
+
+        if (error is not null)
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", error);
+            return;
+        }
+
+        try
+        {
+            var result = await Ai.TestKeyAsync(new AiKeyTestRequest(
+                OptString(read.Payload, "apiKey"),
+                OptString(read.Payload, "cloudProvider"),
+                OptString(read.Payload, "cloudBaseUrl"),
+                OptString(read.Payload, "cloudModel")));
+
+            await SendJsonAsync(response, 200, result);
+        }
+        catch (AiError ex)
+        {
+            await SendErrorAsync(response, ex.Status, ex.Code, ex.Message);
+        }
+    }
+
+    private async Task HandleAiLocalGetAsync(HttpListenerResponse response)
+    {
+        await SendJsonAsync(response, 200, await Ai.LocalStatusAsync());
+    }
+
+    private async Task HandleAiLocalTestAsync(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        var read = await ReadObjectAsync(request, response);
+
+        if (!read.Ok)
+            return;
+
+        var error = ValidateAiLocalPayload(read.Payload);
+
+        if (error is not null)
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", error);
+            return;
+        }
+
+        try
+        {
+            var result = await Ai.TestLocalAsync(new AiLocalTestRequest(
+                OptString(read.Payload, "localBaseUrl"),
+                OptString(read.Payload, "localModel")));
+
+            await SendJsonAsync(response, 200, result);
+        }
+        catch (AiError ex)
+        {
+            await SendErrorAsync(response, ex.Status, ex.Code, ex.Message);
+        }
+    }
+
+    private async Task HandleAiLocalPullAsync(HttpListenerRequest request, HttpListenerResponse response)
+    {
+        var model = (request.QueryString["model"] ?? "").Trim();
+
+        if (model.Length > 0 && !AiModelNameRegex.IsMatch(model))
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Недопустимое имя модели.");
+            return;
+        }
+
+        response.StatusCode = 200;
+        response.ContentType = "text/event-stream; charset=utf-8";
+        response.Headers["Cache-Control"] = "no-cache";
+        response.SendChunked = true;
+        response.KeepAlive = false;
+
+        try
+        {
+            await foreach (var evt in Ai.PullAsync(model.Length == 0 ? null : model))
+            {
+                if (evt.Status == "error")
+                {
+                    await WriteEventAsync(response, "error", new
+                    {
+                        code = evt.Code ?? "AI_PULL_FAILED",
+                        message = evt.Message ?? "Не удалось скачать модель.",
+                    });
+                }
+                else if (evt.Status == "done")
+                {
+                    await WriteEventAsync(response, "done", new { model = evt.Model ?? model });
+                }
+                else
+                {
+                    await WriteEventAsync(response, "progress", new
+                    {
+                        percent = evt.Percent,
+                        completed = evt.Completed,
+                        total = evt.Total,
+                        detail = evt.Detail ?? "",
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // поток не должен рвать соединение сырым исключением
+            _log.Error($"PanelServer.ai.pull: {SecretRedactor.Redact(ex.Message)}");
+            await WriteEventAsync(response, "error", new
+            {
+                code = "INTERNAL",
+                message = "Не удалось скачать модель.",
+            });
+        }
+    }
+
+    // ── ИИ: чтение тела и валидация ───────────────────────────────
+
+    /// <summary>Тело запроса как JSON-объект; ошибка уже отправлена, если Ok = false.</summary>
+    private static async Task<(bool Ok, Dictionary<string, JsonElement> Payload)> ReadObjectAsync(
+        HttpListenerRequest request, HttpListenerResponse response)
+    {
+        var empty = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+
+        if (request.ContentLength64 > MaxBodyBytes)
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Недопустимый размер тела запроса.");
+            return (false, empty);
+        }
+
+        string body;
+
+        using (var reader = new StreamReader(request.InputStream, Encoding.UTF8))
+        {
+            body = await reader.ReadToEndAsync();
+        }
+
+        JsonDocument document;
+
+        try
+        {
+            document = JsonDocument.Parse(body);
+        }
+        catch (JsonException)
+        {
+            await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Тело запроса не является корректным JSON.");
+            return (false, empty);
+        }
+
+        using (document)
+        {
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                await SendErrorAsync(response, 400, "VALIDATION_ERROR", "Ожидался JSON-объект в теле запроса.");
+                return (false, empty);
+            }
+
+            var payload = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+
+            foreach (var property in document.RootElement.EnumerateObject())
+                payload[property.Name] = property.Value.Clone();
+
+            return (true, payload);
+        }
+    }
+
+    private static string? OptString(Dictionary<string, JsonElement> payload, string key)
+    {
+        return payload.TryGetValue(key, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+    }
+
+    /// <summary>Base URL облачного/локального API: только http(s) и с хостом.</summary>
+    private static string? ValidateAiBaseUrl(string key, JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.String)
+            return $"Ключ «{key}» должен быть строкой.";
+
+        var url = (value.GetString() ?? "").Trim();
+
+        if (url.Length == 0)
+            return $"Ключ «{key}» не может быть пустым.";
+
+        if (url.Length > MaxAiUrlLength)
+            return $"Ключ «{key}» длиннее {MaxAiUrlLength} символов.";
+
+        if (url.Any(char.IsWhiteSpace))
+            return $"Ключ «{key}» не должен содержать пробелов.";
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed) ||
+            parsed.Scheme is not ("http" or "https") ||
+            string.IsNullOrEmpty(parsed.Host))
+        {
+            return $"Ключ «{key}» должен быть полным адресом вида http://127.0.0.1:11434/v1.";
+        }
+
+        return null;
+    }
+
+    private static string? ValidateAiModel(string key, JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.String)
+            return $"Ключ «{key}» должен быть строкой.";
+
+        var model = (value.GetString() ?? "").Trim();
+
+        if (model.Length == 0)
+            return $"Ключ «{key}» не может быть пустым.";
+
+        if (model.Length > MaxAiModelLength)
+            return $"Ключ «{key}» длиннее {MaxAiModelLength} символов.";
+
+        return null;
+    }
+
+    /// <summary>Тело POST /api/ai/settings: подмножество ключей ИИ, лишних нет.</summary>
+    private static string? ValidateAiSettingsPayload(Dictionary<string, JsonElement> payload)
+    {
+        foreach (var name in payload.Keys)
+        {
+            if (!AiSettingsKeys.Contains(name, StringComparer.Ordinal))
+                return $"Неизвестный ключ настроек ИИ: «{name}».";
+        }
+
+        if (payload.Count == 0)
+            return "Не задано ни одного поля настроек ИИ.";
+
+        if (payload.TryGetValue("mode", out var mode))
+        {
+            if (mode.ValueKind != JsonValueKind.String)
+                return "Ключ «mode» должен быть строкой.";
+
+            if (!AiSettings.Modes.Contains(mode.GetString(), StringComparer.Ordinal))
+                return $"Ключ «mode» допускает только: {string.Join(", ", AiSettings.Modes)}.";
+        }
+
+        if (payload.TryGetValue("cloudProvider", out var provider))
+        {
+            if (provider.ValueKind != JsonValueKind.String)
+                return "Ключ «cloudProvider» должен быть строкой.";
+
+            if (!AiSettings.ProviderIds.Contains(provider.GetString(), StringComparer.Ordinal))
+                return $"Ключ «cloudProvider» допускает только: {string.Join(", ", AiSettings.ProviderIds)}.";
+        }
+
+        foreach (var key in new[] { "cloudBaseUrl", "localBaseUrl" })
+        {
+            if (!payload.TryGetValue(key, out var url))
+                continue;
+
+            var error = ValidateAiBaseUrl(key, url);
+
+            if (error is not null)
+                return error;
+        }
+
+        foreach (var key in new[] { "cloudModel", "localModel" })
+        {
+            if (!payload.TryGetValue(key, out var model))
+                continue;
+
+            var error = ValidateAiModel(key, model);
+
+            if (error is not null)
+                return error;
+        }
+
+        return null;
+    }
+
+    /// <summary>Тело POST /api/ai/key: обязателен непустой apiKey.</summary>
+    private static string? ValidateAiKeyPayload(Dictionary<string, JsonElement> payload)
+    {
+        string[] allowed = ["apiKey", "cloudProvider", "cloudBaseUrl", "cloudModel", "validate"];
+
+        foreach (var name in payload.Keys)
+        {
+            if (!allowed.Contains(name, StringComparer.Ordinal))
+                return $"Неизвестный ключ: «{name}».";
+        }
+
+        if (!payload.TryGetValue("apiKey", out var apiKey))
+            return "Отсутствует обязательный ключ «apiKey».";
+
+        if (apiKey.ValueKind != JsonValueKind.String)
+            return "Ключ «apiKey» должен быть строкой.";
+
+        var key = (apiKey.GetString() ?? "").Trim();
+
+        if (key.Length == 0)
+            return "Ключ «apiKey» не может быть пустым.";
+
+        if (key.Length > MaxAiKeyLength)
+            return $"Ключ «apiKey» длиннее {MaxAiKeyLength} символов.";
+
+        if (payload.TryGetValue("validate", out var validate) &&
+            validate.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            return "Ключ «validate» должен быть логическим значением.";
+        }
+
+        var nested = payload
+            .Where(pair => pair.Key is "cloudProvider" or "cloudBaseUrl" or "cloudModel")
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+
+        return nested.Count == 0 ? null : ValidateAiSettingsPayload(nested);
+    }
+
+    /// <summary>Тело POST /api/ai/key/test: ключ можно не присылать.</summary>
+    private static string? ValidateAiKeyTestPayload(Dictionary<string, JsonElement> payload)
+    {
+        string[] allowed = ["apiKey", "cloudProvider", "cloudBaseUrl", "cloudModel"];
+
+        foreach (var name in payload.Keys)
+        {
+            if (!allowed.Contains(name, StringComparer.Ordinal))
+                return $"Неизвестный ключ: «{name}».";
+        }
+
+        if (payload.TryGetValue("apiKey", out var apiKey))
+        {
+            if (apiKey.ValueKind != JsonValueKind.String)
+                return "Ключ «apiKey» должен быть строкой.";
+
+            var key = (apiKey.GetString() ?? "").Trim();
+
+            if (key.Length > 0 && key.Length > MaxAiKeyLength)
+                return $"Ключ «apiKey» длиннее {MaxAiKeyLength} символов.";
+        }
+
+        var nested = payload
+            .Where(pair => pair.Key is "cloudProvider" or "cloudBaseUrl" or "cloudModel")
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
+
+        return nested.Count == 0 ? null : ValidateAiSettingsPayload(nested);
+    }
+
+    /// <summary>Тело POST /api/ai/local/test: необязательные адрес и модель.</summary>
+    private static string? ValidateAiLocalPayload(Dictionary<string, JsonElement> payload)
+    {
+        string[] allowed = ["localBaseUrl", "localModel"];
+
+        foreach (var name in payload.Keys)
+        {
+            if (!allowed.Contains(name, StringComparer.Ordinal))
+                return $"Неизвестный ключ: «{name}».";
+        }
+
+        if (payload.TryGetValue("localBaseUrl", out var baseUrl))
+        {
+            var error = ValidateAiBaseUrl("localBaseUrl", baseUrl);
+
+            if (error is not null)
+                return error;
+        }
+
+        if (payload.TryGetValue("localModel", out var model))
+        {
+            var error = ValidateAiModel("localModel", model);
+
+            if (error is not null)
+                return error;
+        }
+
+        return null;
     }
 
     // ── Помощники ответа ──────────────────────────────────────────

@@ -128,14 +128,14 @@ export const AI_EN: Record<string, string> = {
     "The panel was updated but the ZERE server still runs the old code: close and start ZERE again to get AI settings.",
   "В этой редакции настраивается только локальная модель":
     "This edition can only use a local model",
-  "ZERE запущен как C#-редакция: облачный API-ключ настраивается в Python-редакции (python main.py). Локальная модель (Ollama) продолжает работать — её состояние видно на дашборде.":
-    "ZERE runs as the C# edition: the cloud API key is configured in the Python edition (python main.py). The local model (Ollama) keeps working — its status is shown on the dashboard.",
+  "Эта сборка панели новее сервера ZERE: перезапустите ZERE, чтобы включить настройку ключа. Локальная модель (Ollama) продолжает работать — её состояние видно на дашборде.":
+    "This panel build is newer than the ZERE server: restart ZERE to enable key setup. The local model (Ollama) keeps working — its status is shown on the dashboard.",
   "На дашборд": "Go to dashboard",
   "Сервер ZERE старее панели: закройте и снова запустите ZERE — появится настройка облачного ключа.":
     "The ZERE server is older than the panel: close and start ZERE again to get cloud key settings.",
-  "В этой редакции доступна только локальная модель (Ollama); облачный ключ настраивается в Python-редакции.":
-    "This edition supports the local model (Ollama) only; the cloud key is configured in the Python edition.",
+  "Настройка облачного ключа появится после перезапуска ZERE; пока работает локальная модель (Ollama).":
+    "Cloud key setup appears after ZERE is restarted; for now the local model (Ollama) is used.",
   "Подключено: локальная модель · {model}": "Connected: local model · {model}",
   "Локальная модель недоступна": "Local model unavailable",
-  "Настройка ключа — в Python-редакции": "Key setup is in the Python edition",
+  "Настройка ключа — после перезапуска ZERE": "Key setup appears after ZERE restarts",
 };

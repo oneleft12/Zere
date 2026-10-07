@@ -2716,10 +2716,16 @@ def test_ai_paths_are_in_spec() -> None:
         assert path in SPEC["paths"], path
 
 
-def _require_python_ai() -> bool:
-    """Маршруты /api/ai есть только в Python-редакции (как /api/update)."""
+def _require_inprocess_ai() -> bool:
+    """Проверки с фейковым провайдером: только внутрипроцессный прогон.
+
+    В режиме ZERE_PANEL_EXTERNAL панель настоящая (C# или Python): подсунуть
+    ей фейковый HTTP нельзя, а живые ключи и модели пользователя трогать
+    нельзя — поэтому там остаются только форма ответа, валидация и
+    безопасность (401/405/400 без обращения к провайдеру).
+    """
     if EXTERNAL:
-        print("\n[пропущено] /api/ai реализован только в Python-редакции")
+        print("\n[пропущено] нужен фейковый провайдер ИИ (внутрипроцессный прогон)")
         return False
     return True
 
@@ -2739,9 +2745,6 @@ def _ai_session_with_local(model: str = "qwen3.5:2b") -> FakeSession:
 
 
 def test_ai_status_without_key_or_model() -> None:
-    if not _require_python_ai():
-        return
-
     with running_panel() as (panel, _):
         status, raw, headers = call(panel, "GET", "/api/ai")
         assert status == 200
@@ -2756,6 +2759,11 @@ def test_ai_status_without_key_or_model() -> None:
         for option in payload["local"]["suggestions"]:
             assert_schema(schema("AiLocalModelOption"), option)
 
+        if EXTERNAL:
+            # У настоящей панели свой config/ai.json и своя Ollama: состояние
+            # не детерминировано, форма ответа уже проверена выше.
+            return
+
         # Требование 1: без ключа и без локальной модели — приглашение.
         assert payload["activeProvider"] == "none"
         assert payload["ready"] is False
@@ -2769,7 +2777,7 @@ def test_ai_status_without_key_or_model() -> None:
 
 
 def test_ai_status_reports_local_model_available() -> None:
-    if not _require_python_ai():
+    if not _require_inprocess_ai():
         return
 
     with running_panel(_ai_session_with_local()) as (panel, _):
@@ -2786,7 +2794,7 @@ def test_ai_status_reports_local_model_available() -> None:
 
 
 def test_ai_key_save_shows_cloud_connected() -> None:
-    if not _require_python_ai():
+    if not _require_inprocess_ai():
         return
 
     with running_panel(_ai_session_with_key()) as (panel, tmp):
@@ -2820,7 +2828,7 @@ def test_ai_key_save_shows_cloud_connected() -> None:
 
 
 def test_ai_key_invalid_is_rejected_and_not_saved() -> None:
-    if not _require_python_ai():
+    if not _require_inprocess_ai():
         return
 
     session = FakeSession().route("GET", "/models", error_response(401, "invalid api key")).route(
@@ -2842,7 +2850,7 @@ def test_ai_key_invalid_is_rejected_and_not_saved() -> None:
 
 
 def test_ai_key_errors_are_reported_with_codes() -> None:
-    if not _require_python_ai():
+    if not _require_inprocess_ai():
         return
 
     cases = (
@@ -2867,7 +2875,7 @@ def test_ai_key_errors_are_reported_with_codes() -> None:
 
 
 def test_ai_key_test_does_not_save() -> None:
-    if not _require_python_ai():
+    if not _require_inprocess_ai():
         return
 
     with running_panel(_ai_session_with_key()) as (panel, tmp):
@@ -2885,7 +2893,7 @@ def test_ai_key_test_does_not_save() -> None:
 
 
 def test_ai_key_delete_and_owner_key() -> None:
-    if not _require_python_ai():
+    if not _require_inprocess_ai():
         return
 
     with running_panel(_ai_session_with_key()) as (panel, _):
@@ -2901,7 +2909,7 @@ def test_ai_key_delete_and_owner_key() -> None:
 
 
 def test_ai_settings_update_matches_spec() -> None:
-    if not _require_python_ai():
+    if not _require_inprocess_ai():
         return
 
     with running_panel(_ai_session_with_local()) as (panel, _):
@@ -2922,7 +2930,7 @@ def test_ai_settings_update_matches_spec() -> None:
 
 
 def test_ai_local_status_and_test() -> None:
-    if not _require_python_ai():
+    if not _require_inprocess_ai():
         return
 
     with running_panel(_ai_session_with_local()) as (panel, _):
@@ -2942,7 +2950,7 @@ def test_ai_local_status_and_test() -> None:
 
 
 def test_ai_local_errors_are_friendly() -> None:
-    if not _require_python_ai():
+    if not _require_inprocess_ai():
         return
 
     # Сервер выключен.
@@ -2964,7 +2972,7 @@ def test_ai_local_errors_are_friendly() -> None:
 
 
 def test_ai_local_pull_streams_progress() -> None:
-    if not _require_python_ai():
+    if not _require_inprocess_ai():
         return
 
     session = _ai_session_with_local().route(
@@ -2994,7 +3002,19 @@ def test_ai_local_pull_streams_progress() -> None:
 
 
 def test_ai_pull_unauthorized_and_bad_model() -> None:
-    if not _require_python_ai():
+    """401 и недопустимое имя модели безопасны для обеих редакций.
+
+    Сам поток загрузки на настоящей панели не открываем: он скачивал бы
+    модель в Ollama пользователя (внутрипроцессный прогон — с фейком).
+    """
+    if EXTERNAL:
+        with running_panel() as (panel, _):
+            status, raw, _ = call(panel, "GET", "/api/ai/local/pull", token=None)
+            assert status == 401
+
+            status, raw, _ = call(panel, "GET", "/api/ai/local/pull?model=плохое имя")
+            assert status == 400
+            assert error_payload(raw)["code"] == "VALIDATION_ERROR"
         return
 
     with running_panel(_ai_session_with_local()) as (panel, _):
@@ -3007,9 +3027,6 @@ def test_ai_pull_unauthorized_and_bad_model() -> None:
 
 
 def test_ai_rejects_bad_payloads() -> None:
-    if not _require_python_ai():
-        return
-
     cases = (
         ("POST", "/api/ai/settings", {}, "Не задано ни одного поля настроек ИИ."),
         ("POST", "/api/ai/settings", {"mode": "магия"}, None),
@@ -3035,9 +3052,6 @@ def test_ai_rejects_bad_payloads() -> None:
 
 
 def test_ai_bad_json_body_is_rejected() -> None:
-    if not _require_python_ai():
-        return
-
     with running_panel(_ai_session_with_key()) as (panel, _):
         conn = http.client.HTTPConnection("127.0.0.1", panel.port, timeout=15)
         conn.request(
@@ -3054,9 +3068,6 @@ def test_ai_bad_json_body_is_rejected() -> None:
 
 
 def test_ai_requires_token() -> None:
-    if not _require_python_ai():
-        return
-
     with running_panel(_ai_session_with_key()) as (panel, _):
         for method, path in (
             ("GET", "/api/ai"),
@@ -3074,9 +3085,6 @@ def test_ai_requires_token() -> None:
 
 
 def test_ai_wrong_method_is_405() -> None:
-    if not _require_python_ai():
-        return
-
     with running_panel() as (panel, _):
         for method, path in (
             ("POST", "/api/ai"),
@@ -3100,7 +3108,7 @@ def test_ai_chat_without_provider_is_covered_by_unit_tests() -> None:
     или установите локальную модель» проверяет tests/test_ai_providers.py
     на реальном AiService (там же — приоритет облако → локальная модель).
     """
-    if not _require_python_ai():
+    if not _require_inprocess_ai():
         return
 
     with running_panel() as (panel, _):

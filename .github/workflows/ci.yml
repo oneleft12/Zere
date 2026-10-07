@@ -110,6 +110,9 @@ jobs:
       - name: Тесты обновления из GitHub (git в temp-каталоге)
         run: python tests/test_updater.py
 
+      - name: Тесты ИИ (ключ, провайдеры, локальная модель, маскирование)
+        run: python tests/test_ai_providers.py
+
   csharp:
     name: C# (сборка + контракт панели)
     runs-on: windows-latest
@@ -135,7 +138,17 @@ jobs:
           ZERE_PANEL_DESTRUCTIVE: "1"
         run: |
           set -euo pipefail
+
+          # Фейковый облачный провайдер: путь «ключ → проверка → чат»
+          # проверяется без интернета и без настоящих API.
+          python tests/fake_openai_server.py 8123 &
+          FAKE_PID=$!
+
           dotnet run --project ZERE.App --no-build -- --panel &
           SERVER_PID=$!
-          trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
+          trap 'kill $SERVER_PID $FAKE_PID 2>/dev/null || true' EXIT
+
+          # Полный цикл ИИ на фейковом провайдере (+ безопасные контракты /api/ai)
+          python tests/check_ai_contract_external.py 8080 --full
+
           ZERE_PANEL_EXTERNAL=1 python tests/test_panel_api.py

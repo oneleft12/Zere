@@ -1,3 +1,5 @@
+using ZERE.AI;
+
 namespace ZERE.Core.Logging;
 
 public class LogService
@@ -34,8 +36,10 @@ public class LogService
 
     private void Write(string level, string message)
     {
+        // Ключ API не должен попасть в логи даже внутри текста исключения
+        // (SecretRedactor — паритет с redact_secrets в Python-редакции).
         var line =
-            $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{level}] {message}";
+            $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{level}] {SecretRedactor.Redact(message)}";
 
         lock (_lock)
         {

@@ -75,7 +75,7 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
 
   async function refreshProvider(): Promise<void> {
     try {
-      // Бэкенд без /api/ai (C#-редакция) или со старым кодом: бейджа нет,
+      // Бэкенд без /api/ai (старая сборка) или со старым кодом: бейджа нет,
       // подсказку не показываем — чат работает и без этой информации.
       const support = await aiSupport();
       if (cancelled || support !== "ready") {

@@ -123,8 +123,10 @@ test("ИИ: сервер старее панели — просим переза
   await expect(page.locator('.nav-item[title="Подключение ИИ"]')).toBeVisible();
 });
 
-test("ИИ: C#-редакция — пункт меню скрыт и понятное объяснение", async ({ page }) => {
-  // C#-панель отдаёт тот же panel/dist, но не умеет ни /api/ai, ни /api/update.
+test("ИИ: старая сборка без /api/ai — пункт меню скрыт и понятное объяснение", async ({ page }) => {
+  // panel/dist обновляется сразу после git pull, а серверу нужен перезапуск:
+  // старая сборка (или уже запущенный процесс прошлой версии) не умеет ни
+  // /api/ai, ни /api/update — интерфейс обязан объяснить это, а не падать.
   const notFound = (route: import("@playwright/test").Route): Promise<void> =>
     route.fulfill({
       status: 404,
@@ -139,10 +141,10 @@ test("ИИ: C#-редакция — пункт меню скрыт и понят
   await expect(page.locator('.nav-item[title="Подключение ИИ"]')).toBeHidden();
 
   // Дашборд показывает фактическое состояние локальной модели (в фейке E2E
-  // Ollama «недоступна») и объясняет разницу редакций.
+  // Ollama «недоступна») и объясняет, что настройка появится после перезапуска.
   const card = page.locator(".card", { hasText: "ИИ и модель" });
   await expect(card).toContainText("только локальная модель");
-  await expect(card).toContainText("Python-редакции");
+  await expect(card).toContainText("перезапуска ZERE");
   await expect(card).toContainText("Локальная модель недоступна");
   await expect(page.locator(".shell__status")).toContainText("ИИ: только локально");
 

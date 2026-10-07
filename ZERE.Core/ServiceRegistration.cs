@@ -49,6 +49,18 @@ public static class ServiceRegistration
                 cfg.LlmTimeoutSeconds);
         });
 
+        // Выбор провайдера ИИ: облачный ключ пользователя (config/ai.json)
+        // или локальная модель (Ollama). Панель меняет настройки на лету —
+        // прокси читает их на каждый запрос (паритет с Python-редакцией).
+        services.AddSingleton(sp =>
+        {
+            var cfg = sp.GetRequiredService<ZereConfig>();
+            return new AiService(new AiTimeouts(
+                cfg.LlmTimeoutSeconds,
+                cfg.OllamaTimeoutMinutes,
+                cfg.LlmKeepAlive));
+        });
+
         // Флаги рантайма (голосовой режим и т.п.) — анализ S5.
         services.AddSingleton<RuntimeContext>();
 
@@ -82,7 +94,12 @@ public static class ServiceRegistration
         services.AddSingleton<FileHandler>();
         services.AddSingleton<GameHandler>();
         services.AddSingleton<VolumeHandler>();
-        services.AddSingleton<AIHandler>();
+        services.AddSingleton(sp => new AIHandler(
+            sp.GetRequiredService<AiService>().Proxy,
+            sp.GetRequiredService<ContextBuilder>(),
+            sp.GetRequiredService<PluginManager>(),
+            sp.GetRequiredService<RuntimeContext>(),
+            sp.GetRequiredService<ZereConfig>()));
 
         services.AddSingleton<HandlerPipeline>(sp =>
         {

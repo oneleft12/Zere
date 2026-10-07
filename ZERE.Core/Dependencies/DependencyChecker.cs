@@ -15,13 +15,24 @@ public class DependencyChecker : IDisposable
 
     private string _ollamaUrl = "http://localhost:11434";
 
-    public DependencyChecker(ZereConfig config)
+    /// <summary>
+    /// Настроен облачный API-ключ (config/ai.json или окружение владельца):
+    /// тогда Ollama и локальная модель — не критические, ZERE стартует и
+    /// работает через облако (панель: «Подключено: облачная модель»).
+    /// </summary>
+    private readonly bool _cloudAvailable;
+
+    public DependencyChecker(ZereConfig config, bool cloudAvailable = false)
     {
         _config = config;
+        _cloudAvailable = cloudAvailable;
         _ollamaUrl = OllamaUrlResolver.Resolve() ?? _ollamaUrl;
         _http.BaseAddress = new Uri(_ollamaUrl);
         _http.Timeout = TimeSpan.FromSeconds(3);
     }
+
+    /// <summary>Локальная модель критична, только если облачного ключа нет.</summary>
+    private bool LocalCritical => !_cloudAvailable;
 
     public List<DependencyResult> RunAll()
     {
@@ -571,7 +582,7 @@ public class DependencyChecker : IDisposable
                 {
                     Name = "Ollama",
                     Status = CheckStatus.Ok,
-                    Critical = true
+                    Critical = LocalCritical
                 });
             }
             else
@@ -580,7 +591,7 @@ public class DependencyChecker : IDisposable
                 {
                     Name = "Ollama",
                     Status = CheckStatus.Missing,
-                    Critical = true,
+                    Critical = LocalCritical,
                     Message = "Сервер отвечает, но вернул ошибку."
                 });
             }
@@ -591,7 +602,7 @@ public class DependencyChecker : IDisposable
             {
                 Name = "Ollama",
                 Status = CheckStatus.Missing,
-                Critical = true,
+                Critical = LocalCritical,
                 Message = $"Сервер недоступен ({_ollamaUrl})",
                 InstallUrl = "https://ollama.com/download",
                 InstallCommand = CheckWinget() ? "winget install Ollama.Ollama" : null
@@ -612,7 +623,7 @@ public class DependencyChecker : IDisposable
                 {
                     Name = $"Модель ({_config.Model})",
                     Status = CheckStatus.Missing,
-                    Critical = true,
+                    Critical = LocalCritical,
                     Message = "Ollama недоступна."
                 });
                 return;
@@ -636,7 +647,7 @@ public class DependencyChecker : IDisposable
                 {
                     Name = $"Модель ({_config.Model})",
                     Status = CheckStatus.Ok,
-                    Critical = true
+                    Critical = LocalCritical
                 });
             }
             else
@@ -649,7 +660,7 @@ public class DependencyChecker : IDisposable
                 {
                     Name = $"Модель ({_config.Model})",
                     Status = CheckStatus.Missing,
-                    Critical = true,
+                    Critical = LocalCritical,
                     Message = $"Не найдена. Доступные: {available}",
                     InstallCommand = $"ollama pull {_config.Model}"
                 });
@@ -661,7 +672,7 @@ public class DependencyChecker : IDisposable
             {
                 Name = $"Модель ({_config.Model})",
                 Status = CheckStatus.Warning,
-                Critical = true,
+                Critical = LocalCritical,
                 Message = "Не удалось проверить."
             });
         }

@@ -8,7 +8,7 @@ namespace ZERE.Core.Handlers;
 
 public class AIHandler : IZereHandler
 {
-    private readonly OllamaClient _ai;
+    private readonly IAiClient _ai;
     private readonly ContextBuilder _context;
     private readonly PluginManager _pluginManager;
     private readonly RuntimeContext? _runtime;
@@ -17,7 +17,7 @@ public class AIHandler : IZereHandler
     private const string AssistantName = "ZERE";
 
     public AIHandler(
-        OllamaClient ai,
+        IAiClient ai,
         ContextBuilder context,
         PluginManager pluginManager,
         RuntimeContext? runtime = null,
@@ -59,7 +59,7 @@ public class AIHandler : IZereHandler
         }
 
         // P1-2: system-промпт в prompt НЕ встраивается — он уходит отдельным
-        // полем system в OllamaClient, иначе модель получала его дважды.
+        // полем system в клиенте, иначе модель получала его дважды.
         var prompt = new PromptBuilder()
             .Memory(_context.BuildMemory())
             .History(_context.BuildHistory())

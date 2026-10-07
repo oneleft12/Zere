@@ -6,7 +6,7 @@ using ZERE.AI.Models;
 
 namespace ZERE.AI;
 
-public class OllamaClient : IDisposable
+public class OllamaClient : IAiClient, IDisposable
 {
     // Размер контекста: память (лимитирована ~1500 символов) + 5 последних
     // диалогов укладываются в 2048 токенов; меньше контекст — быстрее

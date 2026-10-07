@@ -42,6 +42,17 @@ static void OpenPanelInBrowser(string url, LogService logger)
 // зависимостей и голоса (запускает CI: dotnet run --project ZERE.App -- --panel).
 if (args.Contains("--panel"))
 {
+    // Порт панели для контрактных тестов и отладки: `--panel --port 8091`
+    // (или `--panel --port=8091`). По умолчанию — 8080, как в проде.
+    var panelPort = PanelServer.DefaultPort;
+    var portIndex = Array.IndexOf(args, "--port");
+    var portValue = portIndex >= 0 && portIndex + 1 < args.Length
+        ? args[portIndex + 1]
+        : args.FirstOrDefault(a => a.StartsWith("--port=", StringComparison.Ordinal))?["--port=".Length..];
+
+    if (int.TryParse(portValue, out var parsedPort) && parsedPort is > 0 and <= 65535)
+        panelPort = parsedPort;
+
     var panelServices = ServiceRegistration.Create(config);
     _ = panelServices.GetRequiredService<MemoryDatabase>();
 
@@ -62,7 +73,9 @@ if (args.Contains("--panel"))
         panelServices.GetRequiredService<SafeActionManager>(),
         panelServices.GetRequiredService<ApplicationLauncher>(),
         panelVoice,
-        panelServices.GetRequiredService<RuntimeContext>());
+        panelServices.GetRequiredService<RuntimeContext>(),
+        panelServices.GetRequiredService<AiService>(),
+        port: panelPort);
     testPanel.Start();
 
     Console.WriteLine($"[Панель] http://127.0.0.1:{testPanel.Port} (токен: config/panel.token)");
@@ -91,7 +104,9 @@ Console.WriteLine($"""
 
 """);
 
-var checker = new DependencyChecker(config);
+// Облачный ключ (config/ai.json или окружение владельца) делает Ollama
+// необязательной: ZERE стартует и отвечает через облачную модель.
+var checker = new DependencyChecker(config, AiSettings.Load().HasKey());
 var results = checker.RunAll();
 checker.PrintReport();
 
@@ -103,6 +118,11 @@ if (!checker.AllCriticalPassed())
 if (!checker.AllCriticalPassed())
 {
     Console.WriteLine("Критические зависимости не выполнены.");
+
+    if (AiSettings.Load().HasKey())
+        Console.WriteLine("Настроен облачный API-ключ — он используется приоритетно.");
+
+    Console.WriteLine("Откройте панель → «Подключение ИИ»: введите API-ключ или установите локальную модель.");
     Console.WriteLine("Устраните ошибки выше и запустите снова.");
     Console.WriteLine("Нажмите Enter для выхода...");
     Console.ReadLine();
@@ -136,7 +156,8 @@ var panel = new PanelServer(
     services.GetRequiredService<SafeActionManager>(),
     services.GetRequiredService<ApplicationLauncher>(),
     voiceManager,
-    services.GetRequiredService<RuntimeContext>());
+    services.GetRequiredService<RuntimeContext>(),
+    services.GetRequiredService<AiService>());
 
 // URL панели — для команды «панель»; null, если сервер не поднялся.
 string? panelUrl = null;
@@ -193,7 +214,7 @@ _ = Task.Run(async () =>
 {
     try
     {
-        var ai = services.GetRequiredService<OllamaClient>();
+        var ai = services.GetRequiredService<AiService>().Proxy;
         await ai.WarmupAsync();
     }
     catch (Exception ex)
