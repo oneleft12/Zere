@@ -196,3 +196,6 @@ panel/node_modules/
 # Артефакты E2E (Playwright)
 panel/test-results/
 panel/playwright-report/
+
+# Готовые рисунки ZERE (открываются в Paint файлом)
+drawings/

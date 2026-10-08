@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ctypes
 import math
+import os
 import shutil
 import subprocess
 import sys
@@ -23,6 +24,7 @@ import time
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
+from zere import paths
 from zere.core.logging.log_service import log_error
 from zere.tools.drawing.drawing_command_router import ParsedDrawingCommand
 from zere.tools.drawing.drawing_command_type import DrawingCommandType
@@ -46,6 +48,29 @@ from zere.tools.drawing.krita_api import (
     KritaPluginError,
     plugin_enabled,
 )
+
+# Рисование картинкой требует Pillow. Импорт защищённый: без Pillow рисование
+# не ломается, а работает прежним способом — эмуляцией мыши.
+try:
+    from zere.tools.drawing.drawing_canvas import (
+        CANVAS_DEFAULT_SIZE,
+        DRAWINGS_DIR_NAME,
+        render_strokes,
+        render_text,
+        save_drawing,
+    )
+    from zere.tools.drawing.drawing_clipboard import set_image as set_clipboard_image
+
+    IMAGE_SUPPORT = True
+except ImportError as _image_error:  # pragma: no cover - окружение без Pillow
+    CANVAS_DEFAULT_SIZE = (1280, 960)
+    DRAWINGS_DIR_NAME = "drawings"
+    render_strokes = None
+    render_text = None
+    save_drawing = None
+    set_clipboard_image = None
+    IMAGE_SUPPORT = False
+    log_error("DrawingService", f"рисование картинкой недоступно: {_image_error}")
 from zere.tools.drawing.drawing_target import (
     DEFAULT_TARGET,
     DrawingTarget,
@@ -86,6 +111,17 @@ SCROLLBAR_MARGIN = 18
 
 # Размер нового документа Krita, если в ней не открыто ни одного (плагин).
 KRITA_NEW_DOCUMENT = (1600, 1200)
+
+# Рисование в Paint картинкой: ZERE рисует изображение сам (Pillow) и отдаёт
+# его одним действием — вставкой (Ctrl+V) или открытием файла. Курсор не нужен.
+#   ZERE_PAINT_MODE=paste  — вставить в открытый Paint (по умолчанию);
+#   ZERE_PAINT_MODE=open   — всегда открывать рисунок файлом;
+#   ZERE_PAINT_MODE=cursor — вернуться к эмуляции мыши.
+ENV_IMAGE_MODE = "ZERE_PAINT_MODE"
+IMAGE_MODES = ("paste", "open", "cursor")
+DEFAULT_IMAGE_MODE = "paste"
+#: Пауза после вставки и перед Ctrl+V: окно должно успеть стать активным.
+PASTE_SETTLE_SECONDS = 0.4
 # Имя векторного слоя для текста: так его видно в доке слоёв.
 KRITA_TEXT_LAYER = "ZERE текст"
 
@@ -120,7 +156,9 @@ DPI_AWARENESS_PER_MONITOR_V2 = -4
 
 VK_CONTROL = 0x11
 VK_A = 0x41
+VK_V = 0x56
 VK_DELETE = 0x2E
+VK_RETURN = 0x0D
 
 _CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
@@ -658,6 +696,28 @@ def _launch(spec) -> bool:
     return False
 
 
+def _open_file(spec, path) -> bool:
+    """Открывает файл в приложении-цели: `mspaint рисунок.png`."""
+    for command in (shutil.which(spec.launch_command), spec.launch_command):
+        if not command:
+            continue
+
+        try:
+            subprocess.Popen([command, str(path)], creationflags=_CREATE_NO_WINDOW)
+            return True
+        except OSError:
+            continue
+
+    return False
+
+
+def image_mode() -> str:
+    """Как рисовать в Paint без курсора (переменная ZERE_PAINT_MODE)."""
+    value = (os.environ.get(ENV_IMAGE_MODE) or "").strip().lower()
+
+    return value if value in IMAGE_MODES else DEFAULT_IMAGE_MODE
+
+
 def _client_rect(hwnd: int) -> Tuple[int, int, int, int]:
     """Клиентская область окна в экранных координатах: x, y, ширина, высота."""
     from ctypes import wintypes
@@ -757,10 +817,10 @@ class DrawingService:
     # ── Выбор способа ─────────────────────────────────────────────
 
     def _run(self, command: ParsedDrawingCommand) -> str:
-        """Рисует в Krita через плагин, если он доступен, иначе — курсором.
+        """Плагин Krita, картинка в Paint — или эмуляция мыши как откат.
 
-        Плагин рисует родным API Krita: окно может быть свёрнуто, курсор не
-        двигается, фигуры и текст ложатся векторным слоем. Нет плагина — работает
+        Плагин рисует родным API Krita, картинка даёт Paint то, чего у курсора
+        нет: цвет, толщину и настоящий шрифт. Нет ни того ни другого — работает
         прежняя эмуляция мыши, поэтому рисование не ломается.
         """
         if self._target is DrawingTarget.KRITA and plugin_enabled():
@@ -768,6 +828,11 @@ class DrawingService:
 
             if through_plugin is not None:
                 return through_plugin
+        elif self._target is DrawingTarget.PAINT:
+            through_image = self._run_image(command)
+
+            if through_image is not None:
+                return through_image
 
         return self._run_cursor(command)
 
@@ -776,6 +841,122 @@ class DrawingService:
             self._krita_api = KritaApiClient()
 
         return self._krita_api
+
+    # ── Рисование картинкой (Paint без курсора) ───────────────────
+
+    def _run_image(self, command: ParsedDrawingCommand) -> Optional[str]:
+        """Рисует картинку и отдаёт её в Paint одним действием.
+
+        Картинку рисуем сами (Pillow), поэтому доступны цвет, толщина,
+        сглаживание и настоящий шрифт. В Paint она попадает вставкой (Ctrl+V)
+        или открытием файла — курсор не двигается вовсе.
+
+        None — способ не сработал (выключен, нечего рисовать, нет Pillow):
+        вызывающий вернётся к эмуляции мыши.
+        """
+        mode = image_mode()
+
+        if not IMAGE_SUPPORT or mode == "cursor":
+            return None
+
+        if command.type is DrawingCommandType.CLEAR_CANVAS:
+            # Очистка — это Ctrl+A и Delete: курсор ей не нужен.
+            return None
+
+        spec = spec_for(self._target)
+        target_name = display_name(self._target)
+
+        try:
+            # DPI-awareness до измерений: иначе окно измеряется виртуально.
+            # Сбой не критичен — картинка нарисуется размером по умолчанию.
+            _enable_dpi_awareness()
+        except (OSError, RuntimeError) as ex:
+            log_error("DrawingService", f"картинка: DPI-awareness ({ex})")
+
+        try:
+            hwnd = _find_window(spec)
+            canvas = self._image_canvas(hwnd, spec)
+            image = self._render_image(command, canvas)
+        except (OSError, RuntimeError) as ex:
+            log_error("DrawingService", f"картинка: {ex}")
+            return None
+
+        if image is None:
+            return None
+
+        if hwnd and mode == "paste" and self._paste_image(hwnd, image):
+            print(
+                f"[Drawing] {target_name}: способ=картинка (Ctrl+V), "
+                f"холст={canvas.width}x{canvas.height}"
+            )
+            return f"Вставил рисунок в {target_name}."
+
+        path = save_drawing(image, paths.PROJECT_ROOT / DRAWINGS_DIR_NAME)
+
+        if not _open_file(spec, path):
+            log_error("DrawingService", f"не удалось открыть {path}")
+            return None
+
+        print(f"[Drawing] {target_name}: способ=картинка (файл), рисунок={path}")
+
+        return f"Открыл рисунок в {target_name}: {path}"
+
+    def _image_canvas(self, hwnd: Optional[int], spec) -> DrawingCanvas:
+        """Размер картинки: область рисования окна, иначе размер по умолчанию."""
+        if hwnd:
+            try:
+                window_rect = _client_rect(hwnd)
+                viewport = DrawingCanvas.from_client(*window_rect, insets=spec.insets)
+
+                if is_canvas_usable(viewport):
+                    return viewport
+            except RuntimeError as ex:
+                log_error("DrawingService", f"картинка: окно не измерилось ({ex})")
+
+        return DrawingCanvas(0, 0, *CANVAS_DEFAULT_SIZE)
+
+    def _render_image(self, command: ParsedDrawingCommand,
+                      canvas: DrawingCanvas):
+        """Картинка команды; None — если рисовать нечего."""
+        if command.type is DrawingCommandType.WRITE_TEXT:
+            return render_text(command.value, canvas.width, canvas.height)
+
+        strokes = self._strokes_for(command, canvas)
+
+        if not strokes:
+            return None
+
+        return render_strokes(strokes, canvas.width, canvas.height)
+
+    def _paste_image(self, hwnd: int, image) -> bool:
+        """Кладёт картинку в буфер обмена и вставляет её одним Ctrl+V."""
+        try:
+            if not set_clipboard_image(image):
+                log_error("DrawingService", "буфер обмена недоступен")
+                return False
+        except (OSError, RuntimeError) as ex:
+            log_error("DrawingService", f"буфер обмена: {ex}")
+            return False
+
+        if not _focus(hwnd):
+            return False
+
+        # Пауза: окно должно успеть стать активным, иначе Ctrl+V уйдёт мимо.
+        time.sleep(PASTE_SETTLE_SECONDS)
+
+        _key_event(VK_CONTROL)
+        _key_event(VK_V)
+        _key_event(VK_V, key_up=True)
+        _key_event(VK_CONTROL, key_up=True)
+
+        time.sleep(PASTE_SETTLE_SECONDS)
+
+        # Enter закрепляет вставленное: без него следующий рисунок заменит
+        # плавающее выделение, и предыдущая фигура пропадёт.
+        _key_event(VK_RETURN)
+        _key_event(VK_RETURN, key_up=True)
+
+        return True
 
     def _run_plugin(self, command: ParsedDrawingCommand) -> Optional[str]:
         """Рисование плагином Krita; None — плагин недоступен, нужен откат.

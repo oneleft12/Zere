@@ -90,7 +90,7 @@ jobs:
           python-version: "3.14"
 
       - name: Зависимости тестов
-        run: pip install pyyaml requests
+        run: pip install pyyaml requests pillow
 
       - name: Компиляция
         run: python -m compileall -q zere main.py
@@ -109,6 +109,9 @@ jobs:
 
       - name: Тесты плагина Krita (SVG, протокол, установка, выбор способа)
         run: python tests/test_krita_plugin.py
+
+      - name: Тесты рисования картинкой (рендер, DIB, буфер, доставка в Paint)
+        run: python tests/test_drawing_canvas.py
 
       - name: Тесты обновления из GitHub (git в temp-каталоге)
         run: python tests/test_updater.py
