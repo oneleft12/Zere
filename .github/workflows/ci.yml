@@ -90,7 +90,10 @@ jobs:
           python-version: "3.14"
 
       - name: Зависимости тестов
-        run: pip install pyyaml requests pillow
+        # psutil нужен тестам роутера интентов: они проверяют подтверждение
+        # «да» в SafeActionManager (тот тянет ProcessService). В requirements.txt
+        # пакет уже есть — это зависимость самого ZERE.
+        run: pip install pyyaml requests pillow psutil
 
       - name: Компиляция
         run: python -m compileall -q zere main.py
@@ -118,6 +121,9 @@ jobs:
 
       - name: Тесты ИИ (ключ, провайдеры, локальная модель, маскирование)
         run: python tests/test_ai_providers.py
+
+      - name: Тесты роутера интентов Jev (реестр, пороги, слоты, встраивание)
+        run: python tests/test_jev_router.py
 
   csharp:
     name: C# (сборка + контракт панели)

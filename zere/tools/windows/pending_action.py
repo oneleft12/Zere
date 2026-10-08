@@ -14,6 +14,9 @@ class PendingAction(Enum):
     KILL_PROCESS = 4
     # Target: имя файла на рабочем столе
     DELETE_FILE = 5
+    # Target: каноническая команда роутера интентов Jev — выполняет не
+    # менеджер, а внешний исполнитель (`set_command_executor`).
+    ROUTER_COMMAND = 6
 
     # Алиасы 1:1 с именами C#-членов (None в Python — зарезервировано).
     None_ = NONE
@@ -22,3 +25,4 @@ class PendingAction(Enum):
     Sleep = SLEEP
     KillProcess = KILL_PROCESS
     DeleteFile = DELETE_FILE
+    RouterCommand = ROUTER_COMMAND

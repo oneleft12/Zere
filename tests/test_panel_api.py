@@ -303,6 +303,15 @@ class FakeSafeActionManager:
         self._requested_at = 0.0
         self.requests: list[str] = []
 
+    @property
+    def last_result(self) -> Optional[str]:
+        """Ответ обработчика у настоящего менеджера; здесь выполнять нечего."""
+        return None
+
+    def set_command_executor(self, executor: Any) -> None:
+        """Команды роутера интентов в fake-менеджере не выполняются."""
+        self.executor = executor
+
     def request(self, action: Any, target: str = "") -> None:
         name = getattr(action, "name", str(action))
         self._pending = name

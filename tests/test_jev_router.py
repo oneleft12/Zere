@@ -86,6 +86,25 @@ from zere.core.routing.jev_router import (
     RouterSettings,
 )
 from zere.core.routing.jev_router import main as router_main
+from zere.core.handlers.handler_pipeline import HandlerPipeline
+from zere.core.handlers.jev_routing_handler import (
+    JevRoutingHandler,
+    arrange_handlers,
+    build_jev_handler,
+)
+from zere.core.logging.log_service import redact_secrets
+from zere.tools.windows.pending_action import PendingAction
+
+try:
+    # SafeActionManager тянет psutil: без него (и без Windows) тесты ниже
+    # помечаются пропуском — как в остальных тестах репозитория.
+    from zere.tools.windows.safe_action_manager import ConfirmOutcome, SafeActionManager
+
+    HAVE_SAFE_ACTIONS = True
+except Exception:  # noqa: BLE001
+    ConfirmOutcome = None  # type: ignore[assignment]
+    SafeActionManager = None  # type: ignore[assignment]
+    HAVE_SAFE_ACTIONS = False
 
 ENV_KEYS = ("JEV_API_KEY", "OPENROUTER_API_KEY", "ZERE_JEV_ROUTER")
 
@@ -1117,6 +1136,445 @@ def test_cli_without_key_reports_diagnosis() -> None:
         text = stderr.getvalue()
         assert "Ключ Jev не задан" in text or "выключен" in text
         assert "sk-or-" in text
+
+
+# ── 7. Встраивание в пайплайн: обработчик-обёртка ───────────────────
+
+
+class FakeLocalPipeline:
+    """Исполнитель канонических команд: запоминает, что ему передали."""
+
+    def __init__(self, answer: Optional[str] = "Готово.") -> None:
+        self.answer = answer
+        self.commands: list[str] = []
+
+    def handle(self, message: str) -> Optional[str]:
+        self.commands.append(message)
+        return self.answer
+
+
+class FakeSafeActions:
+    """Двойник SafeActionManager: подтверждение «да» выполняет команду."""
+
+    def __init__(self) -> None:
+        self.requested: list[tuple[Any, str]] = []
+        self.executor: Optional[Any] = None
+        self.cancelled = 0
+        self._last: Optional[str] = None
+
+    def set_command_executor(self, executor: Any) -> None:
+        self.executor = executor
+
+    def request(self, action: Any, target: str = "") -> None:
+        self.requested.append((action, target))
+        self._last = None
+
+    def cancel(self) -> None:
+        self.cancelled += 1
+        self.requested.clear()
+
+    @property
+    def last_result(self) -> Optional[str]:
+        return self._last
+
+    def confirm(self) -> Optional[str]:
+        """Имитация «да»: выполняет последнюю команду роутера."""
+        if not self.requested:
+            return None
+        action, target = self.requested.pop()
+        if action is PendingAction.ROUTER_COMMAND and self.executor is not None:
+            self._last = self.executor(target)
+        return self._last
+
+
+class RecordingLog:
+    """Лог без секретов — как LogService (через redact_secrets)."""
+
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+
+    def info(self, message: str) -> None:
+        # Настоящий LogService чистит секреты на выходе — повторяем это
+        # здесь, чтобы тест ловил утечку ключа в строку лога.
+        self.lines.append(redact_secrets(message))
+
+
+def jev_handler(
+    answers: Optional[dict[str, Any]] = None,
+    *,
+    local: Optional[FakeLocalPipeline] = None,
+    safe: Optional[FakeSafeActions] = None,
+    log: Optional[RecordingLog] = None,
+    catalog: Optional[Any] = None,
+    **settings_kwargs: Any,
+) -> tuple[Any, FakeLocalPipeline, FakeSession]:
+    router, session = make_router(answers, catalog=catalog or FakeCatalog(), **settings_kwargs)
+    pipeline = local if local is not None else FakeLocalPipeline()
+    handler = JevRoutingHandler(router, pipeline, safe_actions=safe, log=log)
+    return handler, pipeline, session
+
+
+def test_handler_sends_canonical_command_to_local_handlers() -> None:
+    local = FakeLocalPipeline("Процесс discord.exe завершён.")
+    handler, local, _ = jev_handler(
+        {
+            "intent": choice_answer("process_kill", confidence=0.97),
+            "negated": noul_answer(0.01),
+            "process": choice_answer("discord.exe", confidence=0.95),
+        },
+        local=local,
+    )
+
+    assert handler.can_handle("прибей дискорд") is True
+    assert handler.handle("прибей дискорд") == "Процесс discord.exe завершён."
+    assert local.commands == ["закрой процесс discord.exe"]
+
+
+def test_handler_falls_through_when_canonical_command_not_understood() -> None:
+    """Каноническая фраза не разобралась — отвечает ИИ, а не роутер."""
+    handler, local, _ = jev_handler(
+        {
+            "intent": choice_answer("process_list", confidence=0.96),
+            "negated": noul_answer(0.01),
+        },
+        local=FakeLocalPipeline(answer=None),
+    )
+
+    assert handler.handle("что там по процессам вообще") is None
+    assert local.commands == ["процессы"]
+
+
+def test_handler_returns_none_for_llm_off_and_failure() -> None:
+    chat, _ = route(
+        "расскажи анекдот",
+        {"intent": choice_answer(CHAT_INTENT_ID, confidence=0.99), "negated": noul_answer(0.01)},
+    )
+    handler, local, _ = jev_handler(
+        {"intent": choice_answer(CHAT_INTENT_ID, confidence=0.99), "negated": noul_answer(0.01)}
+    )
+    assert handler.handle("расскажи анекдот") is None
+    assert local.commands == []
+
+    # Роутер выключен (нет ключа) — обработчик вообще не берёт сообщения.
+    off_router, _ = make_router(
+        {"intent": choice_answer(CHAT_INTENT_ID, confidence=0.9)}, api_key=""
+    )
+    off_handler = JevRoutingHandler(off_router, FakeLocalPipeline())
+    assert off_handler.can_handle("закрой дискорд") is False
+    assert off_handler.handle("закрой дискорд") is None
+
+    # Сбой Jev — тоже молчаливый fallback.
+    broken_router, _ = make_router(session=FakeSession(), catalog=FakeCatalog())
+    broken_handler = JevRoutingHandler(broken_router, FakeLocalPipeline())
+    assert broken_handler.handle("закрой дискорд") is None
+
+    assert chat.action == ACTION_LLM
+
+
+def test_handler_clarifies_without_executing() -> None:
+    handler, local, _ = jev_handler(
+        {
+            "intent": choice_answer("file_create_folder", confidence=0.95),
+            "negated": noul_answer(0.01),
+        }
+    )
+
+    answer = handler.handle("создай папку, пожалуйста")
+
+    assert answer == "Как назвать папку?"
+    assert local.commands == []
+
+
+def test_handler_requests_confirmation_for_dangerous_command() -> None:
+    safe = FakeSafeActions()
+    handler, local, _ = jev_handler(
+        {
+            "intent": choice_answer("memory_clear", confidence=0.99),
+            "negated": noul_answer(0.01),
+        },
+        safe=safe,
+    )
+
+    question = handler.handle("сотри всю память о себе")
+
+    assert "Подтвердите" in question
+    assert safe.requested == [(PendingAction.ROUTER_COMMAND, "очисти память")]
+    assert local.commands == [], "до подтверждения команда не выполняется"
+
+    # «да» — менеджер подтверждений зовёт исполнителя (локальный пайплайн).
+    result = safe.confirm()
+
+    assert result == "Готово."
+    assert safe.last_result == "Готово."
+    assert local.commands == ["очисти память"]
+
+
+def test_handler_without_confirmation_manager_does_not_execute() -> None:
+    handler, local, _ = jev_handler(
+        {
+            "intent": choice_answer("memory_clear", confidence=0.99),
+            "negated": noul_answer(0.01),
+        },
+        safe=None,
+    )
+
+    assert "Подтвердите" in handler.handle("очисти память")
+    assert local.commands == []
+
+
+def test_handler_logs_decision_without_secrets() -> None:
+    log = RecordingLog()
+    handler, _, _ = jev_handler(
+        {"intent": choice_answer(CHAT_INTENT_ID, confidence=0.98), "negated": noul_answer(0.01)},
+        log=log,
+    )
+
+    handler.handle("вот мой ключ sk-or-v1-secret1234567890, что дальше?")
+
+    assert len(log.lines) == 1
+    line = log.lines[0]
+    assert "[JevRouter] llm intent=chat" in line
+    assert "sk-or-v1-secret1234567890" not in line, "ключ не должен попадать в лог"
+
+
+def test_build_jev_handler_skips_disabled_router() -> None:
+    disabled = RouterSettings(enabled=False, api_key="")
+    assert build_jev_handler(local_handlers=[], settings=disabled) is None
+
+    enabled_no_key = RouterSettings(enabled=True, api_key="")
+    assert build_jev_handler(local_handlers=[], settings=enabled_no_key) is None
+
+
+def test_build_jev_handler_respects_mode() -> None:
+    fallback = build_jev_handler(
+        local_handlers=[FakeLocalPipeline()],
+        settings=RouterSettings(enabled=True, api_key=OPENROUTER_KEY),
+        catalog=EmptyCatalog(),
+    )
+    assert fallback is not None
+    assert fallback.goes_first is False, "fallback: роутер идёт после локальных обработчиков"
+
+    first = build_jev_handler(
+        local_handlers=[FakeLocalPipeline()],
+        settings=RouterSettings(enabled=True, api_key=OPENROUTER_KEY, mode="first"),
+        catalog=EmptyCatalog(),
+    )
+    assert first is not None
+    assert first.goes_first is True
+
+
+# ── 8. Подтверждение команды роутера в SafeActionManager ─────────────
+
+
+class StubProcesses:
+    def __init__(self) -> None:
+        self.killed: list[str] = []
+
+    def kill(self, name: str) -> bool:
+        self.killed.append(name)
+        return True
+
+
+class StubFiles:
+    def __init__(self) -> None:
+        self.deleted: list[str] = []
+
+    def delete_file(self, name: str) -> bool:
+        self.deleted.append(name)
+        return True
+
+
+def _require_safe_actions() -> bool:
+    """SafeActionManager недоступен без psutil — тест помечается пропуском."""
+    if HAVE_SAFE_ACTIONS:
+        return True
+    print("     (пропуск: psutil нет — SafeActionManager не проверяется)")
+    return False
+
+
+def test_safe_action_runs_router_command_after_yes() -> None:
+    if not _require_safe_actions():
+        return
+    safe = SafeActionManager(StubProcesses(), StubFiles())
+    safe.set_command_executor(lambda command: "Память очищена.")
+
+    safe.request(PendingAction.ROUTER_COMMAND, "очисти память")
+
+    assert safe.confirm() is ConfirmOutcome.EXECUTED
+    assert safe.last_result == "Память очищена."
+
+
+def test_safe_action_router_command_fails_without_executor() -> None:
+    if not _require_safe_actions():
+        return
+    safe = SafeActionManager(StubProcesses(), StubFiles())
+    safe.request(PendingAction.ROUTER_COMMAND, "очисти память")
+
+    assert safe.confirm() is ConfirmOutcome.FAILED
+    assert safe.last_result is None
+
+
+def test_safe_action_expired_router_command_is_not_executed() -> None:
+    if not _require_safe_actions():
+        return
+    executed: list[str] = []
+    safe = SafeActionManager(StubProcesses(), StubFiles())
+    safe.set_command_executor(lambda command: executed.append(command) or "Готово.")
+    safe.request(PendingAction.ROUTER_COMMAND, "очисти память")
+
+    # Подтверждение с опозданием: срок жизни истёк.
+    safe._requested_at -= SafeActionManager.CONFIRM_TTL_SECONDS + 1
+
+    assert safe.confirm() is ConfirmOutcome.EXPIRED
+    assert executed == [], "просроченное подтверждение ничего не выполняет"
+
+
+def test_safe_action_router_command_may_ask_for_confirmation_again() -> None:
+    """Команда роутера может сама требовать подтверждения (нет дедлока)."""
+    if not _require_safe_actions():
+        return
+    processes = StubProcesses()
+    safe = SafeActionManager(processes, StubFiles())
+
+    def executor(command: str) -> str:
+        # «очисти память» в реальном пайплайне может привести к запросу
+        # подтверждения ещё раз — request() из того же потока не должен
+        # блокировать менеджер (для этого лок реентрантный).
+        safe.request(PendingAction.KILL_PROCESS, "discord.exe")
+        return "Завершить? Напишите «да» или «нет»."
+
+    safe.set_command_executor(executor)
+    safe.request(PendingAction.ROUTER_COMMAND, "очисти память")
+
+    assert safe.confirm() is ConfirmOutcome.EXECUTED
+    assert safe.last_result == "Завершить? Напишите «да» или «нет»."
+
+    # Второе «да» доводит цепочку до конца — теперь через сам менеджер.
+    assert safe.confirm() is ConfirmOutcome.EXECUTED
+    assert processes.killed == ["discord.exe"]
+    assert safe.last_result is None
+
+
+def test_windows_handler_shows_router_answer_after_yes() -> None:
+    """Ветка «да» показывает ответ обработчика, а не общее «Выполняю команду»."""
+    if not _require_safe_actions():
+        return
+    try:
+        from zere.core.handlers.windows_handler import WindowsHandler
+    except Exception as ex:  # noqa: BLE001 — winreg есть только на Windows
+        print(f"     (пропуск: WindowsHandler недоступен: {type(ex).__name__})")
+        return
+
+    class FakeLauncher:
+        def get_installed_applications(self):
+            return {}
+
+    safe = SafeActionManager(StubProcesses(), StubFiles())
+    safe.set_command_executor(lambda command: "Память очищена.")
+    handler = WindowsHandler(FakeLauncher(), safe)
+
+    safe.request(PendingAction.ROUTER_COMMAND, "очисти память")
+    assert handler.handle("да") == "Память очищена."
+
+    # Без ответа обработчика остаётся прежнее поведение.
+    safe.request(PendingAction.SHUTDOWN)
+    assert handler.handle("да") == "Выполняю команду."
+
+
+class StubHandler:
+    """Мини-обработчик: понимает фразы по префиксу (для сборки пайплайна)."""
+
+    def __init__(self, prefix: str, answer: str) -> None:
+        self.prefix = prefix
+        self.answer = answer
+        self.seen: list[str] = []
+
+    def can_handle(self, message: str) -> bool:
+        return message.startswith(self.prefix)
+
+    def handle(self, message: str) -> Optional[str]:
+        self.seen.append(message)
+        return self.answer
+
+
+def test_arrange_handlers_positions_router() -> None:
+    local = [StubHandler("процессы", "список"), StubHandler("громкость", "громче")]
+    ai = StubHandler("", "ответ ИИ")
+
+    fallback_handler, _, _ = jev_handler({}, catalog=FakeCatalog())
+    assert arrange_handlers(local, ai, fallback_handler) == [*local, fallback_handler, ai]
+
+    first_handler, _, _ = jev_handler({}, catalog=FakeCatalog(), mode="first")
+    assert arrange_handlers(local, ai, first_handler) == [first_handler, *local, ai]
+
+    assert arrange_handlers(local, ai, None) == [*local, ai]
+
+
+def test_real_pipeline_uses_router_when_local_handlers_missed() -> None:
+    local = [
+        StubHandler("процессы", "Самые тяжёлые процессы."),
+        StubHandler("закрой процесс", "Процесс discord.exe завершён."),
+    ]
+    ai = StubHandler("", "ответ ИИ")
+
+    router, _ = make_router(
+        {
+            "intent": choice_answer("process_kill", confidence=0.97),
+            "negated": noul_answer(0.01),
+            "process": choice_answer("discord.exe", confidence=0.95),
+        },
+        catalog=FakeCatalog(),
+    )
+    handler = JevRoutingHandler(router, HandlerPipeline(local), safe_actions=FakeSafeActions())
+    pipeline = HandlerPipeline(arrange_handlers(local, ai, handler))
+
+    # Локальные обработчики такую фразу не понимают — выручает роутер.
+    assert pipeline.handle("прибей каким-нибудь образом дискорд") == "Процесс discord.exe завершён."
+    assert local[1].seen == ["закрой процесс discord.exe"]
+    assert ai.seen == [], "до ИИ дело доходить не должно"
+
+
+def test_real_pipeline_sends_chat_to_ai() -> None:
+    local = [StubHandler("процессы", "список")]
+    ai = StubHandler("", "ответ ИИ")
+
+    router, _ = make_router(
+        {"intent": choice_answer(CHAT_INTENT_ID, confidence=0.98), "negated": noul_answer(0.01)},
+        catalog=FakeCatalog(),
+    )
+    handler = JevRoutingHandler(router, HandlerPipeline(local))
+    pipeline = HandlerPipeline(arrange_handlers(local, ai, handler))
+
+    assert pipeline.handle("а как закрыть процесс, если я не у компа?") == "ответ ИИ"
+    assert ai.seen == ["а как закрыть процесс, если я не у компа?"]
+
+
+def test_real_pipeline_first_mode_keeps_local_commands_working() -> None:
+    local = [StubHandler("процессы", "Самые тяжёлые процессы.")]
+    ai = StubHandler("", "ответ ИИ")
+
+    # Роутер в режиме first не уверен, что это команда, — сообщение доходит
+    # до локального обработчика и обрабатывается как обычно.
+    router, _ = make_router(
+        {"intent": choice_answer(CHAT_INTENT_ID, confidence=0.99), "negated": noul_answer(0.01)},
+        catalog=FakeCatalog(),
+        mode="first",
+    )
+    handler = JevRoutingHandler(router, HandlerPipeline(local))
+    pipeline = HandlerPipeline(arrange_handlers(local, ai, handler))
+
+    assert pipeline.handle("процессы") == "Самые тяжёлые процессы."
+    assert ai.seen == []
+
+
+def test_real_pipeline_without_router_is_unchanged() -> None:
+    local = [StubHandler("процессы", "Список процессов.")]
+    ai = StubHandler("", "ответ ИИ")
+
+    pipeline = HandlerPipeline(arrange_handlers(local, ai, None))
+
+    assert pipeline.handle("процессы") == "Список процессов."
+    assert pipeline.handle("расскажи анекдот") == "ответ ИИ"
 
 
 def main() -> None:

@@ -88,7 +88,11 @@ class WindowsHandler(IZereHandler):
         if lower in ("да", "подтверди", "выполни", "сделай", "выполняй"):
             outcome = self._safe_actions.confirm()
             if outcome is ConfirmOutcome.EXECUTED:
-                return "Выполняю команду."
+                # Подтверждённой командой могла быть команда роутера интентов
+                # Jev («очисти память» и т. п.) — тогда показываем ответ
+                # обработчика, а не общее «Выполняю команду».
+                result = self._safe_actions.last_result
+                return result if result else "Выполняю команду."
             if outcome is ConfirmOutcome.EXPIRED:
                 ttl = SafeActionManager.CONFIRM_TTL_SECONDS
                 return f"Время подтверждения истекло ({ttl} секунд) — команда сброшена. Повторите команду."

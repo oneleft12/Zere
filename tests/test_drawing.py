@@ -918,7 +918,10 @@ def test_pipeline_places_drawing_before_ai() -> None:
     source = (REPO_ROOT / "zere" / "core" / "services.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
 
-    pipeline_calls: list[str] = []
+    # Порядок берём по строкам исходника: ast.walk обходит дерево в ширину,
+    # поэтому вложенные вызовы (список обработчиков) и одиночные оказываются
+    # «не по порядку» — а проверяем мы именно порядок в пайплайне.
+    pipeline_calls: list[tuple[int, str]] = []
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.FunctionDef) or node.name != "_create_handler_pipeline":
@@ -929,11 +932,13 @@ def test_pipeline_places_drawing_before_ai() -> None:
                 if sub.func.attr == "get" and sub.args:
                     argument = sub.args[0]
                     if isinstance(argument, ast.Name):
-                        pipeline_calls.append(argument.id)
+                        pipeline_calls.append((sub.lineno, argument.id))
 
-    assert "DrawingHandler" in pipeline_calls, "DrawingHandler не в конвейере"
-    assert "AIHandler" in pipeline_calls, "AIHandler не в конвейере"
-    assert pipeline_calls.index("DrawingHandler") < pipeline_calls.index("AIHandler"), (
+    names = [name for _line, name in sorted(pipeline_calls)]
+
+    assert "DrawingHandler" in names, "DrawingHandler не в конвейере"
+    assert "AIHandler" in names, "AIHandler не в конвейере"
+    assert names.index("DrawingHandler") < names.index("AIHandler"), (
         "DrawingHandler должен идти раньше AIHandler"
     )
 

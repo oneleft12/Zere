@@ -10,6 +10,7 @@ import subprocess
 import threading
 import time
 from enum import Enum
+from typing import Callable, Optional
 
 from zere.tools.files.file_manager import FileManager
 from zere.tools.windows.pending_action import PendingAction
@@ -34,23 +35,50 @@ class SafeActionManager:
     CONFIRM_TTL_SECONDS = 60
 
     def __init__(self, process_service: ProcessService, files: FileManager) -> None:
-        self._lock = threading.Lock()
+        # RLock, а не Lock: выполнение подтверждённой команды роутера идёт
+        # внутри confirm() и может само запросить подтверждение (например,
+        # «очисти память» → «закрой процесс»). Обычный Lock здесь дал бы
+        # вечную блокировку на повторном request() из того же потока.
+        self._lock = threading.RLock()
         self._process_service = process_service
         self._files = files
         self._pending: PendingAction = PendingAction.NONE
         self._target: str = ""
         self._requested_at: float = 0.0
+        #: Исполнитель команд роутера интентов Jev (зовётся после «да»).
+        self._command_executor: Optional[Callable[[str], Optional[str]]] = None
+        self._last_result: Optional[str] = None
+
+    def set_command_executor(
+        self, executor: Optional[Callable[[str], Optional[str]]]
+    ) -> None:
+        """Кто выполняет подтверждённую команду роутера интентов.
+
+        Менеджер не знает про пайплайн обработчиков: команду выполняет тот,
+        кто её предложил (роутер), а менеджер держит подтверждение «да/нет»
+        и срок его жизни — так же, как для питания и завершения процессов.
+        """
+        with self._lock:
+            self._command_executor = executor
+
+    @property
+    def last_result(self) -> Optional[str]:
+        """Ответ обработчика на последнее подтверждённое действие (или None)."""
+        with self._lock:
+            return self._last_result
 
     def request(self, action: PendingAction, target: str = "") -> None:
         with self._lock:
             self._pending = action
             self._target = target
             self._requested_at = time.monotonic()
+            self._last_result = None
 
     def cancel(self) -> None:
         with self._lock:
             self._pending = PendingAction.NONE
             self._target = ""
+            self._last_result = None
 
     def confirm(self) -> ConfirmOutcome:
         with self._lock:
@@ -68,6 +96,7 @@ class SafeActionManager:
             target = self._target
             self._pending = PendingAction.NONE
             self._target = ""
+            self._last_result = None
 
             try:
                 return (
@@ -92,6 +121,14 @@ class SafeActionManager:
             return self._process_service.kill(target)
         if action is PendingAction.DELETE_FILE:
             return self._files.delete_file(target)
+        if action is PendingAction.ROUTER_COMMAND:
+            executor = self._command_executor
+            if executor is None:
+                return False
+            result = executor(target)
+            # Ответ обработчика запоминаем: его покажет «да»-ветка WindowsHandler.
+            self._last_result = result
+            return result is not None
         return False
 
     @staticmethod

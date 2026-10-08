@@ -311,7 +311,10 @@ def create_services(config: ZereConfig) -> ServiceContainer:
 
     # services.AddSingleton<HandlerPipeline>(sp => new HandlerPipeline(10 хэндлеров));
     def _create_handler_pipeline(sp: ServiceContainer) -> HandlerPipeline:
-        handlers = [
+        # Локальные обработчики — те, что понимают точные фразы. Роутер
+        # интентов Jev получает ровно этот список как «исполнителя»
+        # канонических команд: без себя и без AIHandler.
+        local_handlers: List[IZereHandler] = [
             sp.get(MemoryHandler),
             sp.get(MemoryQueryHandler),
             sp.get(ConversationHandler),
@@ -322,10 +325,41 @@ def create_services(config: ZereConfig) -> ServiceContainer:
             sp.get(VolumeHandler),
             # Рисование — перед AIHandler: «нарисуй круг» не должно уходить в LLM.
             sp.get(DrawingHandler),
-            sp.get(AIHandler),
-        ]  # type: List[IZereHandler]
+        ]
 
-        return HandlerPipeline(handlers)
+        jev_handler = _create_jev_handler(sp, local_handlers)
+        ai_handler = sp.get(AIHandler)
+
+        if jev_handler is None:
+            # Роутер выключен (нет ключа/настроек) — пайплайн как раньше.
+            return HandlerPipeline([*local_handlers, ai_handler])
+
+        # Импорт только при включённом роутере: без него модуль не грузится.
+        from zere.core.handlers.jev_routing_handler import arrange_handlers
+
+        return HandlerPipeline(arrange_handlers(local_handlers, ai_handler, jev_handler))
+
+    def _create_jev_handler(
+        sp: ServiceContainer, local_handlers: List[IZereHandler]
+    ) -> Optional[Any]:
+        """Собирает обёртку роутера Jev; сбой настроек не мешает старту."""
+        try:
+            # Импорт внутри функции: без роутера (обычный случай) модуль
+            # не загружается вовсе.
+            from zere.core.handlers.jev_routing_handler import build_jev_handler
+            from zere.core.routing.jev_router import LocalCatalog
+
+            return build_jev_handler(
+                local_handlers=local_handlers,
+                catalog=LocalCatalog(
+                    sp.get(ApplicationLauncher), sp.get(ProcessService)
+                ),
+                safe_actions=sp.get(SafeActionManager),
+                log=sp.get(LogService),
+            )
+        except Exception as ex:
+            log_error("Services", f"роутер интентов Jev не подключён: {ex}")
+            return None
 
     services.add_singleton_factory(_create_handler_pipeline, HandlerPipeline)
 

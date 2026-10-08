@@ -115,7 +115,10 @@ Pipeline обработки команд (порядок важен):
 7. **GameHandler** — игровые команды
 8. **VolumeHandler** — «громкость», «сделай громче/тише», «выключи звук»
 9. **DrawingHandler** — рисование в Krita/Paint: «нарисуй круг», «напиши на холсте привет», «рисуй в крите» *(только Python-редакция)*
-10. **AIHandler** — fallback → генерация ответа через провайдера ИИ
+10. **JevRoutingHandler** — роутер интентов: свободная фраза → каноническая команда
+    *(только Python-редакция; регистрируется лишь при настроенном ключе Jev,
+    `docs/JEV_ROUTER.md`)*
+11. **AIHandler** — fallback → генерация ответа через провайдера ИИ
     (облачный ключ пользователя или локальная Ollama — выбор в
     `zere/ai/ai_service.py` и `ZERE.AI/AiService.cs` через `IAiClient`)
 
@@ -171,30 +174,37 @@ Pipeline обработки команд (порядок важен):
 - Подробности: `docs/UPDATE.md`; тесты — `tests/test_updater.py`
   и контрактные `/api/update*` в `tests/test_panel_api.py`.
 
-## Роутер интентов на Jev (прототип, только Python-редакция)
+## Роутер интентов на Jev (только Python-редакция)
 
 Классификация свободной фразы в интент до вызова LLM: Jev (TypeSafe System
 One, `~typesafe/jev-latest` через OpenRouter) за 70–500 мс выбирает интент из
 реестра и отдаёт калиброванную уверенность, действует код — интент →
 каноническая фраза → существующий обработчик пайплайна.
 
-- **Выключен по умолчанию** (`enabled: false`), без ключа не делает ни одного
-  запроса; нужен ключ OpenRouter (`sk-or-...`), ключ шлюза OpenCode Go
-  (`oc_sk_...`) к Jev доступа не даёт. Настройки — `config/router.example.json`
-  → рабочий `config/router.json` (gitignored, 0600) + `ZERE_JEV_ROUTER`,
-  `JEV_API_KEY`/`OPENROUTER_API_KEY`; ключ `sk-or-` из `config/ai.json`
-  переиспользуется автоматически.
+- **Выключен по умолчанию** (`enabled: false`), без ключа обработчик вообще не
+  регистрируется и запросов нет; нужен ключ OpenRouter (`sk-or-...`), ключ
+  шлюза OpenCode Go (`oc_sk_...`) к Jev доступа не даёт. Настройки —
+  `config/router.example.json` → рабочий `config/router.json` (gitignored,
+  0600) + `ZERE_JEV_ROUTER`, `JEV_API_KEY`/`OPENROUTER_API_KEY`; ключ `sk-or-`
+  из `config/ai.json` переиспользуется автоматически.
+- Включение: `{ "enabled": true, "api_key": "sk-or-..." }`, перезапуск ZERE,
+  проверка — `python3 -m zere.core.routing --check`. Подробности и быстрый
+  старт: `docs/JEV_ROUTER.md`.
 - Код: `zere/core/routing/` (`intents.py` — 36 интентов и слоты,
   `jev_client.py` — Decisions API, `jev_router.py` — пороги/решения/CLI),
-  CLI — `python3 -m zere.core.routing "закрой дискорд" [--check|--json]`.
+  обёртка в пайплайне — `zere/core/handlers/jev_routing_handler.py`
+  (`JevRoutingHandler` + `arrange_handlers`), регистрация — `zere/core/services.py`
+  (между локальными обработчиками и `AIHandler`; `mode: first` — в начале).
 - Пороги: `execute` 0.85, `clarify` 0.55, `critical` 0.93; необратимые
-  действия подтверждаются (`confirm`: обработчик или роутер), аргументы
-  берутся только из известного множества (процессы/приложения), свободный
-  текст снимается локально, а не выдумывается.
+  действия подтверждаются — обработчиком или `SafeActionManager`
+  (`PendingAction.ROUTER_COMMAND`, «да» выполняет команду через пайплайн,
+  TTL 60 с); аргументы берутся только из известного множества
+  (процессы/приложения), свободный текст снимается локально, а не выдумывается;
+  болтовня, запреты, низкая уверенность и сбой Jev → отвечает ИИ как раньше.
+- Решения пишутся в `logs/zere_*.log` строкой `[JevRouter] action intent conf …`.
 - Бенчмарк порогов: `tools/jev_bench.py` (+ `tools/jev_bench_phrases.jsonl`,
   81 фраза), сохраняет сырые решения — пороги можно пересчитывать без сети.
-- **В пайплайн не встроен**: план (`JevRoutingHandler` перед `AIHandler`)
-  в `docs/JEV_ROUTER.md`, §7. Тесты — `tests/test_jev_router.py` (53, без сети).
+- Тесты — `tests/test_jev_router.py` (72, без сети), шаг в CI-джобе `python`.
 
 ## Подключение ИИ (ключ облачной модели / локальная модель)
 
@@ -409,7 +419,7 @@ Zere/
 │   ├── test_drawing_canvas.py    # Тесты рисования картинкой (27: рендер, DIB, буфер, доставка в Paint)
 │   ├── test_updater.py           # Тесты обновления из GitHub (git в temp: fetch/pull, отказы, зависимости)
 │   ├── test_ai_providers.py      # Тесты ИИ (приоритет облако/локально, проверка ключа, Ollama, маскирование)
-│   ├── test_jev_router.py        # Тесты роутера интентов Jev (реестр, пороги, слоты, fallback, CLI)
+│   ├── test_jev_router.py        # Тесты роутера интентов Jev (72: реестр, пороги, слоты, встраивание, CLI)
 │   ├── fake_http.py              # Фейковый requests.Session для тестов ИИ (без сети)
 │   ├── check_ai_contract_external.py  # /api/ai* против запущенной панели (C# и Python)
 │   └── e2e_server.py             # Раннер панели с фейками для E2E
