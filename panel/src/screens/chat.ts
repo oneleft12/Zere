@@ -7,10 +7,22 @@
  */
 
 import { ApiError, aiSupport, apiGet, apiSse, type AiStatus } from "../api";
+import { COMMAND_GROUPS, COMMAND_TOTAL, type CommandItem } from "../commands";
 import { logEvent } from "../events";
 import { t } from "../i18n";
 import { badge, button, clear, emptyState, h, loadingRow, pageHeader, textInput, toast } from "../ui";
 import { navigate, type Cleanup, type ScreenFactory } from "../router";
+
+/** Открыта ли панель команд (запоминаем между заходами в чат). */
+const COMMANDS_OPEN_KEY = "zere-chat-commands-open";
+
+function readCommandsOpen(): boolean {
+  try {
+    return window.localStorage.getItem(COMMANDS_OPEN_KEY) !== "0";
+  } catch {
+    return true; // приватный режим браузера — просто открыта по умолчанию
+  }
+}
 
 interface Message {
   role: "user" | "assistant";
@@ -111,9 +123,160 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
   container.appendChild(aiNotice);
   void refreshProvider();
 
-  container.appendChild(log);
-  container.appendChild(h("div", { class: "chat__foot" }, status));
-  container.appendChild(composer);
+  // ── Список доступных команд (единый каталог `commands.ts`) ──────
+  // Команды вставляются в поле ввода нажатием: не нужно помнить точную
+  // формулировку, а весь справочник живёт прямо во вкладке «Чат».
+  const commandsEmpty = h("p", {
+    class: "chat__commands-empty",
+    text: t("Ничего не найдено — попробуйте другой запрос"),
+    hidden: true,
+  });
+  const commandsGrid = h("div", { class: "chat__commands-grid" });
+
+  function matches(item: CommandItem, query: string): boolean {
+    if (query === "") return true;
+
+    const haystack = `${item.command} ${t(item.hint)}`.toLowerCase();
+    return haystack.includes(query);
+  }
+
+  function renderCommands(filter: string): void {
+    const query = filter.trim().toLowerCase();
+    clear(commandsGrid);
+
+    let shown = 0;
+
+    for (const group of COMMAND_GROUPS) {
+      const items = group.items.filter((item) => matches(item, query));
+      if (items.length === 0) continue;
+
+      shown += items.length;
+      commandsGrid.appendChild(
+        h(
+          "article",
+          { class: "cmd-group" },
+          h(
+            "h3",
+            { class: "cmd-group__title" },
+            h("span", { text: t(group.title) }),
+            group.note
+              ? h("span", { class: "cmd-group__note", text: t(group.note) })
+              : null,
+          ),
+          h(
+            "ul",
+            { class: "cmd-list" },
+            ...items.map((item) =>
+              h(
+                "li",
+                {},
+                h(
+                  "button",
+                  {
+                    class: "cmd",
+                    type: "button",
+                    title: t("Вставить в поле ввода"),
+                    onclick: () => insertCommand(item.command),
+                  },
+                  h("code", { class: "cmd__text", text: item.command }),
+                  h("span", { class: "cmd__hint", text: t(item.hint) }),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    commandsEmpty.hidden = shown > 0;
+  }
+
+  /** Подставляет команду в композер: остаётся дописать аргумент и нажать Enter. */
+  function insertCommand(command: string): void {
+    draft = command;
+    input.value = command;
+    input.focus();
+    input.setSelectionRange(command.length, command.length);
+  }
+
+  const commandsChevron = h("span", { class: "chat__commands-chevron" });
+
+  const commandsHead = h(
+    "button",
+    {
+      class: "chat__commands-head",
+      type: "button",
+      onclick: () => setCommandsOpen(!commandsOpen, true),
+    },
+    h("span", { class: "chat__commands-title", text: t("Команды ZERE") }),
+    badge(String(COMMAND_TOTAL), "accent"),
+    commandsChevron,
+  );
+
+  const commandsBody = h(
+    "div",
+    { class: "chat__commands-body", hidden: true },
+    h("p", {
+      class: "chat__commands-tip",
+      text: t("Нажмите команду — она подставится в поле ввода"),
+    }),
+    h(
+      "div",
+      { class: "chat__commands-search" },
+      textInput({
+        value: "",
+        placeholder: t("Поиск команды…"),
+        onInput: (value) => renderCommands(value),
+      }),
+    ),
+    commandsGrid,
+    commandsEmpty,
+  );
+
+  const commandsPanel = h(
+    "section",
+    { class: "chat__commands" },
+    commandsHead,
+    commandsBody,
+  );
+
+  let commandsOpen = true;
+
+  function setCommandsOpen(open: boolean, persist = false): void {
+    commandsOpen = open;
+    commandsBody.hidden = !open;
+    commandsChevron.textContent = open ? "▾" : "▸";
+    commandsHead.setAttribute("aria-expanded", String(open));
+
+    if (!persist) return;
+
+    try {
+      window.localStorage.setItem(COMMANDS_OPEN_KEY, open ? "1" : "0");
+    } catch {
+      // Настройка необязательная: без localStorage панель просто не запомнится.
+    }
+  }
+
+  renderCommands("");
+  setCommandsOpen(readCommandsOpen());
+
+  // Диалог и справочник команд — рядом: на широком экране список всех
+  // команд виден сразу и не вытесняет чат за нижнюю границу окна, а на
+  // узком панель встаёт под чат (см. `.chat__split`).
+  container.appendChild(
+    h(
+      "div",
+      { class: "chat__split" },
+      h(
+        "div",
+        { class: "chat__main" },
+        log,
+        h("div", { class: "chat__foot" }, status),
+        composer,
+      ),
+      commandsPanel,
+    ),
+  );
 
   renderLog();
   setBusy(false);

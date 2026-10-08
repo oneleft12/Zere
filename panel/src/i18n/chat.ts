@@ -26,4 +26,111 @@ export const CHAT_EN: Record<string, string> = {
   "Думаю…": "Thinking…",
   "Не удалось получить ответ": "Failed to get a reply",
   "Неизвестная ошибка": "Unknown error",
+
+  // ── Справочник команд (commands.ts) ───────────────────────────
+  "Команды ZERE": "ZERE commands",
+  "Нажмите команду — она подставится в поле ввода":
+    "Click a command to insert it into the input field",
+  "Поиск команды…": "Search commands…",
+  "Вставить в поле ввода": "Insert into the input field",
+  "Ничего не найдено — попробуйте другой запрос":
+    "Nothing found — try another query",
+
+  // Группы
+  "История диалогов": "Conversation history",
+  "Файлы на рабочем столе": "Files on the desktop",
+  "Игры": "Games",
+  "Питание": "Power",
+  "Рисование: Krita и Paint": "Drawing: Krita and Paint",
+  "только Python-редакция": "Python edition only",
+  "Вопросы к ИИ": "Questions to the AI",
+  "Консольные команды": "Console commands",
+  "только в окне консоли ZERE, не в чате":
+    "only in the ZERE console window, not in chat",
+
+  // Память
+  "Сохранить факт: ключ — первое слово, значение — остальные":
+    "Save a fact: the first word is the key, the rest is the value",
+  "Сохранить факт явной парой «ключ = значение»":
+    "Save a fact as an explicit “key = value” pair",
+  "Показать все воспоминания": "Show every memory",
+  "Спросить из памяти: имя, проект, видеокарта, windows":
+    "Ask memory for: name, project, GPU, windows",
+  "Вся память о пользователе": "Everything remembered about you",
+  "Поиск по памяти; если не найдено — отвечает ИИ":
+    "Search memory; if nothing is found, the AI answers",
+  "Изменить значение существующего ключа": "Change the value of an existing key",
+  "Удалить одну запись из памяти": "Delete a single memory entry",
+  "Полностью очистить память": "Erase all memory",
+
+  // История
+  "Последние 20 пар «вы → ZERE»": "The last 20 “you → ZERE” pairs",
+  "То же самое другими словами": "The same thing in other words",
+  "Очистить историю разговоров": "Clear the conversation history",
+
+  // Приложения
+  "Запуск приложения по имени или алиасу":
+    "Launch an application by name or alias",
+  "Поиск приложения в индексе": "Search the application index",
+  "Переиндексировать установленные приложения":
+    "Re-index the installed applications",
+  "Сколько приложений в индексе": "How many applications are indexed",
+
+  // Процессы
+  "15 самых «тяжёлых» процессов (ещё: «что запущено», «задачи»)":
+    "The 15 heaviest processes (also: “что запущено”, “задачи”)",
+  "Найти процесс по имени": "Find a process by name",
+  "Завершить процесс: системные защищены, нужно подтверждение":
+    "Kill a process: system ones are protected, confirmation required",
+  "Подтвердить необратимое действие (действует 60 секунд)":
+    "Confirm an irreversible action (valid for 60 seconds)",
+  "Отменить ожидающее действие": "Cancel the pending action",
+
+  // Файлы
+  "Создать папку": "Create a folder",
+  "Создать файл": "Create a file",
+  "Найти файл по имени": "Find a file by name",
+  "Удалить файл — только после подтверждения":
+    "Delete a file — only after confirmation",
+  "Удалить последний созданный файл": "Delete the last created file",
+
+  // Громкость
+  "Установить уровень 0–100": "Set the level 0–100",
+  "Громче на шаг (ещё: «погромче»)": "One step louder (also: “погромче”)",
+  "Тише на шаг (ещё: «потише»)": "One step quieter (also: “потише”)",
+  "Выключить звук (mute)": "Mute the sound",
+  "Вернуть звук": "Unmute the sound",
+
+  // Игры
+  "Какие игры запущены прямо сейчас": "Which games are running right now",
+  "Наигранное время за сегодня": "Time played today",
+  "Обнулить счётчик времени за сегодня": "Reset today's play-time counter",
+
+  // Питание
+  "Выключение — с подтверждением «да»/«нет»":
+    "Shut down — confirmed with “да”/“нет”",
+  "Перезагрузка с подтверждением": "Restart — with confirmation",
+  "Перевести компьютер в сон": "Put the computer to sleep",
+
+  // Рисование
+  "Ещё фигуры: квадрат, прямоугольник, треугольник, овал, звезда, линия":
+    "More shapes: square, rectangle, triangle, ellipse, star, line",
+  "Текст на холсте (ещё: «напиши на холсте привет»)":
+    "Text on the canvas (also: “напиши на холсте привет”)",
+  "Назвать цель прямо в команде": "Name the target right in the command",
+  "Сменить цель по умолчанию (ещё: «рисуй в пейнте»)":
+    "Change the default target (also: “рисуй в пейнте”)",
+  "Стереть нарисованное": "Erase what was drawn",
+
+  // Вопросы к ИИ
+  "Всё, что не команда, уходит подключённой модели (облако или Ollama)":
+    "Anything that is not a command goes to the connected model (cloud or Ollama)",
+  "Обычный вопрос — ответ приходит потоком в чат":
+    "An ordinary question — the answer streams into the chat",
+
+  // Консоль
+  "Открыть панель настроек в браузере": "Open the settings panel in the browser",
+  "Включить голосовой режим (ещё: «voice»)":
+    "Turn on voice mode (also: “voice”)",
+  "Выйти из ZERE": "Quit ZERE",
 };

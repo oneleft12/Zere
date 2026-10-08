@@ -328,6 +328,7 @@ Zere/
 │   └── zere_chattts_server.py    # HTTP-сервер ChatTTS (uv.exe, PCM s16le 24 кГц)
 ├── panel/                        # Web-панель (SPA, Vite + vanilla TS)
 │   ├── src/                      # main/shell/router/ui/i18n + 13 экранов (screens/)
+│   │   └── commands.ts           # каталог команд ZERE (панель на вкладке «Чат»)
 │   ├── e2e/                      # Playwright-смоук (npm run test:e2e)
 │   └── dist/                     # Сборка — коммитится, раздаётся сервером
 ├── installer/                    # Установщик Windows (PowerShell + Inno Setup)
