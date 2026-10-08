@@ -320,6 +320,29 @@ class VoiceManager:
             _remove_quietly(file_to_play if file_to_play != wav_file else "")
             _remove_quietly(wav_file)
 
+    def speak_background(self, text: str) -> None:
+        """Озвучивает текст фоном, не блокируя вызывающий поток.
+
+        Нужно панели: ответ клиенту уже отдан (SSE-событие `done`), поэтому
+        синтез и воспроизведение не должны держать HTTP-соединение. Новая
+        реплика обрывает предыдущую — как `StopSpeaking` перед `SpeakAsync`
+        в C#-редакции. Поток демон: выход из ZERE не ждёт конца озвучки.
+        """
+        self.stop_speaking()
+
+        threading.Thread(
+            target=self._speak_quietly,
+            args=(text,),
+            daemon=True,
+        ).start()
+
+    def _speak_quietly(self, text: str) -> None:
+        """`speak()` для фонового потока: сбой озвучки не должен всплывать."""
+        try:
+            self.speak(text)
+        except Exception as ex:  # noqa: BLE001 — фоновая озвучка не роняет процесс
+            log_error("VoiceManager", f"speak_background: {ex}")
+
     def stop_speaking(self) -> None:
         """Останавливает воспроизведение (порт StopSpeaking).
 

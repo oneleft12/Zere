@@ -438,6 +438,7 @@ class FakeVoiceManager:
         self.is_tts_available = True
         self.is_voice_available = True
         self.spoken: list[str] = []
+        self.stops = 0
         self.listen_results: list[str] = ["привет из микрофона"]
         self.listen_commands: list[str] = []
         self.wake_hits = 0
@@ -452,8 +453,15 @@ class FakeVoiceManager:
     def speak(self, text: str) -> None:
         self.spoken.append(text)
 
+    def speak_background(self, text: str) -> None:
+        # Панель озвучивает ответ чата фоном: тесту важно, что текст ответа
+        # дошёл до TTS именно через фоновый путь (без блокировки SSE).
+        self.spoken.append(text)
+
     def stop_speaking(self) -> None:
-        pass  # озвучка в фейке мгновенная — останавливать нечего
+        # Озвучка в фейке мгновенная — останавливать нечего, но вызов считаем:
+        # по нему проверяется обрыв речи при выключении голосового вывода.
+        self.stops += 1
 
     def listen(self) -> str:
         if self.listen_results:
@@ -966,6 +974,39 @@ def test_chat_stream_rejects_too_long_text() -> None:
         status, raw, _ = call(panel, "GET", "/api/chat/stream?text=" + "а" * 4001)
         assert status == 400
         assert error_payload(raw)["code"] == "VALIDATION_ERROR"
+
+
+def test_chat_stream_speaks_answer_only_when_voice_enabled() -> None:
+    """Панель читает ответ голосом — но только при включённом голосовом выводе."""
+    if EXTERNAL:
+        # У внешней панели нет доступа к фейковому голосу и конфигу в памяти.
+        return
+
+    with running_panel() as (panel, _):
+        panel.config.voice_enabled = False
+        call(panel, "GET", "/api/chat/stream?text=привет")
+        assert panel.voice.spoken == [], "голосовой вывод выключен — озвучки нет"
+
+        panel.config.voice_enabled = True
+        status, raw, _ = call(panel, "GET", "/api/chat/stream?text=привет")
+        assert status == 200
+        assert parse_sse(raw)[1][1] == {"answer": "ответ: привет"}
+        assert panel.voice.spoken == ["ответ: привет"], "озвучивается ответ движка"
+
+
+def test_voice_post_stops_speaking_when_voice_disabled() -> None:
+    """Выключение голосового вывода обрывает уже начатую озвучку."""
+    if EXTERNAL:
+        return
+
+    with running_panel() as (panel, _):
+        panel.config.voice_enabled = True
+        before = panel.voice.stops
+
+        status, raw, _ = call(panel, "POST", "/api/voice", body={"voiceEnabled": False})
+        assert status == 200, raw
+        assert json.loads(raw.decode("utf-8"))["voiceEnabled"] is False
+        assert panel.voice.stops == before + 1, "речь должна обрываться сразу"
 
 
 # ── Роутинг ───────────────────────────────────────────────────────

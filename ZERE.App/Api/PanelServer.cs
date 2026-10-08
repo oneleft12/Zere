@@ -1577,6 +1577,11 @@ public sealed class PanelServer : IDisposable
 
             _config.Save();
 
+            // Выключили голосовой вывод — обрываем начатую озвучку, чтобы
+            // панель замолчала сразу, а не дочитывала прошлый ответ.
+            if (!_config.VoiceEnabled)
+                _voice.StopSpeaking();
+
             var appliedOnRestart =
                 _config.VoiceEnabled != beforeEnabled ||
                 !string.Equals(_config.TtsEngine, beforeEngine, StringComparison.Ordinal) ||
@@ -2246,6 +2251,32 @@ public sealed class PanelServer : IDisposable
         // появится, когда OllamaClient откроет посимвольный стриминг.
         await WriteEventAsync(response, "token", new { text = answer });
         await WriteEventAsync(response, "done", new { answer });
+
+        // Панель читает ответ голосом, если голосовой вывод включён: тот же
+        // тракт TTS, что в консоли, но фоном — `done` уже отправлен, и озвучка
+        // не держит SSE-соединение. Новая реплика сама обрывает предыдущую
+        // (SpeakAsync в VoiceManager).
+        SpeakAnswerInBackground(answer);
+    }
+
+    /// <summary>Озвучка ответа панели фоном (только при включённом голосе).</summary>
+    private void SpeakAnswerInBackground(string answer)
+    {
+        if (_voice is null || !_config.VoiceEnabled || string.IsNullOrWhiteSpace(answer))
+            return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _voice.SpeakAsync(answer);
+            }
+            catch (Exception ex)
+            {
+                // Фоновая озвучка не должна валить ответ панели (и SSE).
+                _log.Error($"PanelServer.chat speak: {ex.Message}");
+            }
+        });
     }
 
     // ── ИИ: облачный ключ пользователя и локальная модель ─────────

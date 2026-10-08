@@ -1071,6 +1071,11 @@ class _PanelHandler(BaseHTTPRequestHandler):
 
         config.save()
 
+        # Выключили голосовой вывод — обрываем начатую озвучку, чтобы панель
+        # замолчала сразу, а не дочитывала прошлый ответ.
+        if not config.voice_enabled:
+            voice.stop_speaking()
+
         after = tuple(getattr(config, _camel_to_snake(key)) for key in restart_keys)
 
         self._send_json(
@@ -1467,7 +1472,30 @@ class _PanelHandler(BaseHTTPRequestHandler):
             self._write_event("token", {"text": answer})
             self._write_event("done", {"answer": answer})
 
+            # Панель читает ответ голосом, если голосовой вывод включён:
+            # тот же тракт ChatTTS, что в консоли, но фоном — `done` уже
+            # отправлен, и озвучка не держит SSE-соединение.
+            self._speak_answer_background(answer)
+
         self.close_connection = True
+
+    def _speak_answer_background(self, answer: str) -> None:
+        """Озвучка ответа панели фоном (голосовой вывод включён в конфиге).
+
+        Порядок проверок намеренный: сначала дешёвый флаг конфигурации, и
+        только потом голосовой модуль — в режиме `--panel` его нет вообще.
+        """
+        if not answer.strip() or not self.panel.config.voice_enabled:
+            return
+
+        voice = self.panel.voice
+        if voice is None:
+            return
+
+        try:
+            voice.speak_background(answer)
+        except Exception as ex:  # noqa: BLE001 — озвучка не должна ломать чат
+            log_error("PanelServer.chat", f"speak: {ex}")
 
     # ── ИИ: облачный ключ пользователя и локальная модель ─────────
 
