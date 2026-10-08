@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Service
+ServiceTypes=Krita/PythonPlugin
+X-KDE-Library=zere
+Name=ZERE (рисование по командам ассистента)
+Name[en]=ZERE (drawing driven by the assistant)
+Comment=Поднимает локальный сервер, по которому ZERE рисует в активном документе
+Comment[en]=Starts a local server so ZERE can draw in the active document

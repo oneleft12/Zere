@@ -12,8 +12,13 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parents[1]
 CONFIG_DIR: Path = PROJECT_ROOT / "config"
 LOGS_DIR: Path = PROJECT_ROOT / "logs"
 PLUGINS_DIR: Path = PROJECT_ROOT / "plugins"
+TOOLS_DIR: Path = PROJECT_ROOT / "tools"
 VOICE_DIR: Path = PROJECT_ROOT / "ZERE.Voice"
 PUBLISH_DIR: Path = PROJECT_ROOT / "publish"
+
+#: Исходники плагина ZERE для Krita (PyKrita): кладутся в пользовательскую
+#: папку pykrita установщиком (`zere.tools.drawing.krita_install`).
+KRITA_PLUGIN_DIR: Path = TOOLS_DIR / "krita_plugin"
 
 
 def config_path() -> Path:

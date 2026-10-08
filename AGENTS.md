@@ -56,9 +56,13 @@
 - **PowerController** — управление питанием (выключение, перезагрузка)
 
 ### Drawing (`zere/tools/drawing/`, только Python-редакция)
-- **DrawingService** — рисование в Krita/Paint эмуляцией мыши Win32: поиск и фокус окна, канвас, штрихи, очистка холста (Ctrl+A, Del)
+Два способа: плагин Krita (родной API, без курсора) и эмуляция мыши Win32 как откат.
+- **DrawingService** — выбирает способ: для Krita сначала пробует плагин, иначе рисует курсором (поиск и фокус окна, канвас, штрихи, очистка)
 - **DrawingCommandRouter** — разбор команд: фигуры, текст, смена цели, очистка
-- **DrawingGeometry** — чистые функции: фигуры в нормализованных координатах, канвас, растр → штрихи
+- **DrawingGeometry** — чистые функции: фигуры в нормализованных координатах, канвас, растр → штрихи, поиск документа по снимку экрана
+- **DrawingSvg** — фигуры и текст → SVG для плагина Krita (чистые функции)
+- **KritaApi** (`krita_api.py`) — клиент плагина: JSON-строки по TCP на 127.0.0.1, порт из kritarc
+- **KritaInstall** (`krita_install.py`) — установка плагина в `pykrita` и включение в `kritarc` (`python -m zere.tools.drawing.krita_install`)
 - **DrawingFont** — текст через растеризацию шрифта Pillow в горизонтальные штрихи (любой язык, включая кириллицу)
 - **DrawingTarget** — описания Krita и Paint: имена процессов (`krita.exe`, `mspaint.exe`/`PaintApp.exe`), заголовки окон, пути запуска, отступы холста
 - Подробности: `docs/DRAWING.md`
@@ -80,7 +84,8 @@
 - **SpeechText** — чистка текста от TTS-мусора + разбивка на предложения
 - **VoiceConfig** — конфигурация голоса (`sttEngine` и др.)
 
-### Tools (`tools/`, в git входит только сервер)
+### Tools (`tools/`)
+- **krita_plugin/** — плагин ZERE для Krita (PyKrita): локальный сервер и рисование родным API (`createVectorLayer` + `addShapesFromSvg`, `Node.paintLine`); ставится в пользовательскую `pykrita` установщиком `zere/tools/drawing/krita_install.py`
 - **zere_tts_server.py** — HTTP-сервер TTS (`/health`, потоковый `/tts`), поднимается PocketTtsService автоматически
 - **zere_chattts_server.py** — HTTP-сервер ChatTTS (`/health`, потоковый `/tts` → PCM s16le 24 кГц), поднимается C#-ChatTtsService через `tools/uv.exe` с `--python 3.12`
 - **uv.exe**, **xVibePocketTTS/** — менеджер Python и репозиторий движка (gitignored, ставятся отдельно)
@@ -343,7 +348,8 @@ Zere/
 │   ├── test_csharp_speaker.py    # Тесты C#-озвучки (протокол хелпера, stop, откат на Python; без устройств)
 │   ├── fake_speaker.py           # Фейковый C#-хелпер для тестов озвучки (звук не играет)
 │   ├── test_system_prompt.py     # Тесты P1-2
-│   ├── test_drawing.py           # Тесты рисования (36: роутер, геометрия, текст, обработчик, Win32)
+│   ├── test_drawing.py           # Тесты рисования (49: роутер, геометрия, документ, текст, Win32)
+│   ├── test_krita_plugin.py      # Тесты плагина Krita (32: SVG, протокол, kritarc, установка, выбор способа)
 │   ├── test_updater.py           # Тесты обновления из GitHub (git в temp: fetch/pull, отказы, зависимости)
 │   ├── test_ai_providers.py      # Тесты ИИ (приоритет облако/локально, проверка ключа, Ollama, маскирование)
 │   ├── fake_http.py              # Фейковый requests.Session для тестов ИИ (без сети)

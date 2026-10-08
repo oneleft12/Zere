@@ -738,7 +738,7 @@ def test_run_measures_document_before_drawing() -> None:
 
     from zere.tools.drawing import drawing_service
 
-    source = inspect.getsource(drawing_service.DrawingService._run)
+    source = inspect.getsource(drawing_service.DrawingService._run_cursor)
 
     assert "_document_canvas(" in source, "документ не определяется"
     assert "or viewport" in source, "нет отката на прежний холст"
@@ -782,7 +782,7 @@ def test_dpi_awareness_enabled_before_measuring_window() -> None:
 
     from zere.tools.drawing import drawing_service
 
-    run_source = inspect.getsource(drawing_service.DrawingService._run)
+    run_source = inspect.getsource(drawing_service.DrawingService._run_cursor)
     awareness_source = inspect.getsource(drawing_service._enable_dpi_awareness)
 
     assert "_enable_dpi_awareness()" in run_source, "DPI не включается перед рисованием"
@@ -800,9 +800,9 @@ def test_run_reports_drawing_diagnostics() -> None:
 
     from zere.tools.drawing import drawing_service
 
-    source = inspect.getsource(drawing_service.DrawingService._run)
+    source = inspect.getsource(drawing_service.DrawingService._run_cursor)
 
-    for token in ("[Drawing]", "холст=", "штрихов=", "перемещений="):
+    for token in ("[Drawing]", "способ=курсор", "холст=", "штрихов=", "перемещений="):
         assert token in source, f"в диагностике нет {token}"
 
     assert "moves == 0" in source, "нет проверки «ни одного перемещения»"

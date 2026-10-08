@@ -107,6 +107,9 @@ jobs:
       - name: Тесты рисования (Krita/Paint)
         run: python tests/test_drawing.py
 
+      - name: Тесты плагина Krita (SVG, протокол, установка, выбор способа)
+        run: python tests/test_krita_plugin.py
+
       - name: Тесты обновления из GitHub (git в temp-каталоге)
         run: python tests/test_updater.py
 

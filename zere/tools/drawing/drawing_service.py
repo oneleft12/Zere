@@ -40,6 +40,12 @@ from zere.tools.drawing.drawing_geometry import (
     star,
     triangle,
 )
+from zere.tools.drawing.drawing_svg import strokes_svg, text_svg
+from zere.tools.drawing.krita_api import (
+    KritaApiClient,
+    KritaPluginError,
+    plugin_enabled,
+)
 from zere.tools.drawing.drawing_target import (
     DEFAULT_TARGET,
     DrawingTarget,
@@ -77,6 +83,11 @@ MIN_CANVAS_SIZE = 80
 # рамка окна, а справа и снизу могут стоять полосы прокрутки.
 SAMPLE_MARGIN = 2
 SCROLLBAR_MARGIN = 18
+
+# Размер нового документа Krita, если в ней не открыто ни одного (плагин).
+KRITA_NEW_DOCUMENT = (1600, 1200)
+# Имя векторного слоя для текста: так его видно в доке слоёв.
+KRITA_TEXT_LAYER = "ZERE текст"
 
 # ── Константы Win32 ───────────────────────────────────────────────
 
@@ -711,8 +722,11 @@ class DrawingService:
         DrawingCommandType.DRAW_STAR: "звезду",
     }
 
-    def __init__(self, target: DrawingTarget = DEFAULT_TARGET) -> None:
+    def __init__(self, target: DrawingTarget = DEFAULT_TARGET,
+                 krita_api: Optional[KritaApiClient] = None) -> None:
         self._target = target
+        #: Клиент плагина Krita; None — создастся при первой надобности.
+        self._krita_api = krita_api
 
     @property
     def target(self) -> DrawingTarget:
@@ -740,9 +754,132 @@ class DrawingService:
             log_error("DrawingService", str(ex))
             return f"Не удалось нарисовать: {ex}"
 
-    # ── Внутренняя работа ─────────────────────────────────────────
+    # ── Выбор способа ─────────────────────────────────────────────
 
     def _run(self, command: ParsedDrawingCommand) -> str:
+        """Рисует в Krita через плагин, если он доступен, иначе — курсором.
+
+        Плагин рисует родным API Krita: окно может быть свёрнуто, курсор не
+        двигается, фигуры и текст ложатся векторным слоем. Нет плагина — работает
+        прежняя эмуляция мыши, поэтому рисование не ломается.
+        """
+        if self._target is DrawingTarget.KRITA and plugin_enabled():
+            through_plugin = self._run_plugin(command)
+
+            if through_plugin is not None:
+                return through_plugin
+
+        return self._run_cursor(command)
+
+    def _krita_client(self) -> KritaApiClient:
+        if self._krita_api is None:
+            self._krita_api = KritaApiClient()
+
+        return self._krita_api
+
+    def _run_plugin(self, command: ParsedDrawingCommand) -> Optional[str]:
+        """Рисование плагином Krita; None — плагин недоступен, нужен откат.
+
+        Откат нужен только на первом шаге (документ не спросили): если плагин
+        ответил, а потом отказал на самой команде, честнее сказать об ошибке,
+        чем рисовать второй раз курсором.
+        """
+        client = self._krita_client()
+        target_name = display_name(self._target)
+
+        try:
+            width, height = self._plugin_canvas(client)
+        except KritaPluginError as error:
+            log_error("DrawingService", f"плагин Krita недоступен: {error}")
+            return None
+
+        if width < MIN_CANVAS_SIZE or height < MIN_CANVAS_SIZE:
+            log_error("DrawingService", f"плагин Krita: документ {width}x{height}")
+            return None
+
+        canvas = DrawingCanvas(0, 0, width, height)
+
+        try:
+            if command.type is DrawingCommandType.CLEAR_CANVAS:
+                detail = client.clear()
+                print(f"[Drawing] {target_name}: способ=плагин, очистка: {detail}")
+                return f"Очистил холст в {target_name}."
+
+            if command.type is DrawingCommandType.WRITE_TEXT:
+                return self._text_through_plugin(client, command, canvas, target_name)
+
+            strokes = self._strokes_for(command, canvas)
+
+            if not strokes:
+                return "Не удалось построить рисунок."
+
+            shapes = client.draw_svg(strokes_svg(strokes, width, height))
+
+            if shapes == 0:
+                # Импортёр Krita не понял разметку — ведём те же линии кистью.
+                segments = client.paint(strokes)
+                print(
+                    f"[Drawing] {target_name}: способ=плагин (кисть), "
+                    f"холст={width}x{height}, штрихов={len(strokes)}, "
+                    f"отрезков={segments}"
+                )
+
+                if segments == 0:
+                    return f"Не удалось нарисовать в {target_name} (плагин Krita)."
+
+                return self._describe(command)
+
+            print(
+                f"[Drawing] {target_name}: способ=плагин, холст={width}x{height}, "
+                f"штрихов={len(strokes)}, фигур={shapes}"
+            )
+        except KritaPluginError as error:
+            log_error("DrawingService", f"плагин Krita: {error}")
+            return f"Не удалось нарисовать в {target_name}: {error}"
+
+        return self._describe(command)
+
+    def _plugin_canvas(self, client: KritaApiClient) -> Tuple[int, int]:
+        """Размер холста из Krita; новый документ создаётся, если открытого нет."""
+        document = client.info().get("document") or {}
+        width = int(document.get("width") or 0)
+        height = int(document.get("height") or 0)
+
+        if width >= MIN_CANVAS_SIZE and height >= MIN_CANVAS_SIZE:
+            return width, height
+
+        created = client.ensure_document(*KRITA_NEW_DOCUMENT).get("document") or {}
+
+        return (
+            int(created.get("width") or 0),
+            int(created.get("height") or 0),
+        )
+
+    def _text_through_plugin(self, client: KritaApiClient,
+                             command: ParsedDrawingCommand,
+                             canvas: DrawingCanvas, target_name: str) -> str:
+        """Текст в Krita: сначала настоящим шрифтом, затем — мазками по растру."""
+        text = command.value
+        shapes = client.draw_svg(text_svg(text, canvas.width, canvas.height),
+                                layer=f"{KRITA_TEXT_LAYER}")
+
+        if shapes == 0:
+            raster, columns, rows = text_strokes(text)
+
+            if raster:
+                # Шрифт Krita из SVG не собрался: растеризуем сами и ведём кистью.
+                fitted = fit_strokes(raster, columns, rows, canvas.width, canvas.height)
+                client.paint(fitted)
+                print(
+                    f"[Drawing] {target_name}: способ=плагин (текст кистью), "
+                    f"холст={canvas.width}x{canvas.height}, штрихов={len(fitted)}"
+                )
+
+        return self._describe(command)
+
+    # ── Рисование курсором (эмуляция мыши) ────────────────────────
+
+    def _run_cursor(self, command: ParsedDrawingCommand) -> str:
         spec = spec_for(self._target)
 
         # До любых измерений окна: иначе на масштабированных дисплеях
@@ -804,7 +941,7 @@ class DrawingService:
             # Диагностика в стиле [Perf]: по этой строке видно, дошло ли
             # рисование до окна, если фигура снова окажется точкой.
             print(
-                f"[Drawing] {target_name}: окно={window_rect}, "
+                f"[Drawing] {target_name}: способ=курсор, окно={window_rect}, "
                 f"холст={canvas.width}x{canvas.height}"
                 f"{' (документ)' if canvas != viewport else ' (окно)'}, "
                 f"штрихов={len(strokes)}, перемещений={moves}, "
