@@ -20,11 +20,12 @@ from __future__ import annotations
 
 import importlib.util
 import inspect
-import re
 import threading
 import zlib
 from pathlib import Path
 from typing import Any
+
+from zere.voice.speech_text import split_sentences, strip_emotions
 
 # ChatTTS синтезирует на 24 кГц (у Piper было 22.05 кГц — ресемплинг под
 # устройство делает AudioProcessor/ResolveOutputSampleRate, вызывающий код
@@ -57,66 +58,9 @@ _SPEED_NORMAL = 5
 _SPEED_MIN = 1
 _SPEED_MAX = 9
 
-_RE_SENTENCE = re.compile(r'[^.!?…]+[.!?…]+[»""\']*\s*|[^.!?…]+$')
-
 
 class ChatTtsUnavailable(RuntimeError):
     """ChatTTS (или его зависимости) недоступен в текущем окружении."""
-
-
-def strip_emotions(text: str) -> str:
-    """Убирает из текста всё, что TTS не должен произносить.
-
-    Порт PiperService.strip_emotions / SpeechText.Clean: эмодзи, текстовые
-    смайлики, «ролевые» пометки (*улыбается*, (томно)), markdown-разметка.
-    """
-    if not text:
-        return text
-
-    # Ролевые пометки в скобках: (улыбается), (смеётся), (задумчиво)
-    text = re.sub(r"\([^)]*[а-яёА-ЯЁ]{3,}[^)]*\)", " ", text)
-
-    # Ролевые пометки в *звёздочках*: *улыбается*, *качает головой*
-    text = re.sub(r"\*[^*]*[а-яёА-ЯЁ]{3,}[^*]*\*", " ", text)
-
-    # Markdown-эмодзи :smile:, :heart:
-    text = re.sub(r":[a-z_0-9]+:", " ", text)
-
-    # Текстовые смайлики: :) ;) :D :( :P <3 =) и т.п.
-    text = re.sub(r"[:;=8][\-^']?[)(DPp/\\|]", " ", text)
-    text = re.sub(r"[)(DPp/\\|][\-^']?[:;=8]", " ", text)
-    text = re.sub(r"<3", " ", text)
-
-    # Юникод-эмодзи и символы (астральные + BMP-диапазоны символов)
-    text = re.sub(
-        r"[\U00010000-\U0010FFFF]|[️‍]"
-        r"|[☀-➿]|[←-⇿]|[⬀-⯿]|[✀-➿]",
-        "",
-        text,
-    )
-
-    # Убираем markdown-разметку: **bold**, *italic*, `code`, ## заголовки
-    text = re.sub(r"[*_`#]{1,3}([^*_`#]+)[*_`#]{1,3}", r"\1", text)
-    text = re.sub(r"[*_`#~>|-]{2,}", " ", text)
-
-    # Схлопываем пробелы
-    return re.sub(r"\s{2,}", " ", text).strip()
-
-
-def split_sentences(text: str) -> list[str]:
-    """Разбивает текст на предложения (порт SpeechText.SplitSentences).
-
-    Каждое предложение синтезируется отдельно: ChatTTS на коротком тексте
-    стабильнее, а вызывающий код получает первый звук раньше.
-    """
-    parts = [m.group(0).strip() for m in _RE_SENTENCE.finditer(text or "")]
-    parts = [p for p in parts if p]
-
-    if parts:
-        return parts
-
-    stripped = (text or "").strip()
-    return [stripped] if stripped else []
 
 
 class ChatTTSManager:

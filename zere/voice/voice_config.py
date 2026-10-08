@@ -28,6 +28,12 @@ class VoiceConfig:
     # один профиль всегда звучит одинаково. См. zere/voice/chattts/.
     chattts_voice: str = "zere-standard"
 
+    # Движок синтеза речи: "chattts" (китайский/английский, «человечный»
+    # тембр) или "silero" (русский, с ударениями и омографами). Значение
+    # приходит из config.json (ttsEngine) в main.py, паритет с VoiceConfig.cs
+    # (в C# есть ещё "pocket" — клонирование голоса).
+    tts_engine: str = "chattts"
+
     microphone_index: int = 0
 
     # Дефолт 0.5 (вместо 1.0 в C#): DSP нормализует пик до −1.5 dBFS, при

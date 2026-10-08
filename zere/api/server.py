@@ -46,7 +46,7 @@ _MAX_BODY_BYTES = 64 * 1024
 _MAX_TEXT_LENGTH = 4000
 
 _ALLOWED_HOSTS = frozenset({"127.0.0.1", "localhost"})
-_ALLOWED_TTS_ENGINES = ("pocket", "chattts")
+_ALLOWED_TTS_ENGINES = ("pocket", "chattts", "silero")
 # STT: gigaam — GigaAM-v3 (основной), whisper — откат
 # (отчёт docs/STT_ENGINE_RESEARCH.md, §5).
 _ALLOWED_STT_ENGINES = ("gigaam", "whisper")
@@ -1009,7 +1009,8 @@ class _PanelHandler(BaseHTTPRequestHandler):
             # Python-порт не записывает референс: у VoiceManager нет метода
             "recordReference": hasattr(voice, "record_voice_reference"),
             "pocketCloning": False,  # PocketTTS только в C#-версии
-            "speechSpeedConfig": True,  # ChatTTS получает [speed_N] из speech_speed
+            # ChatTTS получает темп как [speed_N]; у Silero v5 его нет.
+            "speechSpeedConfig": bool(getattr(voice, "supports_speech_speed", True)),
             "liveVolumeApply": True,  # громкость читается на каждое воспроизведение
             "sttTest": bool(getattr(voice, "is_voice_available", False)),
         }
@@ -2269,7 +2270,7 @@ def _validate_config_payload(payload: Any) -> Optional[str]:
         return "Ключ «language» допускает только «ru» или «en»."
 
     if payload["ttsEngine"] not in _ALLOWED_TTS_ENGINES:
-        return "Ключ «ttsEngine» допускает только «pocket» или «chattts»."
+        return "Ключ «ttsEngine» допускает только «pocket», «chattts» или «silero»."
 
     if "sttEngine" in payload and payload["sttEngine"] not in _ALLOWED_STT_ENGINES:
         return "Ключ «sttEngine» допускает только «gigaam» или «whisper»."
@@ -2352,7 +2353,7 @@ def _validate_voice_payload(payload: Any) -> Optional[str]:
             return "Ключ «voiceVolume» должен быть в диапазоне 0…1."
 
     if "ttsEngine" in payload and payload["ttsEngine"] not in _ALLOWED_TTS_ENGINES:
-        return "Ключ «ttsEngine» допускает только «pocket» или «chattts»."
+        return "Ключ «ttsEngine» допускает только «pocket», «chattts» или «silero»."
 
     if "voiceReferencePath" in payload and not isinstance(payload["voiceReferencePath"], str):
         return "Ключ «voiceReferencePath» должен быть строкой."

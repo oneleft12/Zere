@@ -82,6 +82,11 @@ def chattts_dir() -> Path:
     return VOICE_DIR / "ChatTts"
 
 
+def silero_dir() -> Path:
+    """Папка Silero TTS: модель (v5_5_ru.pt) и вывод синтеза (output_*.wav)."""
+    return VOICE_DIR / "Silero"
+
+
 def whisper_models_dir() -> Path:
     return VOICE_DIR / "Models"
 

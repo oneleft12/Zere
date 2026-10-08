@@ -103,6 +103,11 @@ class ChatTtsService:
         return available
 
     @property
+    def supports_speech_speed(self) -> bool:
+        """ChatTTS умеет темп речи: speech_speed → токен `[speed_N]`."""
+        return True
+
+    @property
     def unavailable_reason(self) -> str:
         """Почему движок недоступен (для панели/логов). Пусто, если доступен.
 
