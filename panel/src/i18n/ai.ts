@@ -59,6 +59,10 @@ export const AI_EN: Record<string, string> = {
   "Ключ можно получить здесь: ": "Get a key here: ",
   "Проверить ключ": "Test key",
   "Сохранить": "Save",
+  "Сохранить ключ": "Save key",
+  "Облачная модель сохранена": "Cloud model saved",
+  "Название модели сохраняется кнопкой «Сохранить адрес и модель» — ключ заново вводить не нужно":
+    "The model name is saved with “Save address and model” — there is no need to re-enter the key",
   "Удалить ключ": "Delete key",
   "Ключ": "Key",
   "Маска": "Mask",

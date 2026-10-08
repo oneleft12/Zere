@@ -93,29 +93,29 @@ public sealed class AiSettings
     [JsonPropertyName("mode")]
     public string Mode { get; set; } = ModeAuto;
 
-    [JsonPropertyName("cloudProvider")]
+    [JsonPropertyName("cloud_provider")]
     public string CloudProvider { get; set; } = "openai";
 
-    [JsonPropertyName("cloudBaseUrl")]
+    [JsonPropertyName("cloud_base_url")]
     public string CloudBaseUrl { get; set; } = "https://api.openai.com/v1";
 
-    [JsonPropertyName("cloudModel")]
+    [JsonPropertyName("cloud_model")]
     public string CloudModel { get; set; } = "gpt-4o-mini";
 
     /// <summary>Секрет: на диск в config/ai.json, наружу — только маска.</summary>
-    [JsonPropertyName("cloudApiKey")]
+    [JsonPropertyName("cloud_api_key")]
     public string CloudApiKey { get; set; } = "";
 
-    [JsonPropertyName("cloudKeyStatus")]
+    [JsonPropertyName("cloud_key_status")]
     public string CloudKeyStatus { get; set; } = KeyUnknown;
 
-    [JsonPropertyName("cloudKeyCheckedAt")]
+    [JsonPropertyName("cloud_key_checked_at")]
     public string CloudKeyCheckedAt { get; set; } = "";
 
-    [JsonPropertyName("localBaseUrl")]
+    [JsonPropertyName("local_base_url")]
     public string LocalBaseUrl { get; set; } = DefaultLocalBaseUrl;
 
-    [JsonPropertyName("localModel")]
+    [JsonPropertyName("local_model")]
     public string LocalModel { get; set; } = DefaultLocalModel;
 
     private static readonly JsonSerializerOptions WriteOptions = new()
@@ -134,6 +134,14 @@ public sealed class AiSettings
         "config",
         "ai.json");
 
+    /// <summary>
+    /// Читает config/ai.json: ключи принимаются и в snake_case (Python-редакция,
+    /// текущий формат), и в camelCase (файлы старых сборок C#).
+    ///
+    /// Раньше редакции писали разный формат ключей, и настройки друг друга
+    /// молча игнорировались — облачная модель и ключ сбрасывались на значения
+    /// по умолчанию (панель показывала «gpt-4o-mini» вместо выбранной модели).
+    /// </summary>
     public static AiSettings Load(bool applyEnv = true)
     {
         AiSettings settings;
@@ -145,7 +153,7 @@ public sealed class AiSettings
             if (File.Exists(path))
             {
                 var text = File.ReadAllText(path);
-                settings = JsonSerializer.Deserialize<AiSettings>(text, ReadOptions) ?? new AiSettings();
+                settings = ParseFile(text);
             }
             else
             {
@@ -162,6 +170,56 @@ public sealed class AiSettings
             settings.ApplyEnv();
 
         return settings;
+    }
+
+    /// <summary>Разбор файла: ключи приводятся к snake_case, null-значения пропускаются.</summary>
+    private static AiSettings ParseFile(string text)
+    {
+        using var document = JsonDocument.Parse(text);
+        var normalized = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+
+        if (document.RootElement.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (property.Value.ValueKind == JsonValueKind.Null)
+                    continue;
+
+                normalized[FileName(property.Name)] = property.Value;
+            }
+        }
+
+        var json = JsonSerializer.Serialize(normalized);
+
+        return JsonSerializer.Deserialize<AiSettings>(json, ReadOptions) ?? new AiSettings();
+    }
+
+    /// <summary>camelCase → snake_case («cloudModel» → «cloud_model»).</summary>
+    private static string FileName(string name)
+    {
+        if (name.Contains('_'))
+            return name.ToLowerInvariant();
+
+        var builder = new System.Text.StringBuilder(name.Length + 4);
+
+        for (var index = 0; index < name.Length; index++)
+        {
+            var symbol = name[index];
+
+            if (char.IsUpper(symbol))
+            {
+                if (index > 0)
+                    builder.Append('_');
+
+                builder.Append(char.ToLowerInvariant(symbol));
+            }
+            else
+            {
+                builder.Append(symbol);
+            }
+        }
+
+        return builder.ToString();
     }
 
     /// <summary>Переменные окружения владельца сервера (перекрывают файл).</summary>

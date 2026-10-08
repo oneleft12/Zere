@@ -218,6 +218,69 @@ def test_settings_owner_key_from_env_has_priority_rules() -> None:
         assert (key, source) == ("", SOURCE_NONE)
 
 
+def test_settings_reads_camel_case_file_from_csharp_edition() -> None:
+    """Старый формат C#-редакции (camelCase) читается, а не сбрасывается."""
+    with temp_config() as tmp:
+        (tmp / "ai.json").write_text(
+            json.dumps(
+                {
+                    "mode": "cloud",
+                    "cloudProvider": "opencode-go",
+                    "cloudBaseUrl": "https://opencode.ai/zen/go/v1",
+                    "cloudModel": "deepseek-flash",
+                    "cloudApiKey": GOOD_KEY,
+                    "cloudKeyStatus": "ok",
+                    "cloudKeyCheckedAt": "2026-10-08T15:54:56+00:00",
+                    "localBaseUrl": "http://127.0.0.1:11434/v1",
+                    "localModel": "qwen3.5:2b",
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        settings = AiSettings.load()
+        assert settings.mode == MODE_CLOUD
+        assert settings.cloud_provider == "opencode-go"
+        assert settings.cloud_model == "deepseek-flash", "модель не должна сбрасываться"
+        assert settings.cloud_api_key == GOOD_KEY
+        assert settings.cloud_key_status == KEY_OK
+        assert settings.local_model == "qwen3.5:2b"
+
+
+def test_settings_saves_snake_case_shared_with_csharp() -> None:
+    """Формат файла — snake_case (общий контракт с C#-редакцией)."""
+    with temp_config() as tmp:
+        settings = AiSettings.load()
+        settings.cloud_model = "deepseek-flash"
+        settings.save()
+
+        data = json.loads((tmp / "ai.json").read_text(encoding="utf-8"))
+        assert data["cloud_model"] == "deepseek-flash"
+        assert "cloudModel" not in data
+
+
+def test_settings_ignores_unknown_keys_and_nulls() -> None:
+    with temp_config() as tmp:
+        (tmp / "ai.json").write_text(
+            json.dumps(
+                {
+                    "cloud_model": "deepseek-flash",
+                    "cloud_api_key": None,
+                    "version": 3,
+                    "cloud-model-typo": "нет",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        settings = AiSettings.load()
+        assert settings.cloud_model == "deepseek-flash"
+        assert settings.cloud_api_key == ""
+
+
 def test_settings_broken_file_falls_back_to_defaults() -> None:
     with temp_config() as tmp:
         (tmp / "ai.json").write_text("{ это не json", encoding="utf-8")

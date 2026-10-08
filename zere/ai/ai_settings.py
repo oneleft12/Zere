@@ -180,7 +180,13 @@ class AiSettings:
 
     @classmethod
     def load(cls, *, apply_env: bool = True) -> "AiSettings":
-        """Читает config/ai.json; битый/отсутствующий файл → значения по умолчанию."""
+        """Читает config/ai.json; битый/отсутствующий файл → значения по умолчанию.
+
+        Ключи принимаются и в snake_case (Python-редакция), и в camelCase
+        (старые сборки C#-редакции): файл `config/ai.json` общий, и раньше
+        каждая редакция писала свой формат — при расхождении настройки
+        (облачная модель, ключ) молча сбрасывались на значения по умолчанию.
+        """
         settings = cls()
         path = paths.ai_config_path()
 
@@ -188,10 +194,7 @@ class AiSettings:
             if path.is_file():
                 data = json.loads(path.read_text(encoding="utf-8"))
                 if isinstance(data, dict):
-                    known = {f.name for f in fields(cls)}
-                    for key, value in data.items():
-                        if key in known and value is not None:
-                            setattr(settings, key, value)
+                    settings._apply_file(data)
         except (OSError, json.JSONDecodeError, TypeError, ValueError):
             settings = cls()
 
@@ -199,6 +202,19 @@ class AiSettings:
             settings._apply_env()
 
         return settings
+
+    def _apply_file(self, data: dict[str, Any]) -> None:
+        """Переносит поля файла в настройки: snake_case и camelCase, без None."""
+        known = {f.name for f in fields(self)}
+        aliases = {_camel(name): name for name in known}
+
+        for key, value in data.items():
+            if value is None:
+                continue
+
+            target = key if key in known else aliases.get(key)
+            if target is not None:
+                setattr(self, target, value)
 
     def _apply_env(self) -> None:
         """Переменные окружения владельца сервера (перекрывают значения из файла).

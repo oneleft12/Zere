@@ -60,6 +60,42 @@ interface Draft {
 // Черновик переживает перерисовку (смена языка/темы, обновление статуса).
 let cachedDraft: Draft | null = null;
 
+/**
+ * Поля, которые пользователь уже правил вручную и ещё не сохранил.
+ *
+ * Без этого любое обновление состояния (кнопка «Обновить состояние»,
+ * «Проверить ключ», загрузка модели) пересобирало черновик из ответа
+ * сервера и стирало введённое название модели или адрес — из-за этого
+ * казалось, что «модель не сохраняется».
+ */
+type DraftField = "cloudBaseUrl" | "cloudModel" | "localBaseUrl" | "localModel";
+
+const editedFields = new Set<DraftField>();
+
+function markEdited(field: DraftField): void {
+  editedFields.add(field);
+}
+
+function clearEdited(fields: readonly string[]): void {
+  for (const field of fields) editedFields.delete(field as DraftField);
+}
+
+/** Свежий черновик из состояния сервера + несохранённые правки пользователя. */
+function mergeDraft(status: AiStatus, previous: Draft | null): Draft {
+  const next = draftFrom(status);
+  if (!previous) return next;
+
+  // Ключ из состояния не приходит (наружу отдаётся только маска) — введённый сохраняем.
+  next.apiKey = previous.apiKey;
+
+  if (editedFields.has("cloudBaseUrl")) next.cloudBaseUrl = previous.cloudBaseUrl;
+  if (editedFields.has("cloudModel")) next.cloudModel = previous.cloudModel;
+  if (editedFields.has("localBaseUrl")) next.localBaseUrl = previous.localBaseUrl;
+  if (editedFields.has("localModel")) next.localModel = previous.localModel;
+
+  return next;
+}
+
 function draftFrom(status: AiStatus): Draft {
   return {
     mode: status.mode,
@@ -113,9 +149,8 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
       if (cancelled) return;
 
       // Черновик сохраняем, если пользователь что-то печатал: иначе
-      // введённый ключ пропадал бы при обновлении статуса.
-      const typed = cachedDraft?.apiKey ?? "";
-      cachedDraft = { ...draftFrom(status), apiKey: typed };
+      // введённый ключ и название модели пропадали бы при обновлении статуса.
+      cachedDraft = mergeDraft(status, cachedDraft);
       render(status);
     } catch (error) {
       if (cancelled) return;
@@ -179,6 +214,8 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
   ): Promise<void> {
     try {
       const status = await apiPost<AiStatus>("/api/ai/settings", patch);
+      // Настройки приняты сервером: эти поля больше не «не сохранены».
+      clearEdited(Object.keys(patch));
       Object.assign(draft, draftFrom(status), { apiKey: draft.apiKey });
       toast(successMessage, "ok");
       logEvent(successMessage);
@@ -208,10 +245,27 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
     }
   }
 
-  async function saveKey(draft: Draft, errorBox: HTMLElement): Promise<void> {
+  async function saveKey(draft: Draft, status: AiStatus, errorBox: HTMLElement): Promise<void> {
     errorBox.hidden = true;
 
+    // Поле ключа пустое, а ключ уже сохранён: пользователь правит только
+    // модель или адрес. Раньше здесь была ошибка «Введите API-ключ.», и
+    // название модели не сохранялось.
     if (!draft.apiKey.trim()) {
+      if (status.cloud.keySaved) {
+        await saveSettings(
+          draft,
+          {
+            cloudProvider: draft.cloudProvider,
+            cloudBaseUrl: draft.cloudBaseUrl,
+            cloudModel: draft.cloudModel,
+          },
+          errorBox,
+          t("Облачная модель сохранена"),
+        );
+        return;
+      }
+
       errorBox.textContent = t("Введите API-ключ.");
       errorBox.hidden = false;
       return;
@@ -226,6 +280,7 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
       });
       // Ключ ушёл на бэкенд: поле ввода очищаем, в интерфейсе — только маска.
       draft.apiKey = "";
+      clearEdited(["cloudBaseUrl", "cloudModel"]);
       Object.assign(draft, draftFrom(status));
       toast(t("API-ключ сохранён"), "ok");
       logEvent("API-ключ проверен и сохранён на бэкенде");
@@ -241,6 +296,7 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
     try {
       const status = await apiDelete<AiStatus>("/api/ai/key");
       draft.apiKey = "";
+      clearEdited(["cloudBaseUrl", "cloudModel"]);
       Object.assign(draft, draftFrom(status));
       toast(t("API-ключ удалён"), "ok");
       logEvent("API-ключ удалён");
@@ -451,6 +507,34 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
       state: keyStatusTone(status),
     });
 
+    const testKeyButton = button(t("Проверить ключ"), () => void testKey(draft, errorBox));
+    const saveKeyButton = button(
+      t("Сохранить ключ"),
+      () => void saveKey(draft, status, errorBox),
+      "primary",
+    );
+    // Отдельная кнопка для модели и адреса: их сохранение не должно
+    // требовать повторного ввода ключа (раньше без ключа правка пропадала).
+    const saveModelButton = button(t("Сохранить адрес и модель"), () =>
+      void saveSettings(
+        draft,
+        {
+          cloudProvider: draft.cloudProvider,
+          cloudBaseUrl: draft.cloudBaseUrl,
+          cloudModel: draft.cloudModel,
+        },
+        errorBox,
+        t("Облачная модель сохранена"),
+      ),
+    );
+    const deleteKeyButton = button(
+      t("Удалить ключ"),
+      () => void deleteKey(draft, errorBox),
+      "danger",
+    );
+    // «Удалить ключ» активна только когда ключ пользователя действительно есть.
+    deleteKeyButton.disabled = !status.cloud.keySaved;
+
     const section = h(
       "section",
       { class: "card col-6" },
@@ -492,6 +576,7 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
             placeholder: "https://api.openai.com/v1",
             onInput: (value) => {
               draft.cloudBaseUrl = value;
+              markEdited("cloudBaseUrl");
             },
           }),
         ),
@@ -503,8 +588,10 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
             placeholder: "gpt-4o-mini",
             onInput: (value) => {
               draft.cloudModel = value;
+              markEdited("cloudModel");
             },
           }),
+          t("Название модели сохраняется кнопкой «Сохранить адрес и модель» — ключ заново вводить не нужно"),
         ),
         field(t("API-ключ"), keyInput, t("Ключ хранится только на бэкенде и никогда не выводится целиком")),
         docsHint ?? null,
@@ -512,13 +599,10 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
       h(
         "div",
         { class: "pill-row" },
-        button(t("Проверить ключ"), () => void testKey(draft, errorBox)),
-        button(t("Сохранить"), () => void saveKey(draft, errorBox), "primary"),
-        button(
-          t("Удалить ключ"),
-          () => void deleteKey(draft, errorBox),
-          "danger",
-        ),
+        testKeyButton,
+        saveKeyButton,
+        saveModelButton,
+        deleteKeyButton,
       ),
       h(
         "div",
@@ -541,10 +625,6 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
         }),
       ),
     );
-
-    // «Удалить ключ» активна только когда ключ пользователя действительно есть.
-    const deleteButton = section.querySelectorAll("button")[2] as HTMLButtonElement | undefined;
-    if (deleteButton) deleteButton.disabled = !status.cloud.keySaved;
 
     return section;
   }
@@ -600,6 +680,7 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
             placeholder: "http://127.0.0.1:11434/v1",
             onInput: (value) => {
               draft.localBaseUrl = value;
+              markEdited("localBaseUrl");
             },
           }),
           t("Ollama по умолчанию: http://127.0.0.1:11434/v1"),
@@ -612,6 +693,7 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
             placeholder: "qwen3.5:2b",
             onInput: (value) => {
               draft.localModel = value;
+              markEdited("localModel");
             },
           }),
         ),

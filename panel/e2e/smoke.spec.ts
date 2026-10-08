@@ -89,7 +89,7 @@ test("ИИ: ключ проверяется, показывается маско
   await cloud.getByRole("button", { name: "Проверить ключ" }).click();
   await expect(page.locator(".toast").last()).toContainText("Ключ рабочий", { timeout: 15_000 });
 
-  await cloud.getByRole("button", { name: "Сохранить" }).click();
+  await cloud.getByRole("button", { name: "Сохранить ключ", exact: true }).click();
   await expect(page.locator(".toast").last()).toContainText("API-ключ сохранён", {
     timeout: 15_000,
   });
@@ -102,6 +102,58 @@ test("ИИ: ключ проверяется, показывается маско
   await cloud.getByRole("button", { name: "Удалить ключ" }).click();
   await expect(page.locator(".toast").last()).toContainText("API-ключ удалён", { timeout: 15_000 });
   await expect(cloud).toContainText("ключ не найден");
+});
+
+test("ИИ: название модели сохраняется без повторного ввода ключа", async ({ page }) => {
+  await page.goto("/ai");
+  await expect(page.locator(TITLE)).toHaveText("Подключение ИИ");
+
+  const cloud = page.locator(".card", { hasText: "Свой API-ключ (облачная модель)" });
+  const model = cloud.locator("label.field", { hasText: "Модель" }).locator("input");
+
+  // Ключ не нужен: модель и адрес сохраняются отдельной кнопкой.
+  await model.fill("deepseek-flash");
+  await cloud.getByRole("button", { name: "Сохранить адрес и модель" }).click();
+  await expect(page.locator(".toast").last()).toContainText("Облачная модель сохранена", {
+    timeout: 15_000,
+  });
+
+  // Значение доехало до сервера, а не осталось в поле ввода.
+  await page.reload();
+  await expect(
+    page
+      .locator(".card", { hasText: "Свой API-ключ (облачная модель)" })
+      .locator("label.field", { hasText: "Модель" })
+      .locator("input"),
+  ).toHaveValue("deepseek-flash", { timeout: 15_000 });
+});
+
+test("ИИ: сохранённый ключ — правка модели не требует ключа заново", async ({ page }) => {
+  await page.goto("/ai");
+  await expect(page.locator(TITLE)).toHaveText("Подключение ИИ");
+
+  const cloud = page.locator(".card", { hasText: "Свой API-ключ (облачная модель)" });
+  const model = cloud.locator("label.field", { hasText: "Модель" }).locator("input");
+
+  await cloud.locator('input[type="password"]').fill("sk-live-e2e-abcdefghijklmnop");
+  await cloud.getByRole("button", { name: "Сохранить ключ", exact: true }).click();
+  await expect(page.locator(".toast").last()).toContainText("API-ключ сохранён", {
+    timeout: 15_000,
+  });
+
+  // Поле ключа пустое (наружу только маска), но «Сохранить ключ» больше не
+  // ругается «Введите API-ключ.» — сохраняет модель и адрес.
+  await expect(cloud.locator('input[type="password"]')).toHaveValue("");
+  await model.fill("deepseek-flash");
+  await cloud.getByRole("button", { name: "Сохранить ключ", exact: true }).click();
+  await expect(page.locator(".toast").last()).toContainText("Облачная модель сохранена", {
+    timeout: 15_000,
+  });
+  // Ошибки «Введите API-ключ.» больше нет: правка сохранена настройками.
+  await expect(page.locator(".form-error")).toBeHidden();
+  // Возвращаем состояние как было: смоук идемпотентен.
+  await cloud.getByRole("button", { name: "Удалить ключ" }).click();
+  await expect(page.locator(".toast").last()).toContainText("API-ключ удалён", { timeout: 15_000 });
 });
 
 test("ИИ: сервер старее панели — просим перезапустить ZERE, а не ошибку", async ({ page }) => {
