@@ -1,0 +1,15 @@
+{
+  "enabled": false,
+  "mode": "fallback",
+  "strategy": "single",
+  "base_url": "https://openrouter.ai/api/alpha/decisions",
+  "model": "~typesafe/jev-latest",
+  "api_key": "",
+  "timeout": 20,
+  "execute_threshold": 0.85,
+  "clarify_threshold": 0.55,
+  "critical_threshold": 0.93,
+  "slot_threshold": 0.5,
+  "negated_threshold": 0.6,
+  "max_candidates": 25
+}

@@ -42,6 +42,17 @@ def ai_config_path() -> Path:
     return config_path().parent / "ai.json"
 
 
+def router_config_path() -> Path:
+    """Настройки роутера интентов Jev: config/router.json (gitignored).
+
+    Путь вычисляется от config_path().parent — как у ai_config_path(): тесты
+    подменяют config_path() на временный каталог, и ключ Jev не должен
+    утечь из песочницы в реальный config/. Файл может содержать секрет
+    (ключ OpenRouter) — наружу отдаётся только маска.
+    """
+    return config_path().parent / "router.json"
+
+
 def db_path() -> Path:
     """Путь к базе истории и памяти.
 

@@ -133,6 +133,58 @@ def ollama_pull_response(lines: list[str]) -> FakeResponse:
     return FakeResponse(200, None, lines=lines)
 
 
+# ── Jev (TypeSafe System One / Decisions API) ───────────────────────
+
+
+def choice_answer(
+    value: str, *, confidence: float = 0.9, probabilities: Optional[dict[str, float]] = None
+) -> dict[str, Any]:
+    return {
+        "type": "choice",
+        "choice": value,
+        "confidence": confidence,
+        "probabilities": probabilities if probabilities is not None else {value: confidence},
+    }
+
+
+def noul_answer(probability: float) -> dict[str, Any]:
+    return {"type": "noul", "noul": probability}
+
+
+def score_answer(
+    score: float, *, confidence: float = 0.9, legend: Optional[dict[str, str]] = None
+) -> dict[str, Any]:
+    answer: dict[str, Any] = {"type": "score", "score": score, "confidence": confidence}
+    if legend is not None:
+        answer["legend"] = legend
+    return answer
+
+
+def decisions_response(
+    answers: dict[str, Any],
+    *,
+    model: str = "~typesafe/jev-latest-20260917",
+    cost: Optional[float] = 0.00002,
+    input_tokens: int = 420,
+    output_tokens: int = 30,
+) -> FakeResponse:
+    """Ответ Decisions API: answers + usage (как у OpenRouter)."""
+    usage: dict[str, Any] = {"input_tokens": input_tokens, "output_tokens": output_tokens}
+    if cost is not None:
+        usage["cost"] = cost
+
+    return FakeResponse(
+        200,
+        {
+            "id": "gen-dec-test",
+            "model": model,
+            "provider": "TypeSafe",
+            "answers": answers,
+            "usage": usage,
+        },
+    )
+
+
 def network_failure(url: str = "", kwargs: Optional[dict[str, Any]] = None) -> FakeResponse:
     """Фабрика, бросающая ConnectionError на любой запрос (сервер недоступен)."""
     raise requests.exceptions.ConnectionError(f"сервер недоступен: {url}")
