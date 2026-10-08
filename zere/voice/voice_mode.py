@@ -94,6 +94,8 @@ class VoiceModeRunner:
             "available": self.available,
             "wakeWordEnabled": bool(getattr(config, "wake_word_enabled", False)),
             "wakeWord": str(getattr(config, "wake_word", "")),
+            # Движок триггера: "onnx-kws" (своя модель) или "whisper" (VAD+STT).
+            "wakeEngine": str(getattr(self._voice, "wake_engine_label", "") or ""),
             "lastUtterance": self._last_utterance,
             "lastAnswer": self._last_answer,
             "lastError": self._last_error,

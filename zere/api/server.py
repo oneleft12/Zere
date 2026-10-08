@@ -50,6 +50,9 @@ _ALLOWED_TTS_ENGINES = ("pocket", "chattts", "silero")
 # STT: gigaam — GigaAM-v3 (основной), whisper — откат
 # (отчёт docs/STT_ENGINE_RESEARCH.md, §5).
 _ALLOWED_STT_ENGINES = ("gigaam", "whisper")
+# Слово-триггер: auto — KWS-модель, если она есть, иначе прежний детектор;
+# kws — только KWS; whisper — прежний детектор (docs/WAKE_WORD.md).
+_ALLOWED_WAKE_ENGINES = ("auto", "kws", "whisper")
 
 # Путь → допустимые методы (маршрутизация до проверки токена не доходит).
 _ROUTES = {
@@ -2030,11 +2033,11 @@ def _camel_to_snake(key: str) -> str:
 _STRING_FIELDS = ("version", "assistantName", "language", "model", "ttsEngine", "voiceReferencePath")
 # Необязательные строковые ключи: старые клиенты/скрипты могут их не
 # присылать (openapi: свойство есть в схеме, но вне required).
-_OPTIONAL_STRING_FIELDS = ("sttEngine",)
+_OPTIONAL_STRING_FIELDS = ("sttEngine", "wakeEngine", "wakeModelPath")
 _BOOL_FIELDS = ("voiceEnabled", "autoMemory")
 # Необязательные логические ключи — тот же контракт, что у sttEngine:
 # свойство есть в схеме, но вне required (старые клиенты его не шлют).
-_OPTIONAL_BOOL_FIELDS = ("audioProcessing",)
+_OPTIONAL_BOOL_FIELDS = ("audioProcessing", "wakeEnergyGate")
 
 
 # ── ИИ: границы полей (docs/AI_PROVIDERS.md) ───────────────────────
@@ -2237,6 +2240,10 @@ def _validate_config_payload(payload: Any) -> Optional[str]:
             "llmKeepAlive",
             "llmMaxTokens",
             "llmTimeoutSeconds",
+            # Слово-триггер (docs/WAKE_WORD.md): 0 = значение из манифеста модели
+            "wakeThreshold",
+            "wakeMinConsecutive",
+            "wakeCooldownMs",
         }
     )
 
@@ -2298,6 +2305,25 @@ def _validate_config_payload(payload: Any) -> Optional[str]:
             return f"Ключ «{key}» должен быть целым числом."
         if not low <= value <= high:
             return f"Ключ «{key}» должен быть в диапазоне {low}…{high}."
+
+    # Слово-триггер (docs/WAKE_WORD.md): движок, порог, сглаживание, cooldown.
+    if "wakeEngine" in payload and payload["wakeEngine"] not in _ALLOWED_WAKE_ENGINES:
+        return "Ключ «wakeEngine» допускает только «auto», «kws» или «whisper»."
+
+    if "wakeThreshold" in payload:
+        threshold = payload["wakeThreshold"]
+        if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+            return "Ключ «wakeThreshold» должен быть числом."
+        if not 0 <= threshold <= 1:
+            return "Ключ «wakeThreshold» должен быть в диапазоне 0…1."
+
+    for key, high in (("wakeMinConsecutive", 100), ("wakeCooldownMs", 60000)):
+        if key in payload:
+            value = payload[key]
+            if isinstance(value, bool) or not isinstance(value, int):
+                return f"Ключ «{key}» должен быть целым числом."
+            if not 0 <= value <= high:
+                return f"Ключ «{key}» должен быть в диапазоне 0…{high}."
 
     return None
 

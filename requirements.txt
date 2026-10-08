@@ -9,6 +9,13 @@ mss>=9.0
 pillow>=10.0
 wmi>=1.5.1; sys_platform == "win32"
 
+# ── Слово-триггер: streaming KWS на своей ONNX-модели ───────────────
+# Модель wake_<слово>.onnx (docs/WAKE_WORD.md) гоняется через onnxruntime
+# на CPU. Без пакета ZERE не падает: фабрика слова-триггера уходит на
+# прежний детектор (VAD + STT) с предупреждением. В C#-редакции то же
+# самое делает пакет Microsoft.ML.OnnxRuntime (ZERE.Voice.csproj).
+onnxruntime>=1.16
+
 # ── TTS: ChatTTS (замена Piper) ─────────────────────────────────────
 # Ставится из исходников (на PyPI только sdist) и тянет torch/torchaudio/
 # numba: ~2–3 ГБ и несколько минут. Зависимости имеют колёса для Python

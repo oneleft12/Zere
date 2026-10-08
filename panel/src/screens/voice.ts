@@ -315,13 +315,21 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
     });
     const modeToggleInput = modeToggle.querySelector<HTMLInputElement>("input");
 
+    /** Движок триггера в подписи: KWS — своя ONNX-модель, STT — VAD + STT. */
+    function engineSuffix(mode: VoiceModeState): string {
+      if (!mode.wakeWordEnabled) return "";
+      if (mode.wakeEngine === "onnx-kws") return " · KWS";
+      if (mode.wakeEngine === "whisper") return " · STT";
+      return "";
+    }
+
     function stateLabel(mode: VoiceModeState): string {
       switch (mode.state) {
         case "idle":
           return t("выключен");
         case "sleeping":
           return mode.wakeWordEnabled
-            ? t("ждёт «{word}»", { word: mode.wakeWord })
+            ? t("ждёт «{word}»", { word: mode.wakeWord }) + engineSuffix(mode)
             : t("слушает без триггера");
         case "listening":
           return t("слушает команду");

@@ -69,4 +69,34 @@ public class VoiceConfig
     /// Пауза тишины (мс) для окончания голосовой команды (было 1500 мс).
     /// </summary>
     public int CommandSilenceMs { get; set; } = 800;
+
+    // ── Слово-триггер (анализ S2: VAD+STT → keyword spotting) ──
+
+    /// <summary>
+    /// Движок слова-триггера: "auto" — стриминговый KWS на своей ONNX-модели
+    /// (ZERE.Voice/WakeWord/models/wake_&lt;слово&gt;.onnx), если она есть и
+    /// установлен onnxruntime; иначе прежний детектор на VAD + STT;
+    /// "kws" — только KWS; "whisper" — прежний детектор (смена слова без
+    /// обучения модели). Паритет с Python VoiceConfig, docs/WAKE_WORD.md.
+    /// </summary>
+    public string WakeEngine { get; set; } = "auto";
+
+    /// <summary>Явный путь к ONNX-модели (пусто — папка моделей по слову).</summary>
+    public string WakeModelPath { get; set; } = "";
+
+    /// <summary>
+    /// Порог вероятности, число кадров подряд и cooldown. 0 — значения из
+    /// манифеста модели (их подбирает tools/wake_word/evaluate.py по метрике
+    /// «FA/час при recall ≥ 97 %»).
+    /// </summary>
+    public float WakeThreshold { get; set; } = 0.0f;
+    public int WakeMinConsecutive { get; set; } = 0;
+    public int WakeCooldownMs { get; set; } = 0;
+
+    /// <summary>
+    /// Энергетическая отсечка тишины: пока RMS последних 300 мс ниже порога,
+    /// модель не запускается вовсе (в тихой комнате — ноль работы).
+    /// </summary>
+    public bool WakeEnergyGate { get; set; } = true;
+    public float WakeGateRms { get; set; } = 0.0015f;
 }

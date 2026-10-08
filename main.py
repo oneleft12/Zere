@@ -133,6 +133,16 @@ def main() -> None:
     # Смена движка в панели требует перезапуска — как и написано на экране.
     voice_manager.config.tts_engine = str(config.tts_engine)
 
+    # Слово-триггер из config.json (wake*): движок (auto | kws | whisper),
+    # путь к ONNX-модели, порог/сглаживание/cooldown и отсечка тишины.
+    # Пустые значения = значения из манифеста модели. Подробности: docs/WAKE_WORD.md.
+    voice_manager.config.wake_engine = str(config.wake_engine)
+    voice_manager.config.wake_model_path = str(config.wake_model_path)
+    voice_manager.config.wake_threshold = float(config.wake_threshold)
+    voice_manager.config.wake_min_consecutive = int(config.wake_min_consecutive)
+    voice_manager.config.wake_cooldown_ms = int(config.wake_cooldown_ms)
+    voice_manager.config.wake_energy_gate = bool(config.wake_energy_gate)
+
     # DSP-обработка озвучки из config.json (audioProcessing, дефолт true):
     # читается на каждое предложение — переключается из панели на лету
     voice_manager.config.audio_processing = bool(config.audio_processing)
@@ -376,7 +386,7 @@ def run_voice_mode(
         if voice_manager.config.wake_word_enabled:
             voice_manager.enable_wake_word()
 
-            print("\n💤 Спящий режим. Скажите 'Джарвис' для активации.")
+            print(f"\n💤 Спящий режим. Скажите '{voice_manager.config.wake_word}' для активации.")
             print("   Или напишите 'выход' для отключения голосового режима.\n")
 
             cancel_event = threading.Event()

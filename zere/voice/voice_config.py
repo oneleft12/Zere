@@ -66,3 +66,25 @@ class VoiceConfig:
 
     # Пауза тишины (мс) для окончания голосовой команды (было 1500 мс).
     command_silence_ms: int = 800
+
+    # ── Движок слова-триггера (анализ S2: VAD+STT → keyword spotting) ──
+    # "auto" — KWS-модель (ZERE.Voice/WakeWord/models/wake_<слово>.onnx),
+    # если она есть и установлен onnxruntime; иначе прежний детектор на STT;
+    # "kws" — только KWS (нет модели → предупреждение и откат на STT);
+    # "whisper" — прежний детектор: VAD + полный STT + нечёткое сравнение.
+    wake_engine: str = "auto"
+
+    # Явный путь к ONNX-модели (пусто — папка моделей по слову-триггеру).
+    wake_model_path: str = ""
+
+    # Порог вероятности, число кадров подряд и cooldown. 0 — значения из
+    # манифеста модели: их подбирает tools/wake_word/evaluate.py по метрике
+    # «FA/час при recall ≥ 97 %».
+    wake_threshold: float = 0.0
+    wake_min_consecutive: int = 0
+    wake_cooldown_ms: int = 0
+
+    # Энергетическая отсечка тишины: пока RMS последних 300 мс ниже порога,
+    # модель не запускается вовсе (в тихой комнате — ноль работы).
+    wake_energy_gate: bool = True
+    wake_gate_rms: float = 0.0015

@@ -89,8 +89,18 @@ def test_csharp_routing_wiring() -> None:
     assert "TranscribeSttAsync" in vm, "нет отката STT (TranscribeSttAsync)"
     assert "void PreloadStt(" in vm, "нет PreloadStt"
     assert "_gigaam.Dispose()" in vm, "GigaAmService не освобождается в Dispose"
-    # Wake word остаётся на Whisper (§5.3 отчёта)
-    assert "WakeWordDetector(" in vm and "_whisper" in vm.split("WakeWordDetector(")[1][:200]
+    # Wake word: движок выбирает фабрика (docs/WAKE_WORD.md, анализ S2 —
+    # VAD+STT заменён на streaming KWS); общий Whisper по-прежнему
+    # передаётся: он нужен откату на прежний детектор.
+    assert "WakeWordFactory.Create(_config, _whisper)" in vm, (
+        "C#: wake word не идёт через фабрику с общим Whisper"
+    )
+
+    factory = (ROOT / "ZERE.Voice" / "WakeWord" / "WakeWordFactory.cs").read_text(
+        encoding="utf-8"
+    )
+    assert "KwsWakeWordDetector" in factory, "C#: фабрика не знает KWS-детектор"
+    assert '"whisper"' in factory, "C#: фабрика не умеет откат на прежний детектор"
 
     program = (ROOT / "ZERE.App" / "Program.cs").read_text(encoding="utf-8")
     assert "ConfigureStt" in program and "PreloadStt()" in program

@@ -19,7 +19,7 @@ public class VoiceManager : IDisposable
     private readonly PocketTtsService _pocket = new();
     private readonly VoiceConfig _config = new();
     private readonly SemaphoreSlim _recordGate = new(1, 1);
-    private WakeWordDetector? _wakeWordDetector;
+    private IWakeDetector? _wakeWordDetector;
     private CancellationTokenSource? _speakCts;
     private StreamPlayer? _activePlayer;
     private string _ttsEngine = "chattts";
@@ -585,13 +585,40 @@ public class VoiceManager : IDisposable
     /// Детектор ОДИН на сессию (анализ S3): раньше новый создавался на каждом
     /// цикле — это означало повторную калибровку VAD и повторную загрузку
     /// модели Whisper на каждую команду.
+    ///
+    /// Движок выбирает <see cref="WakeWordFactory"/> (анализ S2): стриминговый
+    /// KWS на ONNX-модели, если модель есть; иначе прежний детектор на VAD + STT.
     /// </summary>
-    public WakeWordDetector EnableWakeWord()
+    public IWakeDetector EnableWakeWord()
     {
         if (_wakeWordDetector == null)
-            _wakeWordDetector = new WakeWordDetector(_config, _whisper);
+            _wakeWordDetector = WakeWordFactory.Create(_config, _whisper);
 
         return _wakeWordDetector;
+    }
+
+    /// <summary>
+    /// Движок слова-триггера для статуса панели (поле wakeEngine).
+    /// Детектор ещё не создан — отвечает фабрика по конфигу.
+    /// </summary>
+    public string WakeEngineLabel =>
+        _wakeWordDetector?.Engine ?? WakeWordFactory.DetectEngine(_config);
+
+    /// <summary>
+    /// Прогревает KWS-модель (создание ONNX-сессии + первый инференс), чтобы
+    /// первый цикл ожидания слова не платил ~50–200 мс. Сбой не критичен.
+    /// </summary>
+    public void PreloadWakeWord()
+    {
+        try
+        {
+            if (EnableWakeWord() is KwsWakeWordDetector kws)
+                kws.Warmup();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Voice] preload_wake_word: {ex.Message}");
+        }
     }
 
     /// <summary>

@@ -57,6 +57,26 @@ public class ZereConfig
     // Заполняется командой «записать голос».
     public string VoiceReferencePath { get; set; } = "";
 
+    // ── Слово-триггер (анализ S2: VAD+STT → keyword spotting) ──
+    // Движок: "auto" — стриминговый KWS на своей ONNX-модели
+    // (ZERE.Voice/WakeWord/models/wake_<слово>.onnx), если она есть, иначе
+    // прежний детектор на VAD + STT; "kws" — только KWS (нет модели →
+    // предупреждение и откат на STT); "whisper" — прежний детектор.
+    // Паритет с Python ZereConfig, подробности — docs/WAKE_WORD.md.
+    public string WakeEngine { get; set; } = "auto";
+    public string WakeModelPath { get; set; } = "";
+
+    // Порог вероятности, число кадров подряд и cooldown. 0 — значения из
+    // манифеста модели (их подбирает tools/wake_word/evaluate.py по метрике
+    // «FA/час при recall ≥ 97 %»).
+    public float WakeThreshold { get; set; } = 0.0f;
+    public int WakeMinConsecutive { get; set; } = 0;
+    public int WakeCooldownMs { get; set; } = 0;
+
+    // Энергетическая отсечка тишины: пока RMS последних 300 мс ниже порога,
+    // модель не запускается вовсе (в тихой комнате — ноль работы).
+    public bool WakeEnergyGate { get; set; } = true;
+
     // DSP-обработка озвучки ChatTTS (EQ + мягкий компрессор + нормализация).
     // Ключ config.json: audioProcessing. Читается на каждое предложение
     // (VoiceManager), поэтому переключается на лету из панели; false —

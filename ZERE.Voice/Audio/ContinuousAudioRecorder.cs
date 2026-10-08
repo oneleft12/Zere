@@ -38,9 +38,54 @@ public class ContinuousAudioRecorder : IDisposable
     private volatile bool _isRecording;
     private volatile bool _disposed;
 
+    // Слушатели аудио (streaming KWS): получают блок float сразу из callback'а
+    // NAudio, поэтому обязаны быть мгновенными (копия в свой буфер), а их
+    // исключение не должно ронять запись.
+    private readonly List<Action<float[]>> _listeners = new();
+
     public bool IsRecording => _isRecording;
     public bool IsSpeechDetected => _isSpeech;
     public float LastRms { get; private set; }
+
+    /// <summary>Частота записи (нужна слушателям для расчёта окон и hop).</summary>
+    public int SampleRate => _waveIn?.WaveFormat.SampleRate ?? 16000;
+
+    /// <summary>Регистрирует слушателя блоков аудио (float, 16 кГц, моно).</summary>
+    public void AddListener(Action<float[]> listener)
+    {
+        lock (_listeners)
+        {
+            if (!_listeners.Contains(listener))
+                _listeners.Add(listener);
+        }
+    }
+
+    /// <summary>Снимает слушателя (повторное снятие безопасно).</summary>
+    public void RemoveListener(Action<float[]> listener)
+    {
+        lock (_listeners)
+            _listeners.Remove(listener);
+    }
+
+    private void NotifyListeners(float[] block)
+    {
+        Action<float[]>[] listeners;
+
+        lock (_listeners)
+            listeners = _listeners.ToArray();
+
+        foreach (var listener in listeners)
+        {
+            try
+            {
+                listener(block);
+            }
+            catch
+            {
+                // Аудиозахват важнее слушателя: сбой KWS не должен глушить запись.
+            }
+        }
+    }
 
     /// <summary>
     /// Запуск непрерывной записи в круговой буфер.
@@ -186,6 +231,7 @@ public class ContinuousAudioRecorder : IDisposable
 
         var sampleCount = e.BytesRecorded / 2;
         var now = DateTime.Now;
+        var samples = new float[sampleCount];
 
         lock (_lock)
         {
@@ -193,6 +239,7 @@ public class ContinuousAudioRecorder : IDisposable
             for (int i = 0; i < sampleCount; i++)
             {
                 var sample = BitConverter.ToInt16(e.Buffer, i * 2) / 32768f;
+                samples[i] = sample;
                 _ringBuffer[_writePos] = sample;
                 _writePos = (_writePos + 1) % _bufferCapacity;
                 _totalSamplesWritten++;
@@ -202,6 +249,9 @@ public class ContinuousAudioRecorder : IDisposable
                 _rmsWindowSamples++;
             }
         }
+
+        // Слушатели (streaming KWS) получают блок сразу, не дожидаясь окна RMS
+        NotifyListeners(samples);
 
         // Проверяем окно RMS каждые ~400ms
         var elapsed = (now - _rmsWindowStart).TotalMilliseconds;
@@ -268,6 +318,7 @@ public class ContinuousAudioRecorder : IDisposable
         lock (_lock)
         {
             _isRecording = false;
+            _listeners.Clear();
 
             if (_waveIn != null)
             {

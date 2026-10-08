@@ -1436,6 +1436,40 @@ components:
           minimum: 5
           maximum: 600
           description: Таймаут запроса к Ollama в секундах (для голоса — 60).
+        wakeEngine:
+          type: string
+          enum: [auto, kws, whisper]
+          description: >-
+            Движок слова-триггера: auto — стриминговый KWS на своей ONNX-модели,
+            если она есть, иначе прежний детектор на VAD + STT; kws — только KWS;
+            whisper — прежний детектор (docs/WAKE_WORD.md). Необязательный ключ:
+            старые клиенты могут его не присылать.
+        wakeModelPath:
+          type: string
+          description: >-
+            Явный путь к ONNX-модели wake word (пусто — папка моделей по
+            слову-триггеру: ZERE.Voice/WakeWord/models/wake_<слово>.onnx)
+        wakeThreshold:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: Порог вероятности (0 — значение из манифеста модели)
+        wakeMinConsecutive:
+          type: integer
+          minimum: 0
+          description: >-
+            Сколько кадров подряд с вероятностью ≥ порога нужно для
+            срабатывания (0 — значение из манифеста модели)
+        wakeCooldownMs:
+          type: integer
+          minimum: 0
+          description: >-
+            Пауза после срабатывания в мс (0 — значение из манифеста модели)
+        wakeEnergyGate:
+          type: boolean
+          description: >-
+            Отсечка тишины по энергии: пока RMS последних 300 мс ниже порога,
+            модель не запускается (в тихой комнате — ноль работы)
 
     Personality:
       type: object
@@ -1957,6 +1991,12 @@ components:
         wakeWord:
           type: string
           description: Ключевое слово-триггер (например «джарвис»)
+        wakeEngine:
+          type: string
+          description: >
+            Движок слова-триггера: onnx-kws — стриминговый keyword spotting
+            на своей ONNX-модели (docs/WAKE_WORD.md); whisper — прежний
+            детектор (энергетический VAD + полный STT + сравнение строк)
         lastUtterance:
           type: string
           description: Последняя распознанная голосовая команда

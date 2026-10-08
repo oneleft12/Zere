@@ -76,12 +76,14 @@
 - **ISttService** — общий контракт STT-движков (`IsInstalled`/`Preload`/`TranscribeAsync`), за ним скрыт выбор активного движка
 - **GigaAmService** — основной STT: sherpa-onnx + GigaAM-v3 punct (русский, с пунктуацией; модель ~163 МБ качается при установке или при `Preload`, SHA-256)
 - **AudioRecorder** — запись с микрофона (и запись референса голоса для клонирования)
-- **ContinuousAudioRecorder** — непрерывная запись с круговым буфером и адаптивным VAD (wake word)
+- **ContinuousAudioRecorder** — непрерывная запись с круговым буфером и адаптивным VAD (wake word) + слушатели аудио (`add_listener`/`AddListener`) для streaming KWS: слушатель получает float-блок прямо из аудио-callback'а и лишь копирует его (инференс — не в callback'е)
 - **AudioDevice (Python, `audio_device.py`)** — выбор устройства: WASAPI-аналог устройства по умолчанию (низкая задержка) + системный ресемплер (`auto_convert`), иначе откат на MME; `input_options`/`output_options` отдают готовые аргументы открытия потока и лечат `Invalid sample rate [PaErrorCode -9997]` (16 кГц против микшера 44.1/48 кГц)
 - **CSharpSpeaker (Python, `csharp_speaker.py`)** — мост к C#-хелперу «ZERE.Speaker»: озвучка (DSP + вывод звука) идёт на C#, при отсутствии сборки/крахе — автоматический откат на Python (sounddevice); `ZERE_SPEAKER=python` — принудительный Python
 - **AudioPlayer** — воспроизведение WAV
 - **StreamPlayer** — потоковое воспроизведение PCM (играет, пока TTS ещё синтезирует)
-- **WhisperService** — распознавание речи (откатный STT + wake word — детектор просыпания намеренно остаётся на Whisper)
+- **WhisperService** — распознавание речи (откатный STT; прежний wake word на Whisper остаётся откатом движка слова-триггера — `wakeEngine`)
+- **IWakeDetector / WakeWordFactory (C#), `create_wake_detector()` (Python)** — выбор движка слова-триггера: `wakeEngine` = `auto` (KWS, если есть модель) | `kws` | `whisper`; откат на прежний детектор, если ONNX-модели нет или она не загрузилась
+- **KwsWakeWordDetector** (`zere/voice/wakeword/kws_detector.py`, `ZERE.Voice/WakeWord/KwsWakeWordDetector.cs`) — стриминговый keyword spotting: кольцевой буфер, окно 1 с каждые 40 мс, единый ONNX-граф «аудио → вероятность» (log-mel + CNN внутри графа), энергетическая отсечка тишины, сглаживание N кадров подряд, cooldown, без записи сегментов на диск и без вызовов STT до срабатывания. Заменяет схему «VAD + полный STT + Левенштейн» (анализ S2). Подробности: `docs/WAKE_WORD.md`
 - **ChatTtsService (C#)** — синтез речи ChatTTS (нейросетевой TTS, замена Piper): ленивая загрузка, тяжёлая часть — в Python-сайдкаре `tools/zere_chattts_server.py` (HTTP), попредложенное стримирование. Подробности: `docs/TTS_CHATTTS.md`
 - **ChatTtsService (Python, `zere/voice/chattts/`)** — адаптер под прежний контракт PiperService (сам Piper заменён на ChatTTS): `is_loaded`/`initialize`/`speak`/`set_voice`/`set_inference_params`/`get_available_voices`/`close` + `ChatTTSManager` с ленивой загрузкой модели; профиль голоса — детерминированное зерно (crc32 имени)
 - **SileroTtsService (C#, `ZERE.Voice/Silero/`)** — русский синтез Silero v5_5_ru через сайдкар `tools/zere_silero_server.py` (uv: torch + soundfile, порт 8473, PCM s16le 24 кГц): тот же контракт, что у ChatTtsService; темп речи не поддерживается. Подробности: `docs/TTS_SILERO.md`
@@ -95,6 +97,7 @@
 - **zere_tts_server.py** — HTTP-сервер TTS (`/health`, потоковый `/tts`), поднимается PocketTtsService автоматически
 - **zere_chattts_server.py** — HTTP-сервер ChatTTS (`/health`, потоковый `/tts` → PCM s16le 24 кГц), поднимается C#-ChatTtsService через `tools/uv.exe` с `--python 3.12`
 - **zere_silero_server.py** — HTTP-сервер Silero v5 (русский голос: `/health`, `/voices`, потоковый `/tts` → PCM s16le 24 кГц), поднимается C#-SileroTtsService через `tools/uv.exe` с `--python 3.12 --with torch --with soundfile`
+- **wake_word/** — тулчейн обучения слова-триггера: `record_positives.py` (живые записи), `synth_positives.py` (Silero TTS × скорость/питч), `build_negatives.py` (свои аудио + опционально MUSAN), `data.py` (аугментации), `model.py` (log-mel + CNN), `train.py` (GPU, экспорт ONNX), `evaluate.py` (recall / FA-в-час / порог), `self_test.py` (смоук конвейера). Модель кладётся в `ZERE.Voice/WakeWord/models/`. Подробности: `docs/WAKE_WORD.md`, `tools/wake_word/README.md`
 - **uv.exe**, **xVibePocketTTS/** — менеджер Python и репозиторий движка (gitignored, ставятся отдельно)
 
 ---
@@ -322,6 +325,12 @@ Zere/
 │   │   └── GigaAmService.cs      # Основной STT: sherpa-onnx + GigaAM-v3 punct (модель качается сама)
 │   ├── Whisper/
 │   │   └── WhisperService.cs     # STT-откат + wake word (speech-to-text)
+│   ├── WakeWord/
+│   │   ├── IWakeDetector.cs      # Контракт детектора слова-триггера
+│   │   ├── WakeWordFactory.cs    # Выбор движка: onnx-kws | whisper (+откат)
+│   │   ├── KwsWakeWordDetector.cs # Streaming KWS на ONNX-модели (log-mel+CNN в графе)
+│   │   ├── WakeWordDetector.cs   # Прежний детектор: VAD + STT + Левенштейн (откат)
+│   │   └── models/               # wake_<слово>.onnx + манифест (коммитятся, < 1 МБ)
 │   ├── ChatTts/
 │   │   └── ChatTtsService.cs     # TTS ChatTTS через сайдкар (попредложенное стримирование)
 │   ├── Silero/
@@ -342,6 +351,7 @@ Zere/
 │   ├── zere_tts_server.py        # HTTP-сервер клонирования (uv.exe, xVibePocketTTS — gitignored)
 │   ├── zere_chattts_server.py    # HTTP-сервер ChatTTS (uv.exe, PCM s16le 24 кГц)
 │   └── zere_silero_server.py     # HTTP-сервер Silero v5, русский голос (uv.exe: torch + soundfile)
+│   └── wake_word/                # Обучение wake word: record/synth/negatives/data/model/train/evaluate
 ├── panel/                        # Web-панель (SPA, Vite + vanilla TS)
 │   ├── src/                      # main/shell/router/ui/i18n + 13 экранов (screens/)
 │   │   └── commands.ts           # каталог команд ZERE (панель на вкладке «Чат»)
@@ -362,6 +372,7 @@ Zere/
 │   ├── test_audio_device.py      # Тесты звуковых устройств (WASAPI+auto_convert, откат, регрессия -9997, живой микрофон)
 │   ├── test_voice_mode.py        # Тесты голосового режима (сбой записи/озвучки не убивает цикл)
 │   ├── test_wake_word.py         # Тесты слова-триггера «зере» (варианты имени, ложные срабатывания)
+│   ├── test_wake_word_kws.py     # Тесты KWS-детектора (кольцевой буфер, сглаживание, отсечка, cooldown, выбор движка)
 │   ├── test_chattts.py           # Тесты ChatTTS (ленивая загрузка, профили голоса, [speed_N], контракт сайдкара)
 │   ├── test_silero.py            # Тесты Silero v5 (русский голос: ленивая загрузка модели, голоса, маршрутизация, сайдкар)
 │   ├── test_db_compat.py         # Тесты совместимости базы (старая колонка JarvisResponse, переименование jarvis.db)
@@ -376,7 +387,7 @@ Zere/
 │   ├── fake_http.py              # Фейковый requests.Session для тестов ИИ (без сети)
 │   ├── check_ai_contract_external.py  # /api/ai* против запущенной панели (C# и Python)
 │   └── e2e_server.py             # Раннер панели с фейками для E2E
-├── docs/                         # Планы, отчёты, openapi.yaml (UPDATE.md, AI_PROVIDERS.md, TTS_SILERO.md)
+├── docs/                         # Планы, отчёты, openapi.yaml (UPDATE.md, AI_PROVIDERS.md, TTS_SILERO.md, WAKE_WORD.md)
 ├── logs/                         # Логи
 └── backups/                      # Бэкапы версий
 ```

@@ -200,6 +200,17 @@ voiceManager.Config.AudioProcessing = config.AudioProcessing;
 
 voiceManager.ConfigureTts(config.TtsEngine, config.VoiceReferencePath);
 voiceManager.ConfigureStt(config.SttEngine);
+
+// Слово-триггер из config.json (wake*): движок (auto | kws | whisper),
+// путь к ONNX-модели, порог/сглаживание/cooldown и отсечка тишины.
+// Пустые значения = значения из манифеста модели (docs/WAKE_WORD.md).
+voiceManager.Config.WakeEngine = config.WakeEngine;
+voiceManager.Config.WakeModelPath = config.WakeModelPath;
+voiceManager.Config.WakeThreshold = config.WakeThreshold;
+voiceManager.Config.WakeMinConsecutive = config.WakeMinConsecutive;
+voiceManager.Config.WakeCooldownMs = config.WakeCooldownMs;
+voiceManager.Config.WakeEnergyGate = config.WakeEnergyGate;
+
 voiceManager.Initialize(activePersonality?.Style.ToString());
 
 if (config.VoiceEnabled)
@@ -255,9 +266,11 @@ while (true)
         // Режим с ключевым словом
         if (voiceManager.Config.WakeWordEnabled)
         {
-            var wakeDetector = voiceManager.EnableWakeWord();
+            voiceManager.EnableWakeWord();
 
-            Console.WriteLine("\n💤 Спящий режим. Скажите 'Джарвис' для активации.");
+            var wakeWord = voiceManager.Config.WakeWord ?? "зере";
+
+            Console.WriteLine($"\n💤 Спящий режим. Скажите '{wakeWord}' для активации.");
             Console.WriteLine("   Или напишите 'выход' для отключения голосового режима.\n");
 
             using var cts = new CancellationTokenSource();
@@ -274,7 +287,7 @@ while (true)
             {
                 while (voiceMode)
                 {
-                    Console.Write("💬 Напишите 'выход' или скажите 'Джарвис': ");
+                    Console.Write($"💬 Напишите 'выход' или скажите '{wakeWord}': ");
                     Console.Out.Flush();
 
                     // Параллельно: слушаем микрофон И ждём ввод текста

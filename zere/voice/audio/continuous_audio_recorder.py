@@ -61,9 +61,44 @@ class ContinuousAudioRecorder:
         self._stream: sd.InputStream | None = None
         self.last_rms: float = 0.0  # LastRms { get; private set; }
 
+        # Слушатели аудио (streaming KWS): получают float32-блок прямо из
+        # callback'а sounddevice, поэтому обязаны быть мгновенными (копия в
+        # свой буфер), а их исключение не должно ронять запись.
+        self._listeners: list[object] = []
+
     @property
     def is_recording(self) -> bool:
         return self._is_recording
+
+    @property
+    def sample_rate(self) -> int:
+        """Частота записи (нужна слушателям для расчёта окон и hop)."""
+        return self._sample_rate
+
+    def add_listener(self, listener: object) -> None:
+        """Регистрирует слушателя блоков аудио (float32, 16 кГц, моно)."""
+        with self._lock:
+            if listener not in self._listeners:
+                self._listeners.append(listener)
+
+    def remove_listener(self, listener: object) -> None:
+        """Снимает слушателя (повторное снятие безопасно)."""
+        with self._lock:
+            try:
+                self._listeners.remove(listener)
+            except ValueError:
+                pass
+
+    def _notify_listeners(self, samples: np.ndarray) -> None:
+        """Отдаёт блок слушателям; их сбой не влияет на запись."""
+        with self._lock:
+            listeners = list(self._listeners)
+
+        for listener in listeners:
+            try:
+                listener(samples)  # type: ignore[operator]
+            except Exception:  # noqa: BLE001 — аудиозахват важнее слушателя
+                pass
 
     @property
     def is_speech_detected(self) -> bool:
@@ -218,6 +253,9 @@ class ContinuousAudioRecorder:
             self._rms_sum += float(np.dot(samples, samples))
             self._rms_window_samples += sample_count
 
+        # Слушатели (streaming KWS) получают блок сразу, не дожидаясь окна RMS
+        self._notify_listeners(samples)
+
         # Проверяем окно RMS каждые ~400ms
         elapsed_ms = (now - self._rms_window_start).total_seconds() * 1000
         if elapsed_ms < self.RMS_WINDOW_MS:
@@ -268,6 +306,7 @@ class ContinuousAudioRecorder:
 
         with self._lock:
             self._is_recording = False
+            self._listeners.clear()
 
             if self._stream is not None:
                 try:

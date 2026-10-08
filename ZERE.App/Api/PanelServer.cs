@@ -123,13 +123,13 @@ public sealed class PanelServer : IDisposable
 
     // Необязательные строковые ключи (openapi: свойство есть в схеме, но вне
     // required): старые клиенты/скрипты могут их не присылать.
-    private static readonly string[] OptionalStringFields = ["sttEngine"];
+    private static readonly string[] OptionalStringFields = ["sttEngine", "wakeEngine", "wakeModelPath"];
 
     private static readonly string[] BoolFields = ["voiceEnabled", "autoMemory"];
 
     // Необязательные логические ключи — тот же контракт, что у sttEngine:
     // свойство есть в схеме, но вне required (старые клиенты его не шлют).
-    private static readonly string[] OptionalBoolFields = ["audioProcessing"];
+    private static readonly string[] OptionalBoolFields = ["audioProcessing", "wakeEnergyGate"];
 
     private static readonly string[] AllowedHosts = ["127.0.0.1", "localhost"];
 
@@ -772,6 +772,10 @@ public sealed class PanelServer : IDisposable
             allowed.Add("llmKeepAlive");
             allowed.Add("llmMaxTokens");
             allowed.Add("llmTimeoutSeconds");
+            // Слово-триггер (docs/WAKE_WORD.md): 0 = значение из манифеста модели
+            allowed.Add("wakeThreshold");
+            allowed.Add("wakeMinConsecutive");
+            allowed.Add("wakeCooldownMs");
 
             foreach (var name in supplied.Keys)
             {
@@ -880,7 +884,48 @@ public sealed class PanelServer : IDisposable
         if (error is not null)
             return error;
 
+        // Слово-триггер (docs/WAKE_WORD.md): движок, порог, сглаживание, cooldown.
+        if (supplied.TryGetValue("wakeEngine", out var wakeEngine))
+        {
+            if (wakeEngine.ValueKind != JsonValueKind.String)
+                return "Ключ «wakeEngine» должен быть строкой.";
+
+            if (wakeEngine.GetString() is not ("auto" or "kws" or "whisper"))
+                return "Ключ «wakeEngine» допускает только «auto», «kws» или «whisper».";
+        }
+
+        if (supplied.TryGetValue("wakeThreshold", out var wakeThreshold))
+        {
+            if (wakeThreshold.ValueKind != JsonValueKind.Number ||
+                !wakeThreshold.TryGetDouble(out var thresholdValue))
+                return "Ключ «wakeThreshold» должен быть числом.";
+
+            if (thresholdValue is < 0 or > 1)
+                return "Ключ «wakeThreshold» должен быть в диапазоне 0…1.";
+        }
+
+        error = ValidateOptionalInt(supplied, "wakeMinConsecutive", 0, 100);
+        if (error is not null)
+            return error;
+
+        error = ValidateOptionalInt(supplied, "wakeCooldownMs", 0, 60000);
+        if (error is not null)
+            return error;
+
         return null;
+    }
+
+    /// <summary>
+    /// Необязательное целое в диапазоне [min, max] (ключи слова-триггера):
+    /// значения из манифеста модели, поэтому клиент может их не присылать.
+    /// </summary>
+    private static string? ValidateOptionalInt(
+        Dictionary<string, JsonElement> supplied, string key, int min, int max)
+    {
+        if (!supplied.ContainsKey(key))
+            return null;
+
+        return ValidateInt(supplied, key, min, max);
     }
 
     /// <summary>Целое число в диапазоне [min, max] (ключи LLM, анализ S5).</summary>
@@ -931,6 +976,63 @@ public sealed class PanelServer : IDisposable
         _config.LlmKeepAlive = supplied["llmKeepAlive"].GetInt32();
         _config.LlmMaxTokens = supplied["llmMaxTokens"].GetInt32();
         _config.LlmTimeoutSeconds = supplied["llmTimeoutSeconds"].GetInt32();
+
+        // Слово-триггер (docs/WAKE_WORD.md): ключи необязательные — применяем
+        // присланные и сразу обновляем живой VoiceConfig, если голос подключён
+        // (движок выбирается при следующем EnableWakeWord).
+        if (supplied.TryGetValue("wakeEngine", out var wakeEngine) &&
+            wakeEngine.ValueKind == JsonValueKind.String)
+        {
+            _config.WakeEngine = wakeEngine.GetString() ?? _config.WakeEngine;
+
+            if (_voice is not null)
+                _voice.Config.WakeEngine = _config.WakeEngine;
+        }
+
+        if (supplied.TryGetValue("wakeModelPath", out var wakeModelPath) &&
+            wakeModelPath.ValueKind == JsonValueKind.String)
+        {
+            _config.WakeModelPath = wakeModelPath.GetString() ?? _config.WakeModelPath;
+
+            if (_voice is not null)
+                _voice.Config.WakeModelPath = _config.WakeModelPath;
+        }
+
+        if (supplied.TryGetValue("wakeThreshold", out var wakeThreshold) &&
+            wakeThreshold.ValueKind == JsonValueKind.Number)
+        {
+            _config.WakeThreshold = (float)wakeThreshold.GetDouble();
+
+            if (_voice is not null)
+                _voice.Config.WakeThreshold = _config.WakeThreshold;
+        }
+
+        if (supplied.TryGetValue("wakeMinConsecutive", out var wakeMinConsecutive) &&
+            wakeMinConsecutive.ValueKind == JsonValueKind.Number)
+        {
+            _config.WakeMinConsecutive = wakeMinConsecutive.GetInt32();
+
+            if (_voice is not null)
+                _voice.Config.WakeMinConsecutive = _config.WakeMinConsecutive;
+        }
+
+        if (supplied.TryGetValue("wakeCooldownMs", out var wakeCooldownMs) &&
+            wakeCooldownMs.ValueKind == JsonValueKind.Number)
+        {
+            _config.WakeCooldownMs = wakeCooldownMs.GetInt32();
+
+            if (_voice is not null)
+                _voice.Config.WakeCooldownMs = _config.WakeCooldownMs;
+        }
+
+        if (supplied.TryGetValue("wakeEnergyGate", out var wakeEnergyGate) &&
+            wakeEnergyGate.ValueKind is (JsonValueKind.True or JsonValueKind.False))
+        {
+            _config.WakeEnergyGate = wakeEnergyGate.GetBoolean();
+
+            if (_voice is not null)
+                _voice.Config.WakeEnergyGate = _config.WakeEnergyGate;
+        }
     }
 
     // ── Личности (смена стиля с персистом — чинит P1-3) ──────────

@@ -23,7 +23,11 @@ from zere.voice.chattts.chattts_service import ChatTtsService
 from zere.voice.sherpa.gigaam_service import GigaamService
 from zere.voice.silero.silero_service import SileroTtsService
 from zere.voice.voice_config import VoiceConfig
-from zere.voice.wakeword.wake_word_detector import WakeWordDetector
+from zere.voice.wakeword import (
+    WakeDetector,
+    create_wake_detector,
+    detect_wake_engine,
+)
 from zere.voice.whisper.whisper_service import WhisperService
 
 
@@ -80,7 +84,7 @@ class VoiceManager:
         # и перепроверять доступность TTS там не нужно (503 остаётся честным).
         self._tts_initialized = False
         self.config = VoiceConfig()  # Config { get; } — публичный атрибут
-        self._wake_word_detector: WakeWordDetector | None = None
+        self._wake_word_detector: WakeDetector | None = None
         # Семафор записи: панель и консоль не должны писать микрофон
         # одновременно (анализ F4).
         self._record_lock = threading.Lock()
@@ -408,16 +412,45 @@ class VoiceManager:
 
     # ─── Wake Word ──────────────────────────────────────────
 
-    def enable_wake_word(self) -> WakeWordDetector:
+    @property
+    def wake_engine_label(self) -> str:
+        """Движок слова-триггера для статуса панели (без создания детектора)."""
+        detector = self._wake_word_detector
+
+        if detector is not None:
+            return str(getattr(detector, "engine", "whisper"))
+
+        return detect_wake_engine(self.config)
+
+    def enable_wake_word(self) -> WakeDetector:
         """Включает режим wake word и возвращает детектор.
 
         Детектор ОДИН на сессию (анализ S3): раньше новый создавался на
         каждом цикле — это означало повторную калибровку VAD и повторную
         загрузку модели Whisper на каждую команду.
+
+        Движок выбирает фабрика (анализ S2): стриминговый KWS на ONNX-модели,
+        если модель есть; иначе прежний детектор на VAD + STT.
         """
         if self._wake_word_detector is None:
-            self._wake_word_detector = WakeWordDetector(self.config, whisper=self._whisper)
+            self._wake_word_detector = create_wake_detector(
+                self.config, whisper=self._whisper
+            )
         return self._wake_word_detector
+
+    def preload_wake_word(self) -> None:
+        """Прогревает KWS-модель: создание сессии ONNX + первый инференс.
+
+        Вызывается при старте (как preload STT), чтобы первый цикл ожидания
+        слова не платил ~50–200 мс за инициализацию графа.
+        """
+        try:
+            detector = self.enable_wake_word()
+            warmup = getattr(detector, "warmup", None)
+            if callable(warmup):
+                warmup()
+        except Exception as ex:  # noqa: BLE001 — прогрев не критичен
+            log_error("VoiceManager", f"preload_wake_word: {ex}")
 
     def disable_wake_word(self) -> None:
         """Выключает wake word: останавливает непрерывную запись и

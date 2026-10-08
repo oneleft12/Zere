@@ -87,6 +87,8 @@ public sealed class VoiceModeLoop
         available = Available,
         wakeWordEnabled = _voice.Config.WakeWordEnabled,
         wakeWord = _voice.Config.WakeWord ?? string.Empty,
+        // Движок триггера: onnx-kws (своя модель) или whisper (VAD+STT).
+        wakeEngine = _voice.WakeEngineLabel,
         lastUtterance = _lastUtterance,
         lastAnswer = _lastAnswer,
         lastError = _lastError,

@@ -73,6 +73,19 @@ class ZereConfig:
     # Путь к WAV-референсу голоса пользователя (пусто = встроенный голос).
     voice_reference_path: str = ""
 
+    # --- Wake word (паритет с C# ZereConfig) -------------
+    # Движок слова-триггера: "auto" — стриминговый KWS на своей ONNX-модели
+    # (ZERE.Voice/WakeWord/models/wake_<слово>.onnx), если она есть, иначе
+    # прежний детектор на VAD + STT; "kws" — только KWS; "whisper" — прежний
+    # детектор (смена слова без обучения модели). Подробности: docs/WAKE_WORD.md.
+    wake_engine: str = "auto"
+    wake_model_path: str = ""
+    # 0 — значения из манифеста модели (их подобрал tools/wake_word/evaluate.py).
+    wake_threshold: float = 0.0
+    wake_min_consecutive: int = 0
+    wake_cooldown_ms: int = 0
+    wake_energy_gate: bool = True
+
     # DSP-обработка озвучки ChatTTS (EQ + мягкий компрессор + нормализация),
     # паритет с C# ZereConfig.AudioProcessing. Ключ config.json:
     # audioProcessing. Читается на каждое предложение (VoiceManager), поэтому
@@ -91,6 +104,12 @@ class ZereConfig:
         "OllamaTimeoutMinutes": "ollama_timeout_minutes",
         "TtsEngine": "tts_engine",
         "SttEngine": "stt_engine",
+        "WakeEngine": "wake_engine",
+        "WakeModelPath": "wake_model_path",
+        "WakeThreshold": "wake_threshold",
+        "WakeMinConsecutive": "wake_min_consecutive",
+        "WakeCooldownMs": "wake_cooldown_ms",
+        "WakeEnergyGate": "wake_energy_gate",
         "VoiceReferencePath": "voice_reference_path",
         "AudioProcessing": "audio_processing",
         "LlmKeepAlive": "llm_keep_alive",

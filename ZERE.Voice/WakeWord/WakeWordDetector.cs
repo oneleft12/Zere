@@ -10,7 +10,7 @@ namespace ZERE.Voice.WakeWord;
 /// Отправляет аудио в Whisper ТОЛЬКО при обнаружении речи — без лишних вызовов.
 /// Сопоставление нечёткое (Levenshtein) — ловит «зера», «зерэ», «зире».
 /// </summary>
-public class WakeWordDetector : IDisposable
+public class WakeWordDetector : IWakeDetector
 {
     private readonly ContinuousAudioRecorder _recorder = new();
     private readonly WhisperService _whisper;
@@ -61,6 +61,9 @@ public class WakeWordDetector : IDisposable
             "zere"
         };
     }
+
+    /// <summary>Имя движка для статуса панели (прежний VAD + STT).</summary>
+    public string Engine => "whisper";
 
     /// <summary>
     /// Ожидает произнесения ключевого слова.

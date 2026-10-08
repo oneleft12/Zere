@@ -385,6 +385,8 @@ export interface VoiceModeState {
   available: boolean;
   wakeWordEnabled: boolean;
   wakeWord: string;
+  /** Движок триггера: onnx-kws — своя ONNX-модель, whisper — VAD + STT. */
+  wakeEngine?: string;
   lastUtterance: string;
   lastAnswer: string;
   lastError: string | null;

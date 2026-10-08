@@ -9,6 +9,12 @@
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.13.8" />
+    <!-- onnxruntime для KWS-модели слова-триггера (docs/WAKE_WORD.md).
+         ExcludeAssets="native": нативную libonnxruntime уже поставляет
+         sherpa-onnx (в 1.13.8 это onnxruntime 1.28.2) — второй экземпляр
+         того же onnxruntime.dll в выходной папке дал бы конфликт копирования
+         и рассинхрон native/managed. Managed-версию держим под нативную: 1.28.x. -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.28.0" ExcludeAssets="native" />
     <PackageReference Include="Whisper.net" Version="1.9.1" />
     <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
   </ItemGroup>
