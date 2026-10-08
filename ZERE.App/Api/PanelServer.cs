@@ -687,7 +687,9 @@ public sealed class PanelServer : IDisposable
             ? "ok"
             : "missing";
 
-        var engineName = _config.TtsEngine is "pocket" or "chattts" ? _config.TtsEngine : "chattts";
+        var engineName = _config.TtsEngine is "pocket" or "chattts" or "silero"
+            ? _config.TtsEngine
+            : "chattts";
 
         int count;
 
@@ -830,7 +832,7 @@ public sealed class PanelServer : IDisposable
         var engine = supplied["ttsEngine"].GetString();
 
         if (engine is not ("pocket" or "chattts"))
-            return "Ключ «ttsEngine» допускает только «pocket» или «chattts».";
+            return "Ключ «ttsEngine» допускает только «pocket», «chattts» или «silero».";
 
         // Необязательный sttEngine: проверяем только если прислан.
         if (supplied.TryGetValue("sttEngine", out var sttEngine))
@@ -1487,11 +1489,12 @@ public sealed class PanelServer : IDisposable
     // ── Голос (этап 4, §6 плана) ──────────────────────────────────
 
     /// <summary>Что эта реализация умеет фактически (описания — в openapi).</summary>
-    private static object BuildVoiceCapabilities(bool voiceAvailable) => new
+    private static object BuildVoiceCapabilities(bool voiceAvailable, bool speechSpeedConfig) => new
     {
         recordReference = true,   // запись референса — только в C#-версии
         pocketCloning = true,     // PocketTTS только в C#-версии
-        speechSpeedConfig = true, // ChatTTS получает темп как [speed_N] из speechSpeed
+        // ChatTTS получает темп как [speed_N]; у Silero v5 его нет
+        speechSpeedConfig,
         liveVolumeApply = true,   // Volume читается на каждое воспроизведение
         sttTest = voiceAvailable,
     };
@@ -1511,7 +1514,7 @@ public sealed class PanelServer : IDisposable
             ttsEngine = _config.TtsEngine,
             voiceReferencePath = _config.VoiceReferencePath,
             audioProcessing = _config.AudioProcessing,
-            capabilities = BuildVoiceCapabilities(_voice.IsVoiceAvailable),
+            capabilities = BuildVoiceCapabilities(_voice.IsVoiceAvailable, _voice.SupportsSpeechSpeed),
         });
     }
 
@@ -1824,7 +1827,7 @@ public sealed class PanelServer : IDisposable
 
         if (supplied.TryGetValue("ttsEngine", out var engine) &&
             (engine.ValueKind != JsonValueKind.String || engine.GetString() is not ("pocket" or "chattts")))
-            return "Ключ «ttsEngine» допускает только «pocket» или «chattts».";
+            return "Ключ «ttsEngine» допускает только «pocket», «chattts» или «silero».";
 
         if (supplied.TryGetValue("voiceReferencePath", out var referencePath) &&
             referencePath.ValueKind != JsonValueKind.String)

@@ -30,6 +30,7 @@ export const VOICE_EN: Record<string, string> = {
   "TTS-движок": "TTS engine",
   "pocket — клонирование голоса": "pocket — voice cloning",
   "chattts — реалистичный голос, без клонирования": "chattts — realistic voice, no cloning",
+  "silero — русский голос, с ударениями": "silero — Russian voice, with stress marks",
   "Смена движка вступает в силу после перезапуска": "Engine change takes effect after restart",
   "DSP-обработка озвучки (ChatTTS)": "Speech DSP (ChatTTS)",
   "EQ + мягкая компрессия + нормализация": "EQ + gentle compression + normalization",

@@ -152,6 +152,11 @@ ZERE.Voice/ChatTts/voices/
 # в git они не попадают (удалить их можно `uninstall.ps1 -RemoveAssets`).
 ZERE.Voice/Piper/
 
+# Silero TTS (русский движок): модель v5_5_ru.pt закрыта общим правилом *.pt
+# выше, а вывод синтеза и промежуточные WAV — рантайм-данные.
+ZERE.Voice/Silero/output_*.wav
+ZERE.Voice/Silero/processed_*.wav
+
 # Если есть папка с бинарными моделями ML (Whisper и т.д.)
 ZERE.Voice/Models/
 ZERE.AI/Models/

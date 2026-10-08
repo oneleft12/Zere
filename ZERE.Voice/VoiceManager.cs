@@ -2,6 +2,7 @@ using ZERE.Voice.Audio;
 using ZERE.Voice.ChatTts;
 using ZERE.Voice.Pocket;
 using ZERE.Voice.Sherpa;
+using ZERE.Voice.Silero;
 using ZERE.Voice.WakeWord;
 using ZERE.Voice.Whisper;
 
@@ -14,6 +15,7 @@ public class VoiceManager : IDisposable
     private readonly WhisperService _whisper = new();
     private readonly GigaAmService _gigaam = new();
     private readonly ChatTtsService _chattts = new();
+    private readonly SileroTtsService _silero = new();
     private readonly PocketTtsService _pocket = new();
     private readonly VoiceConfig _config = new();
     private readonly SemaphoreSlim _recordGate = new(1, 1);
@@ -24,6 +26,7 @@ public class VoiceManager : IDisposable
     private string _voiceReferencePath = "";
     private string _sttEngine = "gigaam";
     private bool _chatttsInitialized;
+    private bool _sileroInitialized;
 
     /// <summary>
     /// Профили голоса ChatTTS под стиль личности. У ChatTTS нет именованных
@@ -39,20 +42,48 @@ public class VoiceManager : IDisposable
         ["Casual"] = "zere-casual"
     };
 
+    /// <summary>
+    /// Голоса Silero под тот же стиль личности (у Silero голоса именованные,
+    /// поэтому это реальные голоса движка, а не зёрна).
+    /// </summary>
+    private readonly Dictionary<string, string> _sileroVoices = new()
+    {
+        ["Friendly"] = "baya",
+        ["Formal"] = "xenia",
+        ["Sarcastic"] = "aidar",
+        ["Professional"] = "eugene",
+        ["Casual"] = "kseniya"
+    };
+
+    /// <summary>Выбран русский движок (Silero) вместо ChatTTS.</summary>
+    private bool UsesSilero =>
+        _ttsEngine.Equals("silero", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Готов ли активный сайдкар-движок (PocketTTS проверяется отдельно).</summary>
+    private bool ActiveSidecarLoaded => UsesSilero ? _silero.IsLoaded : _chattts.IsLoaded;
+
     public bool IsVoiceAvailable => ActiveStt.IsInstalled();
 
     /// <summary>
     /// Доступен ли TTS. После инициализации состояние перепроверяется дёшево
-    /// (два File.Exists у ChatTtsService): uv/сайдкар могут появиться при
-    /// работающем ZERE, и тогда озвучка работает без перезапуска. До Initialize
-    /// (режим `--panel`) состояние не переспрашивается — панель обязана честно
-    /// отдавать 503, пока голос не инициализирован.
+    /// (два File.Exists у сервиса): uv/сайдкар могут появиться при работающем
+    /// ZERE, и тогда озвучка работает без перезапуска. До Initialize (режим
+    /// `--panel`) состояние не переспрашивается — панель обязана честно отдавать
+    /// 503, пока голос не инициализирован.
     /// </summary>
     public bool IsTtsAvailable =>
-        _pocket.IsAvailable || (_chatttsInitialized ? _chattts.RefreshAvailability() : _chattts.IsLoaded);
+        _pocket.IsAvailable ||
+        (UsesSilero
+            ? (_sileroInitialized ? _silero.RefreshAvailability() : _silero.IsLoaded)
+            : (_chatttsInitialized ? _chattts.RefreshAvailability() : _chattts.IsLoaded));
 
     /// <summary>Причина недоступности TTS для панели (пусто, если доступен).</summary>
-    public string TtsUnavailableReason => _chattts.UnavailableReason;
+    public string TtsUnavailableReason =>
+        UsesSilero ? _silero.UnavailableReason : _chattts.UnavailableReason;
+
+    /// <summary>Умеет ли активный движок менять темп речи (Silero v5 — нет).</summary>
+    public bool SupportsSpeechSpeed => !UsesSilero;
+
     public VoiceConfig Config => _config;
 
     /// <summary>
@@ -92,7 +123,8 @@ public class VoiceManager : IDisposable
     /// <summary>
     /// Настройка движка озвучки ДО Initialize.
     /// engine: "pocket" — клонирование голоса (xVibePocketTTS, потоковый PCM),
-    /// "chattts" — нейросетевой синтез ChatTTS (попредложенно, замена Piper).
+    /// "chattts" — нейросетевой синтез ChatTTS (китайский/английский),
+    /// "silero" — русский нейросетевой синтез Silero v5 (ударения и омографы).
     /// voiceReferencePath — WAV с образцом голоса пользователя (пусто = встроенный).
     /// </summary>
     public void ConfigureTts(string engine, string voiceReferencePath)
@@ -103,28 +135,46 @@ public class VoiceManager : IDisposable
 
     public bool Initialize(string? personalityStyle = null)
     {
-        var voiceName = _config.ChatTtsVoice;
+        bool ttsReady;
 
-        if (personalityStyle != null &&
-            _personalityVoices.TryGetValue(personalityStyle, out var styleVoice))
+        if (UsesSilero)
         {
-            voiceName = styleVoice;
-        }
+            // У Silero голоса именованные: профиль личности → голос движка.
+            var sileroVoice = personalityStyle != null &&
+                              _sileroVoices.TryGetValue(personalityStyle, out var styleVoice)
+                ? styleVoice
+                : "baya";
 
-        // Параметры инференса (темп речи, пауза после предложения) — до
-        // Initialize; у ChatTTS они уходят в каждый запрос, перезапуск не нужен.
-        _chattts.SetInferenceParams(_config.SpeechSpeed, _config.SentenceSilence);
+            // Темп у Silero v5 не настраивается — уходит только пауза.
+            _silero.SetInferenceParams(_config.SpeechSpeed, _config.SentenceSilence);
 
-        var ttsReady = _chattts.Initialize(voiceName);
-        _chatttsInitialized = true;
+            ttsReady = _silero.Initialize(sileroVoice);
+            _sileroInitialized = true;
 
-        if (ttsReady)
-        {
-            Console.WriteLine($"[Voice] TTS готов. Голос: {_chattts.CurrentVoice}");
+            Console.WriteLine(ttsReady
+                ? $"[Voice] TTS готов (silero). Голос: {_silero.CurrentVoice}"
+                : "[Voice] TTS недоступен. Только текстовый режим.");
         }
         else
         {
-            Console.WriteLine("[Voice] TTS недоступен. Только текстовый режим.");
+            var voiceName = _config.ChatTtsVoice;
+
+            if (personalityStyle != null &&
+                _personalityVoices.TryGetValue(personalityStyle, out var styleVoice))
+            {
+                voiceName = styleVoice;
+            }
+
+            // Параметры инференса (темп речи, пауза после предложения) — до
+            // Initialize; у ChatTTS они уходят в каждый запрос, перезапуск не нужен.
+            _chattts.SetInferenceParams(_config.SpeechSpeed, _config.SentenceSilence);
+
+            ttsReady = _chattts.Initialize(voiceName);
+            _chatttsInitialized = true;
+
+            Console.WriteLine(ttsReady
+                ? $"[Voice] TTS готов (chattts). Голос: {_chattts.CurrentVoice}"
+                : "[Voice] TTS недоступен. Только текстовый режим.");
         }
 
         // Этап 2: клонирование голоса (PocketTTS); при сбое — откат на ChatTTS.
@@ -145,11 +195,17 @@ public class VoiceManager : IDisposable
 
     public void SetPersonalityVoice(string style)
     {
-        if (_personalityVoices.TryGetValue(style, out var voice))
-        {
+        var voices = UsesSilero ? _sileroVoices : _personalityVoices;
+
+        if (!voices.TryGetValue(style, out var voice))
+            return;
+
+        if (UsesSilero)
+            _silero.SetVoice(voice);
+        else
             _chattts.SetVoice(voice);
-            Console.WriteLine($"[Voice] Голос изменён на: {voice} (стиль: {style})");
-        }
+
+        Console.WriteLine($"[Voice] Голос изменён на: {voice} (стиль: {style})");
     }
 
     /// <summary>
@@ -256,7 +312,7 @@ public class VoiceManager : IDisposable
 
     public async Task SpeakAsync(string text)
     {
-        if (!_pocket.IsAvailable && !_chattts.IsLoaded)
+        if (!_pocket.IsAvailable && !ActiveSidecarLoaded)
         {
             Console.WriteLine($"[ZERE] {text}");
             return;
@@ -277,7 +333,9 @@ public class VoiceManager : IDisposable
         {
             spoken = _pocket.IsAvailable
                 ? await SpeakPocketAsync(text, ct)
-                : await SpeakChatTtsAsync(text, ct);
+                : UsesSilero
+                    ? await SpeakSileroAsync(text, ct)
+                    : await SpeakChatTtsAsync(text, ct);
         }
         catch (OperationCanceledException)
         {
@@ -297,16 +355,33 @@ public class VoiceManager : IDisposable
     }
 
     /// <summary>
-    /// Попредложенное воспроизведение через ChatTTS: первое предложение играет,
-    /// пока следующее ещё синтезируется. Здесь же применяется DSP-обработка.
+    /// Попредложенное воспроизведение через ChatTTS (китайский/английский).
     /// </summary>
-    private async Task<int> SpeakChatTtsAsync(string text, CancellationToken ct)
+    private Task<int> SpeakChatTtsAsync(string text, CancellationToken ct) =>
+        SpeakSentencesAsync(text, ct, "chattts", _chattts.SynthesizeStreamAsync(text, ct));
+
+    /// <summary>
+    /// Попредложенное воспроизведение через Silero (русский голос): контракт
+    /// тот же, что у ChatTTS, — отличается только сайдкар.
+    /// </summary>
+    private Task<int> SpeakSileroAsync(string text, CancellationToken ct) =>
+        SpeakSentencesAsync(text, ct, "silero", _silero.SynthesizeStreamAsync(text, ct));
+
+    /// <summary>
+    /// Попредложенное воспроизведение через сайдкар-движок: первое предложение
+    /// играет, пока следующее ещё синтезируется. Здесь же применяется DSP-обработка.
+    /// </summary>
+    private async Task<int> SpeakSentencesAsync(
+        string text,
+        CancellationToken ct,
+        string engine,
+        IAsyncEnumerable<string> files)
     {
         var spoken = 0;
         var firstAudioLogged = false;
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
-        await foreach (var wavFile in _chattts.SynthesizeStreamAsync(text, ct))
+        await foreach (var wavFile in files)
         {
             if (ct.IsCancellationRequested)
             {
@@ -317,7 +392,7 @@ public class VoiceManager : IDisposable
             string fileToPlay = wavFile;
 
             // Профессиональная DSP-обработка: ресемплинг под устройство, EQ,
-            // компрессия, нормализация. Ресемплинг здесь обязателен: ChatTTS
+            // компрессия, нормализация. Ресемплинг здесь обязателен: движок
             // отдаёт 24000 Гц, и если отдать их как есть, NAudio/WASAPI будет
             // конвертировать сам — своим слабым ресемплером, что и даёт
             // «металлический» призвук на выходе.
@@ -329,7 +404,7 @@ public class VoiceManager : IDisposable
             if (!firstAudioLogged)
             {
                 firstAudioLogged = true;
-                Console.WriteLine($"[Perf] TTS first audio={sw.ElapsedMilliseconds} мс (chattts)");
+                Console.WriteLine($"[Perf] TTS first audio={sw.ElapsedMilliseconds} мс ({engine})");
             }
 
             await _player.PlayAsync(fileToPlay, _config.Volume);
@@ -390,11 +465,15 @@ public class VoiceManager : IDisposable
                 Console.WriteLine($"[Pocket] Сбой потока TTS: {ex.Message}");
                 _pocket.MarkUnavailableAndRecover();
 
-                if (_chattts.IsLoaded)
+                if (ActiveSidecarLoaded)
                 {
-                    Console.WriteLine("[Voice] Откат на ChatTTS для этой реплики.");
+                    // Откат идёт на активный сайдкар-движок (ChatTTS или Silero).
+                    Console.WriteLine(
+                        $"[Voice] Откат на {(UsesSilero ? "Silero" : "ChatTTS")} для этой реплики.");
                     player.Stop();
-                    return await SpeakChatTtsAsync(text, ct);
+                    return UsesSilero
+                        ? await SpeakSileroAsync(text, ct)
+                        : await SpeakChatTtsAsync(text, ct);
                 }
 
                 return received > 0 ? 1 : 0;
@@ -699,6 +778,7 @@ public class VoiceManager : IDisposable
         _activePlayer?.Dispose();
         _pocket.Dispose();
         _chattts.Dispose();
+        _silero.Dispose();
         _recorder.Dispose();
         _player.Dispose();
         _wakeWordDetector?.Dispose();

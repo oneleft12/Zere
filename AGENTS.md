@@ -21,7 +21,7 @@
 | **ZERE.AI** | Клиент Ollama (HTTP) для генерации ответов |
 | **ZERE.Memory** | SQLite-память: воспоминания + история разговоров |
 | **ZERE.Tools** | Инструменты: приложения, файлы, игры, Windows, система |
-| **ZERE.Voice** | Голосовой ввод (GigaAM-v3, откат на Whisper) и вывод (ChatTTS / PocketTTS-клонирование) |
+| **ZERE.Voice** | Голосовой ввод (GigaAM-v3, откат на Whisper) и вывод (Silero — русский, ChatTTS, PocketTTS-клонирование) |
 | **ZERE.Speaker** | C#-хелпер озвучки: DSP + вывод звука (NAudio/WASAPI) для Python-редакции |
 
 ---
@@ -70,7 +70,7 @@
 - Подробности: `docs/DRAWING.md`
 
 ### Voice (`ZERE.Voice/`)
-- **VoiceManager** — оркестратор STT (роутинг `sttEngine`: `gigaam` — GigaAM-v3 основной, автоматический откат на `whisper`) + TTS (движок выбирается: PocketTTS с клонированием, откат на ChatTTS)
+- **VoiceManager** — оркестратор STT (роутинг `sttEngine`: `gigaam` — GigaAM-v3 основной, автоматический откат на `whisper`) + TTS (движок выбирается ключом `ttsEngine`: `silero` — русский, `chattts` — китайский/английский, `pocket` — клонирование голоса в C#)
 - **VoiceBootstrap (Python, `voice_bootstrap.py`)** — политика старта голоса: доступность TTS поднимается всегда, в том числе при `voiceEnabled=false` (иначе панель на «Озвучить» отвечала 503 «Синтез речи недоступен: ChatTTS доступен…»), предзагрузка STT (качает модель) — только при включённом голосе; C#-паритет — `ZERE.App/Program.cs`
 - **Озвучка ответов панели** — `VoiceManager.speak_background()` (Python) и `SpeakAsync` в `Task.Run` (C#): ответ чата читается голосом при `voiceEnabled=true`, новая реплика обрывает предыдущую, выключение голоса в панели гасит речь сразу
 - **ISttService** — общий контракт STT-движков (`IsInstalled`/`Preload`/`TranscribeAsync`), за ним скрыт выбор активного движка
@@ -84,6 +84,8 @@
 - **WhisperService** — распознавание речи (откатный STT + wake word — детектор просыпания намеренно остаётся на Whisper)
 - **ChatTtsService (C#)** — синтез речи ChatTTS (нейросетевой TTS, замена Piper): ленивая загрузка, тяжёлая часть — в Python-сайдкаре `tools/zere_chattts_server.py` (HTTP), попредложенное стримирование. Подробности: `docs/TTS_CHATTTS.md`
 - **ChatTtsService (Python, `zere/voice/chattts/`)** — адаптер под прежний контракт PiperService (сам Piper заменён на ChatTTS): `is_loaded`/`initialize`/`speak`/`set_voice`/`set_inference_params`/`get_available_voices`/`close` + `ChatTTSManager` с ленивой загрузкой модели; профиль голоса — детерминированное зерно (crc32 имени)
+- **SileroTtsService (C#, `ZERE.Voice/Silero/`)** — русский синтез Silero v5_5_ru через сайдкар `tools/zere_silero_server.py` (uv: torch + soundfile, порт 8473, PCM s16le 24 кГц): тот же контракт, что у ChatTtsService; темп речи не поддерживается. Подробности: `docs/TTS_SILERO.md`
+- **SileroTtsService (Python, `zere/voice/silero/`)** — тот же контракт: `SileroManager` (ленивая загрузка `v5_5_ru.pt` из `ZERE.Voice/Silero`, голоса `baya`/`xenia`/`kseniya`/`aidar`/`eugene`, чужой профиль голоса → дефолт) + `SileroTtsService`; движок выбирается ключом `ttsEngine: chattts | silero`
 - **PocketTtsService** — клиент к серверу xVibePocketTTS: клонирование голоса, PCM-поток, первый звук через ~150–700 мс
 - **SpeechText** — чистка текста от TTS-мусора + разбивка на предложения
 - **VoiceConfig** — конфигурация голоса (`sttEngine` и др.)
@@ -92,6 +94,7 @@
 - **krita_plugin/** — плагин ZERE для Krita (PyKrita): локальный сервер и рисование родным API (`createVectorLayer` + `addShapesFromSvg`, `Node.paintLine`); ставится в пользовательскую `pykrita` установщиком `zere/tools/drawing/krita_install.py`
 - **zere_tts_server.py** — HTTP-сервер TTS (`/health`, потоковый `/tts`), поднимается PocketTtsService автоматически
 - **zere_chattts_server.py** — HTTP-сервер ChatTTS (`/health`, потоковый `/tts` → PCM s16le 24 кГц), поднимается C#-ChatTtsService через `tools/uv.exe` с `--python 3.12`
+- **zere_silero_server.py** — HTTP-сервер Silero v5 (русский голос: `/health`, `/voices`, потоковый `/tts` → PCM s16le 24 кГц), поднимается C#-SileroTtsService через `tools/uv.exe` с `--python 3.12 --with torch --with soundfile`
 - **uv.exe**, **xVibePocketTTS/** — менеджер Python и репозиторий движка (gitignored, ставятся отдельно)
 
 ---
@@ -304,7 +307,7 @@ Zere/
 │       ├── ProcessManager.cs
 │       └── PowerController.cs
 ├── ZERE.Voice/                   # Голос
-│   ├── VoiceManager.cs           # Оркестратор STT (gigaam→whisper) + TTS (pocket→chattts)
+│   ├── VoiceManager.cs           # Оркестратор STT (gigaam→whisper) + TTS (silero/chattts/pocket)
 │   ├── VoiceConfig.cs            # Конфигурация голоса (sttEngine, ttsEngine, ...)
 │   ├── ISttService.cs            # Контракт STT-движков (распознавание)
 │   ├── Sherpa/
@@ -313,6 +316,8 @@ Zere/
 │   │   └── WhisperService.cs     # STT-откат + wake word (speech-to-text)
 │   ├── ChatTts/
 │   │   └── ChatTtsService.cs     # TTS ChatTTS через сайдкар (попредложенное стримирование)
+│   ├── Silero/
+│   │   └── SileroTtsService.cs   # Русский TTS Silero v5 через сайдкар (ленивая загрузка модели)
 │   ├── Pocket/
 │   │   └── PocketTtsService.cs   # TTS с клонированием голоса (HTTP → xVibePocketTTS)
 │   ├── Text/
@@ -327,7 +332,8 @@ Zere/
 │   └── Program.cs                # режим host (JSON-строки): speak/stop/ping/quit
 ├── tools/                        # TTS-инструментарий
 │   ├── zere_tts_server.py        # HTTP-сервер клонирования (uv.exe, xVibePocketTTS — gitignored)
-│   └── zere_chattts_server.py    # HTTP-сервер ChatTTS (uv.exe, PCM s16le 24 кГц)
+│   ├── zere_chattts_server.py    # HTTP-сервер ChatTTS (uv.exe, PCM s16le 24 кГц)
+│   └── zere_silero_server.py     # HTTP-сервер Silero v5, русский голос (uv.exe: torch + soundfile)
 ├── panel/                        # Web-панель (SPA, Vite + vanilla TS)
 │   ├── src/                      # main/shell/router/ui/i18n + 13 экранов (screens/)
 │   │   └── commands.ts           # каталог команд ZERE (панель на вкладке «Чат»)
@@ -342,13 +348,14 @@ Zere/
 │   ├── Zere.iss                  # Inno Setup: готовый Setup.exe
 │   └── build-setup.ps1           # Сборка Setup.exe (git archive + ISCC)
 ├── tests/
-│   ├── test_panel_api.py         # Контрактные тесты панели (120, по OpenAPI)
+│   ├── test_panel_api.py         # Контрактные тесты панели (123, по OpenAPI)
 │   ├── test_installer.py         # Тесты установщика (BOM, CRLF, SHA-256, связность)
 │   ├── test_stt_engine.py        # Тесты STT GigaAM (константы, роутинг, живое распознавание)
 │   ├── test_audio_device.py      # Тесты звуковых устройств (WASAPI+auto_convert, откат, регрессия -9997, живой микрофон)
 │   ├── test_voice_mode.py        # Тесты голосового режима (сбой записи/озвучки не убивает цикл)
 │   ├── test_wake_word.py         # Тесты слова-триггера «зере» (варианты имени, ложные срабатывания)
 │   ├── test_chattts.py           # Тесты ChatTTS (ленивая загрузка, профили голоса, [speed_N], контракт сайдкара)
+│   ├── test_silero.py            # Тесты Silero v5 (русский голос: ленивая загрузка модели, голоса, маршрутизация, сайдкар)
 │   ├── test_db_compat.py         # Тесты совместимости базы (старая колонка JarvisResponse, переименование jarvis.db)
 │   ├── test_csharp_speaker.py    # Тесты C#-озвучки (протокол хелпера, stop, откат на Python; без устройств)
 │   ├── fake_speaker.py           # Фейковый C#-хелпер для тестов озвучки (звук не играет)
@@ -361,7 +368,7 @@ Zere/
 │   ├── fake_http.py              # Фейковый requests.Session для тестов ИИ (без сети)
 │   ├── check_ai_contract_external.py  # /api/ai* против запущенной панели (C# и Python)
 │   └── e2e_server.py             # Раннер панели с фейками для E2E
-├── docs/                         # Планы, отчёты, openapi.yaml (UPDATE.md, AI_PROVIDERS.md)
+├── docs/                         # Планы, отчёты, openapi.yaml (UPDATE.md, AI_PROVIDERS.md, TTS_SILERO.md)
 ├── logs/                         # Логи
 └── backups/                      # Бэкапы версий
 ```

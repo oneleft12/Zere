@@ -1,5 +1,8 @@
 # TTS на ChatTTS (2Noise/ChatTTS)
 
+> Для русского языка в ZERE есть второй движок — Silero v5 (`ttsEngine: silero`):
+> русские ударения и омографы, на CPU в 10–20 раз быстрее. См. [docs/TTS_SILERO.md](TTS_SILERO.md).
+
 **Статус:** текущий движок синтеза речи в ZERE; заменил Piper.
 **Код:** `zere/voice/chattts/chattts_manager.py`, `zere/voice/chattts/chattts_service.py` (Python-редакция),
 `ZERE.Voice/ChatTts/ChatTtsService.cs` (C#-редакция), сайдкар `tools/zere_chattts_server.py`.

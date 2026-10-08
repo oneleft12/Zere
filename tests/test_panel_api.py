@@ -884,6 +884,30 @@ def test_config_post_persists_atomically() -> None:
         assert reloaded.model == "qwen3.5:4b"
 
 
+def test_tts_engine_accepts_silero_in_voice_and_config() -> None:
+    """Русский движок Silero — легальное значение ttsEngine (панель + конфиг)."""
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "POST", "/api/voice", body={"ttsEngine": "silero"})
+        assert status == 200, raw
+        applied = json.loads(raw.decode("utf-8"))
+        assert applied["ttsEngine"] == "silero"
+        assert applied["appliedOnRestart"] is True
+
+        # Единая схема конфига: тот же движок проходит и через POST /api/config
+        _, raw_cfg, _ = call(panel, "GET", "/api/config")
+        payload = json.loads(raw_cfg.decode("utf-8"))
+        payload["ttsEngine"] = "silero"
+
+        status, raw_post, _ = call(panel, "POST", "/api/config", body=payload)
+        assert status == 200, raw_post
+        assert json.loads(raw_post.decode("utf-8"))["ttsEngine"] == "silero"
+
+        # Незнакомый движок по-прежнему отклоняется, а в тексте есть список
+        status, raw_bad, _ = call(panel, "POST", "/api/voice", body={"ttsEngine": "piper"})
+        assert status == 400, raw_bad
+        assert "silero" in error_payload(raw_bad)["message"]
+
+
 def test_config_post_rejects_unknown_key() -> None:
     with running_panel() as (panel, _):
         _, raw, _ = call(panel, "GET", "/api/config")

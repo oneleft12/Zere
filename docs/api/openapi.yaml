@@ -1336,7 +1336,7 @@ components:
           properties:
             engine:
               type: string
-              enum: [pocket, chattts]
+              enum: [pocket, chattts, silero]
             status:
               type: string
               enum: [configured]
@@ -1399,7 +1399,7 @@ components:
           maximum: 120
         ttsEngine:
           type: string
-          enum: [pocket, chattts]
+          enum: [pocket, chattts, silero]
         sttEngine:
           type: string
           enum: [gigaam, whisper]
@@ -1856,7 +1856,7 @@ components:
           maximum: 1
         ttsEngine:
           type: string
-          enum: [pocket, chattts]
+          enum: [pocket, chattts, silero]
         voiceReferencePath:
           type: string
         audioProcessing:
@@ -1887,7 +1887,7 @@ components:
           maximum: 1
         ttsEngine:
           type: string
-          enum: [pocket, chattts]
+          enum: [pocket, chattts, silero]
         voiceReferencePath:
           type: string
         audioProcessing:
@@ -1915,7 +1915,7 @@ components:
           maximum: 1
         ttsEngine:
           type: string
-          enum: [pocket, chattts]
+          enum: [pocket, chattts, silero]
         voiceReferencePath:
           type: string
         audioProcessing:
