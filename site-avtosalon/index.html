@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>АвтоПремиум — Продажа автомобилей с пробегом и новых</title>
+  <meta name="description" content="Автосалон АвтоПремиум: новые автомобили и с пробегом. Trade-in, автокредит, гарантия юридической чистоты.">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="header">
+    <div class="container header__inner">
+      <a href="#" class="logo">Авто<span>Премиум</span></a>
+      <nav class="nav" id="nav">
+        <a href="#catalog">Каталог</a>
+        <a href="#advantages">Преимущества</a>
+        <a href="#credit">Кредит</a>
+        <a href="#reviews">Отзывы</a>
+        <a href="#contacts">Контакты</a>
+      </nav>
+      <a href="tel:+74951234567" class="header__phone">+7 (495) 123-45-67</a>
+      <button class="burger" id="burger" aria-label="Меню">☰</button>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="container hero__inner">
+      <h1>Найдите автомобиль <br>вашей мечты</h1>
+      <p>Более 200 автомобилей в наличии. Гарантия юридической чистоты, проверка по 78 пунктам, выдадим в день обращения.</p>
+      <div class="hero__actions">
+        <a href="#catalog" class="btn btn--primary">Смотреть каталог</a>
+        <a href="#credit" class="btn btn--ghost">Рассчитать кредит</a>
+      </div>
+      <div class="hero__stats">
+        <div class="stat"><b>12 лет</b><span>на рынке</span></div>
+        <div class="stat"><b>15 000+</b><span>довольных клиентов</span></div>
+        <div class="stat"><b>200+</b><span>авто в наличии</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="catalog" id="catalog">
+    <div class="container">
+      <h2>Каталог автомобилей</h2>
+      <div class="filters">
+        <button class="filter active" data-filter="all">Все</button>
+        <button class="filter" data-filter="sedan">Седан</button>
+        <button class="filter" data-filter="suv">Кроссовер</button>
+        <button class="filter" data-filter="hatchback">Хэтчбек</button>
+        <button class="filter" data-filter="premium">Премиум</button>
+      </div>
+      <div class="cards" id="cards"></div>
+    </div>
+  </section>
+
+  <section class="advantages" id="advantages">
+    <div class="container">
+      <h2>Почему выбирают нас</h2>
+      <div class="adv-grid">
+        <div class="adv">
+          <div class="adv__icon">🛡</div>
+          <h3>Юридическая чистота</h3>
+          <p>Каждый автомобиль проверен по 78 пунктам: залоги, ДТП, ограничения ГИБДД.</p>
+        </div>
+        <div class="adv">
+          <div class="adv__icon">🔄</div>
+          <h3>Trade-in за 1 час</h3>
+          <p>Оценим вашу машину по рыночной цене и зачтём в стоимость нового авто.</p>
+        </div>
+        <div class="adv">
+          <div class="adv__icon">🏦</div>
+          <h3>Кредит от 0,01%</h3>
+          <p>Одобрение от 15 минут в 12 банках-партнёрах. Без первоначального взноса.</p>
+        </div>
+        <div class="adv">
+          <div class="adv__icon">✅</div>
+          <h3>Гарантия 2 года</h3>
+          <p>Расширенная гарантия на силовую агрегатную и электронику при покупке.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="credit" id="credit">
+    <div class="container credit__inner">
+      <h2>Кредитный калькулятор</h2>
+      <p class="credit__sub">Рассчитайте ежемесячный платёж онлайн — без визита в салон.</p>
+      <div class="calc">
+        <div class="calc__field">
+          <label>Стоимость автомобиля, ₽</label>
+          <input type="range" id="price" min="500000" max="8000000" step="50000" value="2500000">
+          <output id="priceOut">2 500 000 ₽</output>
+        </div>
+        <div class="calc__field">
+          <label>Первоначальный взнос, ₽</label>
+          <input type="range" id="down" min="0" max="3000000" step="50000" value="500000">
+          <output id="downOut">500 000 ₽</output>
+        </div>
+        <div class="calc__field">
+          <label>Срок кредита, месяцев</label>
+          <input type="range" id="months" min="12" max="84" step="6" value="60">
+          <output id="monthsOut">60 мес.</output>
+        </div>
+        <div class="calc__result">
+          <span>Ежемесячный платёж</span>
+          <b id="payment">— ₽</b>
+          <small>Ставка от 0,01% годовых*</small>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="reviews" id="reviews">
+    <div class="container">
+      <h2>Отзывы клиентов</h2>
+      <div class="review-grid">
+        <blockquote class="review">
+          <p>«Купил Camry, всё оформили за 2 часа. Проверили машину при мне, показали отчёт. Рекомендую!»</p>
+          <cite>— Алексей, Москва</cite>
+        </blockquote>
+        <blockquote class="review">
+          <p>«Сдала свою Kia в trade-in, доплатила и уехала на новом кроссовере. Цена устроила.»</p>
+          <cite>— Марина, Химки</cite>
+        </blockquote>
+        <blockquote class="review">
+          <p>«Кредит одобрили за 20 минут, ставка вышла ниже, чем в моём банке. Спасибо менеджеру Ивану.»</p>
+          <cite>— Дмитрий, Одинцово</cite>
+        </blockquote>
+      </div>
+    </div>
+  </section>
+
+  <section class="contact" id="contacts">
+    <div class="container contact__inner">
+      <h2>Запишитесь на просмотр</h2>
+      <form id="form" class="form">
+        <input type="text" name="name" placeholder="Ваше имя" required>
+        <input type="tel" name="phone" placeholder="Телефон" required>
+        <select name="car" id="carSelect">
+          <option value="">Выберите автомобиль</option>
+        </select>
+        <button type="submit" class="btn btn--primary">Записаться</button>
+        <p class="form__note">Нажимая кнопку, вы соглашаетесь с политикой обработки персональных данных.</p>
+        <p class="form__success" id="success" hidden>✅ Заявка принята! Мы перезвоним в течение 15 минут.</p>
+      </form>
+      <div class="contact__info">
+        <p><b>Адрес:</b> г. Москва, Варшавское ш., 128</p>
+        <p><b>Телефон:</b> +7 (495) 123-45-67</p>
+        <p><b>Часы работы:</b> ежедневно 09:00 – 21:00</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer__inner">
+      <p>© 2026 АвтоПремиум. Все права защищены.</p>
+      <p>Информация на сайте не является публичной офертой.</p>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
