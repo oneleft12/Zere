@@ -187,6 +187,10 @@ config/panel.token
 config/ai.json
 config/ai.json.tmp
 
+# Настройки роутера интентов Jev (может содержать ключ OpenRouter;
+# см. docs/JEV_ROUTER.md)
+config/router.json
+
 # Артефакты установщика (генерируются)
 /ZereInstaller.exe
 /ZERE.bat
@@ -204,3 +208,12 @@ panel/playwright-report/
 
 # Готовые рисунки ZERE (открываются в Paint файлом)
 drawings/
+
+# Данные для обучения wake word (живые записи, синтетика, шумы):
+# сами записи голоса и чужие корпуса в репозиторий не попадают.
+# Модель — наоборот, коммитится: ZERE.Voice/WakeWord/models/
+data/wakeword/
+# Архив MUSAN (~11 ГБ, качается только по флагу --download musan) и
+# недокачанные файлы: обрыв загрузки не должен попадать в индекс.
+data/wakeword/musan.tar.gz
+*.part
