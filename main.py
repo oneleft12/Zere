@@ -27,6 +27,7 @@ from zere.memory.database.memory_repository import MemoryRepository
 from zere.tools.applications.application_launcher import ApplicationLauncher
 from zere.tools.windows.process_service import ProcessService
 from zere.tools.windows.safe_action_manager import SafeActionManager
+from zere.voice.voice_bootstrap import bootstrap_voice
 from zere.voice.voice_manager import VoiceManager
 
 
@@ -136,16 +137,24 @@ def main() -> None:
     if active_personality is not None:
         print(f"[Личность] {active_personality.name} | Стиль: {active_personality.style}\n")
 
-    if config.voice_enabled:
-        voice_manager.initialize(str(active_personality.style) if active_personality else None)
-        print("[Голос] Режим: текст + голос")
-
+    # TTS поднимаем всегда, в том числе при выключенном голосовом выводе:
+    # панель тестирует синтез («Озвучить» на экране «Голос»), а initialize()
+    # только проверяет окружение (веса грузятся при первом синтезе).
+    # Предзагрузка STT — признак включённого голоса: она качает модель.
+    bootstrap_voice(
+        voice_manager,
+        voice_enabled=bool(config.voice_enabled),
+        personality_style=str(active_personality.style) if active_personality else None,
         # Предзагрузка STT в фоне (ROADMAP 1.3): не блокируем старт;
         # для GigaAM здесь же качается модель (~163 МБ), если её ещё нет
-        threading.Thread(
+        start_stt_preload=lambda: threading.Thread(
             target=voice_manager.preload_stt,
             daemon=True,
-        ).start()
+        ).start(),
+    )
+
+    if config.voice_enabled:
+        print("[Голос] Режим: текст + голос")
     else:
         print("[Голос] Отключен. Только текстовый режим.")
 

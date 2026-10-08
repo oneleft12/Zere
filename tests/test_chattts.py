@@ -780,7 +780,13 @@ def test_voice_manager_rechecks_tts_after_initialize() -> None:
 
 
 def test_voice_manager_without_initialize_stays_unavailable() -> None:
-    """Без initialize (режим --panel) 503 остаётся честным, даже если движок есть."""
+    """Без initialize (режим --panel) 503 остаётся честным и детерминированным.
+
+    Это контракт режима `--panel`: он не поднимает голос вообще, поэтому
+    контрактные тесты (`EXTERNAL` в tests/test_panel_api.py) опираются на 503.
+    В рабочем приложении до этой проверки не доходит: main.py поднимает TTS
+    через `bootstrap_voice` даже при `voiceEnabled=false` (см. ниже).
+    """
     VoiceManager = _import_voice_manager()
 
     with mock.patch.object(
@@ -793,6 +799,80 @@ def test_voice_manager_without_initialize_stays_unavailable() -> None:
         )
 
     manager.close()
+
+
+def test_bootstrap_voice_initializes_tts_when_output_disabled() -> None:
+    """Регрессия: `voiceEnabled=false` гасил кнопку «Озвучить» в панели.
+
+    Панель отвечала 503 «Синтез речи недоступен: ChatTTS доступен (ленивая
+    загрузка при первом синтезе)» — движок установлен, а тест синтеза не
+    работал. `initialize()` только проверяет окружение (модель не грузится),
+    поэтому вызывается всегда; STT-предзагрузка остаётся признаком
+    включённого голоса — она качает модель.
+    """
+    from zere.voice.voice_bootstrap import bootstrap_voice
+
+    class FakeVoiceManager:
+        def __init__(self) -> None:
+            self.initialized: list[str | None] = []
+
+        def initialize(self, personality_style: str | None = None) -> bool:
+            self.initialized.append(personality_style)
+            return True
+
+    preloads: list[int] = []
+    manager = FakeVoiceManager()
+
+    assert (
+        bootstrap_voice(
+            manager,
+            voice_enabled=False,
+            start_stt_preload=lambda: preloads.append(1),
+        )
+        is True
+    )
+    assert manager.initialized == [None], "TTS поднимается и при выключенном голосе"
+    assert preloads == [], "STT греем только при включённом голосовом вводе"
+
+    assert (
+        bootstrap_voice(
+            manager,
+            voice_enabled=True,
+            personality_style="Casual",
+            start_stt_preload=lambda: preloads.append(1),
+        )
+        is True
+    )
+    assert manager.initialized == [None, "Casual"], "стиль личности передаётся в TTS"
+    assert preloads == [1]
+
+
+def test_service_unavailable_reason_empty_when_engine_available() -> None:
+    """Регрессия: причина не должна противоречить сама себе.
+
+    `availability()` на успехе возвращает пояснение «ChatTTS доступен…», и оно
+    попадало в 503 («Синтез речи недоступен: ChatTTS доступен…»). Причина нужна
+    только при реальной проблеме — иначе пользователь видит «движок пропал».
+    """
+    with mock.patch.object(
+        ChatTTSManager,
+        "availability",
+        return_value=(True, "ChatTTS доступен (ленивая загрузка при первом синтезе)"),
+    ):
+        service = ChatTtsService()  # initialize() не вызывался
+
+        assert service.is_loaded is False
+        assert service.unavailable_reason == ""
+
+    # Реальная проблема (нет модулей) причину сохраняет — по ней видно, что делать.
+    with mock.patch.object(
+        ChatTTSManager,
+        "availability",
+        return_value=(False, "нет модулей: ChatTTS, torch (нужно: pip install ChatTTS)"),
+    ):
+        service = ChatTtsService()
+
+        assert "pip install" in service.unavailable_reason
 
 
 # ── Сайдкар для C#-редакции ─────────────────────────────────────────

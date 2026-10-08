@@ -184,23 +184,32 @@ if (activePersonality != null)
     Console.WriteLine($"[Личность] {activePersonality.Name} | Стиль: {activePersonality.Style}\n");
 }
 
+// Настройки голоса и доступность TTS применяем всегда, в том числе при
+// выключенном голосовом выводе: панель умеет тестировать синтез («Озвучить»
+// на экране «Голос»), а Initialize() только проверяет инструментарий — модель
+// грузится при первом синтезе. Иначе панель отвечала 503 «Синтез речи
+// недоступен: ChatTTS доступен (ленивая загрузка модели при первом синтезе)».
+// Паритет с Python: main.py → zere/voice/voice_bootstrap.py.
+
+// Громкость голосового вывода из config.json (voiceVolume).
+voiceManager.Config.Volume = (float)config.VoiceVolume;
+
+// DSP-обработка озвучки из config.json (audioProcessing, дефолт true).
+// Переключается на лету из панели — читается на каждое предложение.
+voiceManager.Config.AudioProcessing = config.AudioProcessing;
+
+voiceManager.ConfigureTts(config.TtsEngine, config.VoiceReferencePath);
+voiceManager.ConfigureStt(config.SttEngine);
+voiceManager.Initialize(activePersonality?.Style.ToString());
+
 if (config.VoiceEnabled)
 {
-    // Громкость голосового вывода из config.json (voiceVolume).
-    voiceManager.Config.Volume = (float)config.VoiceVolume;
-
-    // DSP-обработка озвучки из config.json (audioProcessing, дефолт true).
-    // Переключается на лету из панели — читается на каждое предложение.
-    voiceManager.Config.AudioProcessing = config.AudioProcessing;
-
-    voiceManager.ConfigureTts(config.TtsEngine, config.VoiceReferencePath);
-    voiceManager.ConfigureStt(config.SttEngine);
-    voiceManager.Initialize(activePersonality?.Style.ToString());
     Console.WriteLine("[Голос] Режим: текст + голос");
 
     // Этап 1 (анализ S3): предзагрузка STT в фоне — первая транскрибация
     // не должна ждать загрузку модели; для GigaAM здесь же скачивается
-    // модель (~163 МБ), если её ещё нет.
+    // модель (~163 МБ), если её ещё нет. Это признак включённого голоса:
+    // выключенный голосовой ввод не должен качать модель.
     _ = Task.Run(() => voiceManager.PreloadStt());
 }
 else

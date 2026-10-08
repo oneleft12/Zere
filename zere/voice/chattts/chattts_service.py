@@ -104,13 +104,19 @@ class ChatTtsService:
 
     @property
     def unavailable_reason(self) -> str:
-        """Почему движок недоступен (для панели/логов). Пусто, если доступен."""
+        """Почему движок недоступен (для панели/логов). Пусто, если доступен.
+
+        Причину отдаём только при реальной проблеме: `availability()` на успехе
+        возвращает пояснение «ChatTTS доступен…», и раньше оно попадало прямо в
+        503 («Синтез речи недоступен: ChatTTS доступен (ленивая загрузка…)») —
+        противоречие, которое читается как пропавший движок.
+        """
         if self.is_loaded:
             return ""
 
-        _available, reason = ChatTTSManager.availability()
+        available, reason = ChatTTSManager.availability()
 
-        return reason
+        return "" if available else reason
 
     def set_inference_params(
         self,
