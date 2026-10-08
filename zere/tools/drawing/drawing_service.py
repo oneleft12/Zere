@@ -31,6 +31,7 @@ from zere.tools.drawing.drawing_geometry import (
     DrawingCanvas,
     Stroke,
     circle,
+    document_canvas,
     ellipse,
     fit_strokes,
     line,
@@ -72,6 +73,11 @@ MAX_POINTS_PER_STROKE = 120
 # Минимальный холст, при котором рисование вообще имеет смысл.
 MIN_CANVAS_SIZE = 80
 
+# Срез снимка экрана не доходит до краёв области рисования: у самого края
+# рамка окна, а справа и снизу могут стоять полосы прокрутки.
+SAMPLE_MARGIN = 2
+SCROLLBAR_MARGIN = 18
+
 # ── Константы Win32 ───────────────────────────────────────────────
 
 INPUT_MOUSE = 0
@@ -84,6 +90,10 @@ MOUSEEVENTF_ABSOLUTE = 0x8000
 MOUSEEVENTF_VIRTUALDESK = 0x4000
 
 KEYEVENTF_KEYUP = 0x0002
+
+SRCCOPY = 0x00CC0020
+BI_RGB = 0
+DIB_RGB_COLORS = 0
 
 SW_RESTORE = 9
 GW_OWNER = 4
@@ -135,7 +145,33 @@ class _INPUT(ctypes.Structure):
     _fields_ = [("type", ctypes.c_uint32), ("u", _INPUTUNION)]
 
 
+class _BITMAPINFOHEADER(ctypes.Structure):
+    """BITMAPINFOHEADER. Ширины заданы явно — layout не должен зависеть от ОС."""
+
+    _fields_ = [
+        ("biSize", ctypes.c_uint32),
+        ("biWidth", ctypes.c_int32),
+        ("biHeight", ctypes.c_int32),
+        ("biPlanes", ctypes.c_uint16),
+        ("biBitCount", ctypes.c_uint16),
+        ("biCompression", ctypes.c_uint32),
+        ("biSizeImage", ctypes.c_uint32),
+        ("biXPelsPerMeter", ctypes.c_int32),
+        ("biYPelsPerMeter", ctypes.c_int32),
+        ("biClrUsed", ctypes.c_uint32),
+        ("biClrImportant", ctypes.c_uint32),
+    ]
+
+
+class _BITMAPINFO(ctypes.Structure):
+    _fields_ = [
+        ("bmiHeader", _BITMAPINFOHEADER),
+        ("bmiColors", ctypes.c_uint32 * 3),
+    ]
+
+
 _user32 = None
+_gdi32 = None
 
 
 def _as_hwnd(value: object) -> int:
@@ -214,6 +250,12 @@ def _get_user32():
     handle.GetSystemMetrics.argtypes = (ctypes.c_int,)
     handle.GetSystemMetrics.restype = ctypes.c_int
 
+    handle.GetDC.argtypes = (wintypes.HWND,)
+    handle.GetDC.restype = wintypes.HDC
+
+    handle.ReleaseDC.argtypes = (wintypes.HWND, wintypes.HDC)
+    handle.ReleaseDC.restype = ctypes.c_int
+
     # Эти две есть не во всех Windows: без них координаты на масштабированных
     # дисплеях виртуализируются и уезжают.
     for name in ("SetThreadDpiAwarenessContext", "SetProcessDPIAware"):
@@ -228,6 +270,138 @@ def _get_user32():
 
     _user32 = handle
     return handle
+
+
+def _get_gdi32():
+    """Дескриптор gdi32 для снимка экрана; создаётся лениво и только в Windows."""
+    global _gdi32
+
+    if _gdi32 is not None:
+        return _gdi32
+
+    if sys.platform != "win32":
+        raise RuntimeError("Снимок экрана поддерживается только в Windows.")
+
+    from ctypes import wintypes
+
+    handle = ctypes.WinDLL("gdi32", use_last_error=True)
+
+    handle.CreateCompatibleDC.argtypes = (wintypes.HDC,)
+    handle.CreateCompatibleDC.restype = wintypes.HDC
+
+    handle.CreateCompatibleBitmap.argtypes = (wintypes.HDC, ctypes.c_int, ctypes.c_int)
+    handle.CreateCompatibleBitmap.restype = wintypes.HBITMAP
+
+    handle.SelectObject.argtypes = (wintypes.HDC, wintypes.HGDIOBJ)
+    handle.SelectObject.restype = wintypes.HGDIOBJ
+
+    handle.BitBlt.argtypes = (
+        wintypes.HDC,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        wintypes.HDC,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_uint32,
+    )
+    handle.BitBlt.restype = wintypes.BOOL
+
+    handle.GetDIBits.argtypes = (
+        wintypes.HDC,
+        wintypes.HBITMAP,
+        ctypes.c_uint,
+        ctypes.c_uint,
+        ctypes.c_void_p,
+        ctypes.POINTER(_BITMAPINFO),
+        ctypes.c_uint,
+    )
+    handle.GetDIBits.restype = ctypes.c_int
+
+    handle.DeleteObject.argtypes = (wintypes.HGDIOBJ,)
+    handle.DeleteObject.restype = wintypes.BOOL
+
+    handle.DeleteDC.argtypes = (wintypes.HDC,)
+    handle.DeleteDC.restype = wintypes.BOOL
+
+    _gdi32 = handle
+    return handle
+
+
+def _screen_colors(x: int, y: int, width: int, height: int) -> List[Tuple[int, int, int]]:
+    """Цвета пикселей прямоугольника экрана: строка за строкой, сверху вниз.
+
+    Нужны, чтобы отличить документ от подложки вокруг него: Paint игнорирует
+    штрих, начатый вне изображения. Контексты освобождаются всегда — снимок
+    не должен течь даже при ошибке.
+    """
+    from ctypes import wintypes
+
+    if width <= 0 or height <= 0:
+        return []
+
+    user = _get_user32()
+    gdi = _get_gdi32()
+
+    screen = user.GetDC(None)
+    if not screen:
+        raise OSError("не удалось получить контекст экрана")
+
+    memory = gdi.CreateCompatibleDC(screen)
+    bitmap = gdi.CreateCompatibleBitmap(screen, width, height) if memory else None
+
+    try:
+        if not memory or not bitmap:
+            raise OSError("не удалось создать совместимый контекст снимка")
+
+        previous = gdi.SelectObject(memory, bitmap)
+
+        try:
+            if not gdi.BitBlt(memory, 0, 0, width, height, screen, x, y, SRCCOPY):
+                raise OSError("не удалось скопировать область экрана")
+
+            info = _BITMAPINFO()
+            info.bmiHeader.biSize = ctypes.sizeof(_BITMAPINFOHEADER)
+            info.bmiHeader.biWidth = width
+            # Отрицательная высота: строки идут сверху вниз, как на экране.
+            info.bmiHeader.biHeight = -height
+            info.bmiHeader.biPlanes = 1
+            info.bmiHeader.biBitCount = 32
+            info.bmiHeader.biCompression = BI_RGB
+
+            buffer = ctypes.create_string_buffer(width * height * 4)
+            copied = gdi.GetDIBits(
+                memory, bitmap, 0, height, buffer, ctypes.byref(info), DIB_RGB_COLORS
+            )
+
+            if not copied:
+                raise OSError("не удалось получить пиксели снимка")
+
+            raw = buffer.raw
+            # В DIB порядок байтов BGR(A) — приводим к привычному RGB.
+            return [
+                (raw[index + 2], raw[index + 1], raw[index])
+                for index in range(0, len(raw), 4)
+            ]
+        finally:
+            gdi.SelectObject(memory, previous)
+    finally:
+        if bitmap:
+            gdi.DeleteObject(bitmap)
+        if memory:
+            gdi.DeleteDC(memory)
+        user.ReleaseDC(None, screen)
+
+
+def _sample_row(x: int, y: int, width: int) -> Tuple[int, List[Tuple[int, int, int]]]:
+    """Срез снимка вдоль строки: (координата первого пикселя, цвета)."""
+    return x, _screen_colors(x, y, width, 1)
+
+
+def _sample_column(x: int, y: int, height: int) -> Tuple[int, List[Tuple[int, int, int]]]:
+    """Срез снимка вдоль столбца: (координата первого пикселя, цвета)."""
+    return y, _screen_colors(x, y, 1, height)
 
 
 def _enable_dpi_awareness() -> None:
@@ -310,18 +484,20 @@ def _absolute_coords(dx: int, dy: int) -> Tuple[int, int]:
     )
 
 
-def _move_to(x: int, y: int) -> None:
+def _move_to(x: int, y: int) -> bool:
     """Ставит курсор в точку двумя способами: SetCursorPos + абсолютный MOVE.
 
     Дублирование намеренное: SetCursorPos двигает курсор, а событие MOVE
     попадает в очередь ввода окна — то, что нужно приложению при перетаскивании.
+    False возвращается, если ОС отклонила событие: по нему видно, дошло ли
+    рисование до окна (иначе ZERE рапортует об успехе при пустом холсте).
     """
     handle = _get_user32()
     handle.SetCursorPos(int(x), int(y))
 
     normalized_x, normalized_y = _absolute_coords(int(x), int(y))
     flags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK
-    _mouse_event(flags, normalized_x, normalized_y)
+    return _mouse_event(flags, normalized_x, normalized_y)
 
 
 def _key_event(vk: int, key_up: bool = False) -> bool:
@@ -592,11 +768,16 @@ class DrawingService:
             time.sleep(PREPARE_DELAY)
 
             window_rect = _client_rect(hwnd)
-            canvas = DrawingCanvas.from_client(*window_rect, insets=spec.insets)
+            viewport = DrawingCanvas.from_client(*window_rect, insets=spec.insets)
 
             if command.type is DrawingCommandType.CLEAR_CANVAS:
                 self._clear_canvas()
                 return f"Очистил холст в {target_name}."
+
+            # Холст — документ внутри окна, а не вся область рисования:
+            # Paint игнорирует штрих, начатый вне изображения, поэтому фигура,
+            # начатая на подложке, не появлялась вовсе (круг, квадрат).
+            canvas = self._document_canvas(viewport) or viewport
 
             # Вырожденный холст — молчаливая точка вместо фигуры. Лучше отказать
             # и показать числа: по ним сразу видно, врёт ли определение окна.
@@ -604,12 +785,12 @@ class DrawingService:
                 log_error(
                     "DrawingService",
                     f"вырожденный холст {canvas.width}x{canvas.height} "
-                    f"(окно {window_rect})",
+                    f"(окно {window_rect}, область {viewport.width}x{viewport.height})",
                 )
                 return (
                     f"Холст {target_name} оказался слишком мал "
                     f"({canvas.width}×{canvas.height} px). Разверните окно "
-                    f"на весь экран и повторите."
+                    f"и увеличьте документ, затем повторите."
                 )
 
             strokes = self._strokes_for(command, canvas)
@@ -624,8 +805,10 @@ class DrawingService:
             # рисование до окна, если фигура снова окажется точкой.
             print(
                 f"[Drawing] {target_name}: окно={window_rect}, "
-                f"холст={canvas.width}x{canvas.height}, штрихов={len(strokes)}, "
-                f"перемещений={moves}, время={elapsed:.1f} с"
+                f"холст={canvas.width}x{canvas.height}"
+                f"{' (документ)' if canvas != viewport else ' (окно)'}, "
+                f"штрихов={len(strokes)}, перемещений={moves}, "
+                f"время={elapsed:.1f} с"
             )
 
             if moves == 0:
@@ -660,6 +843,31 @@ class DrawingService:
 
         return None
 
+    def _document_canvas(self, viewport: DrawingCanvas) -> Optional[DrawingCanvas]:
+        """Документ приложения внутри области рисования или None.
+
+        Снимаем два среза экрана — центральную строку и центральный столбец
+        области рисования: документ отличается от подложки вокруг него.
+        Без этой проверки фигура начинается у края окна, а Paint игнорирует
+        штрих, начатый вне изображения, — не рисуется ничего.
+        """
+        try:
+            row = _sample_row(
+                viewport.left + SAMPLE_MARGIN,
+                viewport.top + viewport.height // 2,
+                viewport.width - SAMPLE_MARGIN - SCROLLBAR_MARGIN,
+            )
+            column = _sample_column(
+                viewport.left + viewport.width // 2,
+                viewport.top + SAMPLE_MARGIN,
+                viewport.height - SAMPLE_MARGIN - SCROLLBAR_MARGIN,
+            )
+        except (OSError, RuntimeError) as ex:
+            log_error("DrawingService", f"снимок области рисования: {ex}")
+            return None
+
+        return document_canvas(viewport, row, column)
+
     def _strokes_for(
         self, command: ParsedDrawingCommand, canvas: DrawingCanvas
     ) -> List[Stroke]:
@@ -693,7 +901,13 @@ class DrawingService:
         return []
 
     def _draw_strokes(self, canvas: DrawingCanvas, strokes: Sequence[Stroke]) -> int:
-        """Проводит все штрихи; возвращает число отправленных перемещений."""
+        """Проводит все штрихи; возвращает число доставленных перемещений.
+
+        Считаем именно доставленные: SendInput возвращает 0, когда ОС отклонила
+        событие (например, ввод заблокирован). Раньше число перемещений росло
+        независимо от результата, и ZERE рапортовал «нарисовал», хотя курсор
+        не сдвинулся.
+        """
         moves = 0
 
         for stroke in strokes:
@@ -703,11 +917,14 @@ class DrawingService:
                 continue
 
             _move_to(*points[0])
-            _mouse_event(MOUSEEVENTF_LEFTDOWN)
+
+            if not _mouse_event(MOUSEEVENTF_LEFTDOWN):
+                log_error("DrawingService", "SendInput отклонил нажатие кнопки мыши")
+                break
 
             for step in self._plan_moves(points):
-                _move_to(*step)
-                moves += 1
+                if _move_to(*step):
+                    moves += 1
 
                 if MOVE_DELAY:
                     time.sleep(MOVE_DELAY)

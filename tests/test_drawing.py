@@ -214,6 +214,48 @@ def test_star_has_expected_vertex_count() -> None:
     assert len(geometry.star(points_count=6)[0]) == 13
 
 
+def test_shapes_take_about_half_of_canvas() -> None:
+    """Фигуры небольшие: примерно половина холста, а не от края до края."""
+    for name, strokes in (
+        ("круг", geometry.circle()),
+        ("овал", geometry.ellipse()),
+        ("прямоугольник", geometry.rectangle()),
+        ("квадрат", geometry.square()),
+        ("треугольник", geometry.triangle()),
+        ("линия", geometry.line()),
+        ("звезда", geometry.star()),
+    ):
+        points = _all_points(strokes)
+        xs = [x for x, _ in points]
+        ys = [y for _, y in points]
+        width = max(xs) - min(xs)
+        height = max(ys) - min(ys)
+
+        assert width <= 0.6 and height <= 0.6, f"{name}: {width:.2f}x{height:.2f}"
+        assert width >= 0.3 or height >= 0.3, f"{name} слишком мелкая"
+
+
+def test_shapes_start_away_from_canvas_border() -> None:
+    """Регрессия: фигура не начинается у самой границы холста.
+
+    Приложение игнорирует штрих, начатый вне документа, — фигура, начатая
+    на границе, не появляется вовсе (так не рисовались круг и квадрат).
+    """
+    for name, strokes in (
+        ("круг", geometry.circle()),
+        ("овал", geometry.ellipse()),
+        ("прямоугольник", geometry.rectangle()),
+        ("квадрат", geometry.square()),
+        ("треугольник", geometry.triangle()),
+        ("линия", geometry.line()),
+        ("звезда", geometry.star()),
+    ):
+        start_x, start_y = strokes[0][0]
+
+        assert 0.15 <= start_x <= 0.85, f"{name}: начало x={start_x:.2f}"
+        assert 0.15 <= start_y <= 0.85, f"{name}: начало y={start_y:.2f}"
+
+
 # ── Канвас ────────────────────────────────────────────────────────
 
 
@@ -255,6 +297,99 @@ def test_canvas_clamps_out_of_range_points() -> None:
 
     assert canvas.to_screen(-5.0, -5.0) == (0, 0)
     assert canvas.to_screen(5.0, 5.0) == (100, 100)
+
+
+# ── Документ внутри окна ──────────────────────────────────────────
+
+
+def _strip(first: int, length: int, sheet: tuple = None,
+           backdrop: tuple = None, backdrop_right: tuple = None) -> tuple:
+    """Срез снимка: участок документа и подложка с лёгким градиентом."""
+    left = backdrop if backdrop is not None else (30, 31, 48)
+    right = backdrop_right if backdrop_right is not None else left
+    half = length // 2
+    colors = []
+
+    for index in range(length):
+        position = first + index
+
+        if sheet and sheet[0] <= position <= sheet[1]:
+            colors.append((255, 255, 255))
+        else:
+            colors.append(left if index < half else right)
+
+    return first, colors
+
+
+def test_document_canvas_finds_sheet_inside_viewport() -> None:
+    """Холст — документ, а не вся область рисования.
+
+    Paint игнорирует штрих, начатый вне изображения, поэтому границы
+    документа ищутся по снимку экрана.
+    """
+    viewport = geometry.DrawingCanvas(left=8, top=132, width=400, height=300)
+    row = _strip(10, 380, sheet=(100, 339))
+    column = _strip(134, 280, sheet=(200, 379))
+
+    canvas = geometry.document_canvas(viewport, row, column, inset=4)
+
+    # Отступ внутрь документа — по 4 px с каждой стороны.
+    assert canvas == geometry.DrawingCanvas(104, 204, 232, 172)
+
+
+def test_document_canvas_ignores_sheet_that_fills_viewport() -> None:
+    """Документ во всю область рисования — не отличается от фона: холст прежний."""
+    viewport = geometry.DrawingCanvas(left=8, top=132, width=400, height=300)
+    row = _strip(10, 380, sheet=(0, 10_000))
+    column = _strip(134, 280, sheet=(0, 10_000))
+
+    assert geometry.document_canvas(viewport, row, column) is None
+
+
+def test_document_canvas_tolerates_backdrop_gradient() -> None:
+    """Подложка почти однотонная, но с градиентом — фон берётся у краёв среза.
+
+    С общим образцом фона правый край подложки сошёл бы за документ и холст
+    растянулся бы на всю область рисования.
+    """
+    viewport = geometry.DrawingCanvas(left=8, top=132, width=400, height=300)
+    row = _strip(10, 380, sheet=(100, 339), backdrop=(30, 31, 48),
+                 backdrop_right=(60, 61, 78))
+    column = _strip(134, 280, sheet=(200, 379), backdrop=(30, 31, 48),
+                    backdrop_right=(60, 61, 78))
+
+    canvas = geometry.document_canvas(viewport, row, column, inset=0)
+
+    assert canvas == geometry.DrawingCanvas(100, 200, 240, 180)
+
+    assert geometry.colors_differ((30, 31, 48), (60, 61, 78)) is True
+    assert geometry.colors_differ((30, 31, 48), (30, 31, 58)) is False
+
+
+def test_document_canvas_requires_center_inside_sheet() -> None:
+    """Прокрученный документ: пятно в стороне от центра холстом не считается."""
+    viewport = geometry.DrawingCanvas(left=8, top=132, width=400, height=300)
+    row = _strip(10, 380, sheet=(20, 120))
+    column = _strip(134, 280, sheet=(200, 379))
+
+    assert geometry.document_canvas(viewport, row, column) is None
+
+
+def test_document_canvas_handles_short_and_empty_samples() -> None:
+    """Короткий срез или пустой ввод — прежний холст, а не исключение."""
+    viewport = geometry.DrawingCanvas(left=8, top=132, width=400, height=300)
+
+    assert geometry.document_canvas(viewport, (10, []), (134, [])) is None
+    assert geometry.document_canvas(
+        viewport, _strip(10, 4, sheet=(100, 300)), _strip(134, 4, sheet=(200, 300))
+    ) is None
+
+    # Документ найден, но отступ съел его целиком.
+    small_row = _strip(10, 380, sheet=(200, 216))
+    small_column = _strip(134, 280, sheet=(274, 290))
+    assert geometry.document_canvas(
+        viewport, small_row, small_column, inset=20
+    ) is None
 
 
 # ── Растр в штрихи (текст) ────────────────────────────────────────
@@ -495,6 +630,121 @@ def test_canvas_guard_rejects_degenerate_area() -> None:
         ) is False, f"{width}x{height} должен быть отвергнут"
 
 
+def test_service_detects_document_from_screen_samples() -> None:
+    """Сервис снимает центральные строку и столбец области рисования.
+
+    Заменяем снимок экрана подставными срезами: так определение документа
+    проверяется без Windows.
+    """
+    from zere.tools.drawing import drawing_service
+
+    viewport = geometry.DrawingCanvas(left=8, top=132, width=400, height=300)
+    row = _strip(10, 380, sheet=(100, 339))
+    column = _strip(134, 280, sheet=(200, 379))
+    sampled: list = []
+
+    original = (drawing_service._sample_row, drawing_service._sample_column)
+
+    def fake_row(x: int, y: int, width: int) -> tuple:
+        sampled.append(("row", x, y, width))
+        return row
+
+    def fake_column(x: int, y: int, height: int) -> tuple:
+        sampled.append(("column", x, y, height))
+        return column
+
+    drawing_service._sample_row = fake_row
+    drawing_service._sample_column = fake_column
+
+    try:
+        canvas = drawing_service.DrawingService()._document_canvas(viewport)
+    finally:
+        drawing_service._sample_row, drawing_service._sample_column = original
+
+    assert canvas == geometry.DrawingCanvas(104, 204, 232, 172)
+
+    # Срезы берутся по центру области рисования, не по её краям.
+    assert sampled[0] == (
+        "row",
+        viewport.left + drawing_service.SAMPLE_MARGIN,
+        viewport.top + viewport.height // 2,
+        viewport.width - drawing_service.SAMPLE_MARGIN - drawing_service.SCROLLBAR_MARGIN,
+    )
+    assert sampled[1][0] == "column"
+    assert sampled[1][1] == viewport.left + viewport.width // 2
+    assert sampled[1][2] == viewport.top + drawing_service.SAMPLE_MARGIN
+
+
+def test_service_falls_back_when_screen_snapshot_fails() -> None:
+    """Снимок не удался — рисуем как раньше, команда не падает."""
+    from zere.tools.drawing import drawing_service
+
+    original = drawing_service._sample_row
+
+    def broken(x: int, y: int, width: int) -> tuple:
+        raise OSError("нет доступа к экрану")
+
+    drawing_service._sample_row = broken
+
+    try:
+        canvas = drawing_service.DrawingService()._document_canvas(
+            geometry.DrawingCanvas(0, 0, 400, 300)
+        )
+    finally:
+        drawing_service._sample_row = original
+
+    assert canvas is None
+
+
+def test_bitmap_info_header_matches_windows_layout() -> None:
+    """BITMAPINFOHEADER — 40 байт, иначе GetDIBits не отдаст пиксели."""
+    import ctypes
+
+    from zere.tools.drawing import drawing_service
+
+    assert ctypes.sizeof(drawing_service._BITMAPINFOHEADER) == 40
+    assert drawing_service.SRCCOPY == 0x00CC0020
+    assert drawing_service.BI_RGB == 0
+    assert drawing_service.DIB_RGB_COLORS == 0
+
+
+def test_screen_capture_has_explicit_prototypes() -> None:
+    """У GDI-вызовов заданы argtypes/restype: иначе снимок молча ломается."""
+    import inspect
+
+    from zere.tools.drawing import drawing_service
+
+    source = inspect.getsource(drawing_service._get_gdi32)
+
+    for call in (
+        "CreateCompatibleDC",
+        "CreateCompatibleBitmap",
+        "SelectObject",
+        "BitBlt",
+        "GetDIBits",
+        "DeleteObject",
+        "DeleteDC",
+    ):
+        assert f"{call}.restype" in source, f"{call}: не задан restype"
+
+    user32 = inspect.getsource(drawing_service._get_user32)
+    assert "GetDC.restype" in user32
+    assert "ReleaseDC.restype" in user32
+
+
+def test_run_measures_document_before_drawing() -> None:
+    """Холст — документ, а не всё окно; снимок делается до штрихов."""
+    import inspect
+
+    from zere.tools.drawing import drawing_service
+
+    source = inspect.getsource(drawing_service.DrawingService._run)
+
+    assert "_document_canvas(" in source, "документ не определяется"
+    assert "or viewport" in source, "нет отката на прежний холст"
+    assert source.index("_document_canvas(") < source.index("_draw_strokes(")
+
+
 def test_moves_are_injected_not_just_repositioned() -> None:
     """Регрессия «рисует только точку».
 
@@ -556,6 +806,50 @@ def test_run_reports_drawing_diagnostics() -> None:
         assert token in source, f"в диагностике нет {token}"
 
     assert "moves == 0" in source, "нет проверки «ни одного перемещения»"
+
+
+def test_draw_strokes_counts_only_delivered_moves() -> None:
+    """SendInput отклонил ввод — честный ноль, а не рапорт «нарисовал».
+
+    Иначе ZERE отвечает об успехе при пустом холсте: раньше число перемещений
+    росло независимо от результата отправки событий.
+    """
+    from zere.tools.drawing import drawing_service
+
+    service = drawing_service.DrawingService()
+    canvas = geometry.DrawingCanvas(left=0, top=0, width=200, height=200)
+    strokes = [[(0.1, 0.1), (0.9, 0.9)]]
+
+    original = (
+        drawing_service._move_to,
+        drawing_service._mouse_event,
+        drawing_service.MOVE_DELAY,
+        drawing_service.STROKE_DELAY,
+    )
+    drawing_service.MOVE_DELAY = 0
+    drawing_service.STROKE_DELAY = 0
+
+    try:
+        # События перемещения отклоняются — рисуем ноль.
+        drawing_service._move_to = lambda x, y: False
+        drawing_service._mouse_event = lambda flags, dx=0, dy=0: True
+        assert service._draw_strokes(canvas, strokes) == 0
+
+        # Отклонено нажатие кнопки — тоже ноль: штрих не начат.
+        drawing_service._move_to = lambda x, y: True
+        drawing_service._mouse_event = lambda flags, dx=0, dy=0: False
+        assert service._draw_strokes(canvas, strokes) == 0
+
+        # Всё доставлено — перемещения посчитаны.
+        drawing_service._mouse_event = lambda flags, dx=0, dy=0: True
+        assert service._draw_strokes(canvas, strokes) > 0
+    finally:
+        (
+            drawing_service._move_to,
+            drawing_service._mouse_event,
+            drawing_service.MOVE_DELAY,
+            drawing_service.STROKE_DELAY,
+        ) = original
 
 
 def test_win32_input_struct_matches_windows_layout() -> None:

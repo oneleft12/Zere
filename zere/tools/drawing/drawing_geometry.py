@@ -13,19 +13,31 @@ from typing import List, Sequence, Tuple
 
 Point = Tuple[float, float]
 Stroke = List[Point]
+Color = Tuple[int, int, int]
 
 # 72 отрезка на окружность: на экране выглядит гладко, но не тормозит рисование.
 CIRCLE_SEGMENTS = 72
 
+# Размеры фигур: примерно половина холста. Крупная фигура упирается в края
+# документа, а приложение игнорирует штрих, начатый вне изображения, — тогда
+# вместо фигуры не появляется ничего.
+CIRCLE_RADIUS = 0.25
+ELLIPSE_RX = 0.28
+ELLIPSE_RY = 0.20
+SQUARE_SIDE = 0.45
+TRIANGLE_RADIUS = 0.30
+STAR_RADIUS = 0.30
+STAR_INNER_RADIUS = 0.12
 
-def circle(cx: float = 0.5, cy: float = 0.5, radius: float = 0.35,
+
+def circle(cx: float = 0.5, cy: float = 0.5, radius: float = CIRCLE_RADIUS,
            segments: int = CIRCLE_SEGMENTS) -> List[Stroke]:
     """Окружность (замкнутая ломаная)."""
     return ellipse(cx, cy, radius, radius, segments)
 
 
-def ellipse(cx: float = 0.5, cy: float = 0.5, rx: float = 0.42,
-            ry: float = 0.30, segments: int = CIRCLE_SEGMENTS) -> List[Stroke]:
+def ellipse(cx: float = 0.5, cy: float = 0.5, rx: float = ELLIPSE_RX,
+            ry: float = ELLIPSE_RY, segments: int = CIRCLE_SEGMENTS) -> List[Stroke]:
     """Эллипс с заданными полуосями."""
     steps = max(8, int(segments))
     points: Stroke = []
@@ -40,19 +52,20 @@ def ellipse(cx: float = 0.5, cy: float = 0.5, rx: float = 0.42,
     return [points]
 
 
-def rectangle(x0: float = 0.15, y0: float = 0.20,
-              x1: float = 0.85, y1: float = 0.80) -> List[Stroke]:
+def rectangle(x0: float = 0.22, y0: float = 0.24,
+              x1: float = 0.78, y1: float = 0.76) -> List[Stroke]:
     """Прямоугольник по двум углам (замкнутый)."""
     return [[(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]]
 
 
-def square(cx: float = 0.5, cy: float = 0.5, side: float = 0.6) -> List[Stroke]:
+def square(cx: float = 0.5, cy: float = 0.5, side: float = SQUARE_SIDE) -> List[Stroke]:
     """Квадрат по центру."""
     half = side / 2.0
     return rectangle(cx - half, cy - half, cx + half, cy + half)
 
 
-def triangle(cx: float = 0.5, cy: float = 0.45, radius: float = 0.38) -> List[Stroke]:
+def triangle(cx: float = 0.5, cy: float = 0.5,
+             radius: float = TRIANGLE_RADIUS) -> List[Stroke]:
     """Равносторонний треугольник вершиной вверх (замкнутый)."""
     points: Stroke = []
 
@@ -64,14 +77,15 @@ def triangle(cx: float = 0.5, cy: float = 0.45, radius: float = 0.38) -> List[St
     return [points]
 
 
-def line(x0: float = 0.15, y0: float = 0.85,
-         x1: float = 0.85, y1: float = 0.15) -> List[Stroke]:
+def line(x0: float = 0.25, y0: float = 0.75,
+         x1: float = 0.75, y1: float = 0.25) -> List[Stroke]:
     """Отрезок по диагонали холста."""
     return [[(x0, y0), (x1, y1)]]
 
 
 def star(cx: float = 0.5, cy: float = 0.5, points_count: int = 5,
-         r_outer: float = 0.40, r_inner: float = 0.16) -> List[Stroke]:
+         r_outer: float = STAR_RADIUS,
+         r_inner: float = STAR_INNER_RADIUS) -> List[Stroke]:
     """Пятиконечная звезда (замкнутая)."""
     total = max(3, int(points_count))
     points: Stroke = []
@@ -212,3 +226,130 @@ class DrawingCanvas:
             int(self.left + round(clamped_x * (self.width - 1))),
             int(self.top + round(clamped_y * (self.height - 1))),
         )
+
+
+# ── Документ внутри окна ──────────────────────────────────────────
+
+# Допуск сравнения цветов. Фон вокруг документа не идеально однотонный
+# (заметен лёгкий градиент ~13 по каналу), поэтому допуск с запасом.
+COLOR_TOLERANCE = 20
+
+# Отступ внутрь документа: у изображения есть рамка и тень, а штрих, начатый
+# ровно на границе, приложение может счесть штрихом вне холста.
+DOCUMENT_INSET = 4
+
+# Сколько крайних пикселей среза считаем фоном (подложка у краёв области).
+BACKDROP_SAMPLES = 8
+
+
+def colors_differ(first: Color, second: Color,
+                  tolerance: int = COLOR_TOLERANCE) -> bool:
+    """Отличается ли цвет от фона сильнее допуска (по самому «шумному» каналу)."""
+    return max(abs(a - b) for a, b in zip(first, second)) > tolerance
+
+
+def median_color(colors: Sequence[Color]) -> Color:
+    """Медиана цветов: устойчива к одиночным выбросам и шуму снимка."""
+    if not colors:
+        return (0, 0, 0)
+
+    middle = len(colors) // 2
+    channels = [
+        sorted(color[index] for color in colors)[middle] for index in range(3)
+    ]
+
+    return (channels[0], channels[1], channels[2])
+
+
+def _strip_span(colors: Sequence[Color], origin: int, left_backdrop: Color,
+                right_backdrop: Color, tolerance: int) -> Tuple[Optional[int], Optional[int]]:
+    """Первая и последняя точки среза, отличающиеся от фона.
+
+    Сравнение идёт с фоном своей половины среза: подложка почти однотонная,
+    но с лёгким градиентом, и общий образец фона дал бы ложные срабатывания.
+    """
+    middle = len(colors) // 2
+    first: Optional[int] = None
+    last: Optional[int] = None
+
+    for index, color in enumerate(colors):
+        backdrop = left_backdrop if index < middle else right_backdrop
+
+        if not colors_differ(color, backdrop, tolerance):
+            continue
+
+        if first is None:
+            first = origin + index
+
+        last = origin + index
+
+    return first, last
+
+
+def document_canvas(
+    viewport: DrawingCanvas,
+    row: Tuple[int, Sequence[Color]],
+    column: Tuple[int, Sequence[Color]],
+    inset: int = DOCUMENT_INSET,
+    tolerance: int = COLOR_TOLERANCE,
+) -> Optional[DrawingCanvas]:
+    """Документ внутри области рисования по двум срезам снимка экрана.
+
+    Зачем это нужно: Paint и Krita игнорируют штрих, начатый вне документа.
+    Фигура, начатая на подложке вокруг изображения, не появляется вовсе —
+    а раньше холстом считалась вся область рисования, поэтому большой круг
+    или квадрат не рисовались.
+
+    `row` и `column` — пары «координата первого пикселя среза» и «цвета
+    пикселей» вдоль центральной строки и центрального столбца области
+    рисования. Документ — прямоугольник вокруг центра: если он не отличается
+    от подложки (светлая тема) или центр оказался вне документа (прокрутка),
+    возвращается None, и вызывающий использует прежний холст.
+    """
+    row_origin, row_colors = row
+    column_origin, column_colors = column
+
+    if len(row_colors) < BACKDROP_SAMPLES * 2:
+        return None
+
+    if len(column_colors) < BACKDROP_SAMPLES * 2:
+        return None
+
+    left, right = _strip_span(
+        row_colors,
+        row_origin,
+        median_color(row_colors[:BACKDROP_SAMPLES]),
+        median_color(row_colors[-BACKDROP_SAMPLES:]),
+        tolerance,
+    )
+
+    if left is None or right is None:
+        return None
+
+    top, bottom = _strip_span(
+        column_colors,
+        column_origin,
+        median_color(column_colors[:BACKDROP_SAMPLES]),
+        median_color(column_colors[-BACKDROP_SAMPLES:]),
+        tolerance,
+    )
+
+    if top is None or bottom is None:
+        return None
+
+    center_x = viewport.left + viewport.width // 2
+    center_y = viewport.top + viewport.height // 2
+
+    # Документ обязан содержать центр области: иначе найденное «пятно» —
+    # чужой элемент (курсор, полоса прокрутки), и рисовать по нему нельзя.
+    if not (left <= center_x <= right and top <= center_y <= bottom):
+        return None
+
+    width = right - left + 1 - inset * 2
+    height = bottom - top + 1 - inset * 2
+
+    if width <= 0 or height <= 0:
+        return None
+
+    return DrawingCanvas(left + inset, top + inset, width, height)
+
