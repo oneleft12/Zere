@@ -33,7 +33,7 @@ import {
   field,
   h,
   keyValue,
-  loadingRow,
+  skeleton,
   pageHeader,
   select,
   statusPill,
@@ -137,7 +137,7 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
   let progressBar: HTMLElement | null = null;
   let progressText: HTMLElement | null = null;
 
-  container.appendChild(loadingRow(t("Проверка подключения ИИ…")));
+  container.appendChild(skeleton("card", 3));
 
   // ── Загрузка состояния ─────────────────────────────────────────
 
@@ -164,7 +164,7 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
       if (support === "restart-required") {
         container.appendChild(
           emptyState({
-            icon: "🔄",
+            icon: "refresh",
             title: t("Нужен перезапуск ZERE"),
             hint: t("Панель обновилась, а сервер ZERE работает со старым кодом: закройте и снова запустите ZERE — настройка ИИ появится."),
             action: { label: t("Повторить"), onClick: () => void load() },
@@ -176,7 +176,7 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
       if (support === "unsupported") {
         container.appendChild(
           emptyState({
-            icon: "ℹ️",
+            icon: "info",
             title: t("В этой редакции настраивается только локальная модель"),
             hint: t("Эта сборка панели новее сервера ZERE: перезапустите ZERE, чтобы включить настройку ключа. Локальная модель (Ollama) продолжает работать — её состояние видно на дашборде."),
             action: { label: t("На дашборд"), onClick: () => navigate("/") },
@@ -187,7 +187,7 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
 
       container.appendChild(
         emptyState({
-          icon: "⚠️",
+          icon: "alert",
           title: t("Не удалось получить состояние ИИ"),
           hint: error instanceof ApiError ? error.message : t("Неизвестная ошибка"),
           action: { label: t("Повторить"), onClick: () => void load() },
@@ -390,7 +390,7 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
     progressBar = null;
     progressText = null;
 
-    const refreshBtn = button(t("Обновить состояние"), () => void load());
+    const refreshBtn = button(t("Обновить состояние"), () => void load(), "default", "refresh");
     const errorBox = h("div", { class: "form-error", hidden: true });
 
     container.append(
@@ -507,7 +507,7 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
       state: keyStatusTone(status),
     });
 
-    const testKeyButton = button(t("Проверить ключ"), () => void testKey(draft, errorBox));
+    const testKeyButton = button(t("Проверить ключ"), () => void testKey(draft, errorBox), "default", "shield");
     const saveKeyButton = button(
       t("Сохранить ключ"),
       () => void saveKey(draft, status, errorBox),
@@ -725,7 +725,7 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
       h(
         "div",
         { class: "pill-row" },
-        button(t("Проверить локальную модель"), () => void testLocal(draft, errorBox)),
+        button(t("Проверить локальную модель"), () => void testLocal(draft, errorBox), "default", "shield"),
         button(
           t("Сохранить адрес и модель"),
           () =>
@@ -770,9 +770,14 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
       steps.appendChild(h("li", { text: step }));
     }
 
-    const copyButton = button(t("Скопировать команду"), () => {
-      void copyText(hint.command);
-    });
+    const copyButton = button(
+      t("Скопировать команду"),
+      () => {
+        void copyText(hint.command);
+      },
+      "default",
+      "copy",
+    );
 
     return h(
       "section",
@@ -790,7 +795,7 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
         { class: "pill-row" },
         h("a", { class: "btn", href: hint.downloadUrl, text: t("Скачать Ollama") }),
         button(t("Проверить локальную модель"), () => void testLocal(draft, errorBox)),
-        button(t("Скачать модель"), () => void pullModel(draft, errorBox, hint.model), "primary"),
+        button(t("Скачать модель"), () => void pullModel(draft, errorBox, hint.model), "primary", "update"),
       ),
       h("p", {
         class: "panel-note",

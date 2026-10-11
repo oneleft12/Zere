@@ -4,6 +4,8 @@
  */
 
 import { t } from "./i18n";
+import { icon, type IconName } from "./icons";
+import { countUp, reducedMotion } from "./motion";
 
 export type Child = Node | string | number | null | undefined | Child[];
 
@@ -87,9 +89,53 @@ export function button(
   label: string,
   onClick?: () => void,
   variant: ButtonVariant = "default",
+  iconName?: IconName,
 ): HTMLButtonElement {
   const cls = variant === "default" ? "btn" : `btn btn--${variant}`;
-  return h("button", { class: cls, text: label, type: "button", onclick: onClick ? () => onClick() : undefined });
+  const el = h("button", {
+    class: cls,
+    text: iconName ? undefined : label,
+    type: "button",
+    onclick: onClick ? () => onClick() : undefined,
+  });
+
+  if (iconName) {
+    el.appendChild(icon(iconName, { size: 16 }));
+    el.appendChild(h("span", { text: label }));
+  }
+
+  return el;
+}
+
+/** Кнопка-иконка: подпись обязательна — она уходит в aria-label и title. */
+export function iconButton(
+  iconName: IconName,
+  label: string,
+  onClick?: () => void,
+  variant: ButtonVariant = "ghost",
+): HTMLButtonElement {
+  const el = h("button", {
+    class: `btn btn--${variant} btn--icon`,
+    type: "button",
+    title: label,
+    ariaLabel: label,
+    onclick: onClick ? () => onClick() : undefined,
+  });
+  el.appendChild(icon(iconName, { size: 17 }));
+  return el;
+}
+
+/**
+ * Дополняет готовую кнопку иконкой: направление («назад», «дальше») несёт
+ * фигура, а не стрелка внутри подписи — подпись остаётся словом.
+ */
+export function withIcon(
+  btn: HTMLButtonElement,
+  iconName: IconName,
+  flip = false,
+): HTMLButtonElement {
+  btn.insertBefore(icon(iconName, { size: 15, class: flip ? "icon--flip" : undefined }), btn.firstChild);
+  return btn;
 }
 
 // ── 2. Карточка ──────────────────────────────────────────────────
@@ -138,9 +184,92 @@ export function metric(value: string, label: string, hint?: string): HTMLElement
     { class: "metric" },
     h("div", { class: "metric__value", text: value }),
     h("div", { class: "metric__label", text: label }),
-    hint ? h("div", { class: "metric__hint", text: hint }) : null,
+    hint ? h("div", { class: "metric__hint", text: hint }) : undefined,
   );
 }
+
+/**
+ * Метрика с досчётом: значение приходит из API готовым, поэтому переход
+ * от нуля показывает, что цифра обновилась, а не мигнула подменой.
+ */
+export function metricAnimated(opts: {
+  value: number;
+  label: string;
+  hint?: string;
+  /** Как показать число (проценты, минуты, разряды). */
+  format?: (value: number) => string;
+}): HTMLElement {
+  const format = opts.format ?? ((value: number) => String(Math.round(value)));
+  const valueEl = h("div", { class: "metric__value", text: format(0) });
+
+  const el = h(
+    "div",
+    { class: "metric" },
+    valueEl,
+    h("div", { class: "metric__label", text: opts.label }),
+    opts.hint ? h("div", { class: "metric__hint", text: opts.hint }) : undefined,
+  );
+
+  // Досчёт запускаем, когда элемент уже в документе: иначе кадры уходят в пустоту.
+  requestAnimationFrame(() => countUp(valueEl, opts.value, { format }));
+
+  return el;
+}
+
+// ── 5a. Скелетон загрузки ────────────────────────────────────────
+
+/** Форма будущих данных вместо пустоты: строки повторяют их силуэт. */
+export function skeleton(kind: "card" | "table" | "list" = "list", rows = 4): HTMLElement {
+  const stack = h("div", { class: "skeleton-stack" });
+
+  if (kind === "card") {
+    stack.appendChild(h("div", { class: "skeleton skeleton--title" }));
+    for (let i = 0; i < rows; i += 1) stack.appendChild(h("div", { class: "skeleton" }));
+    return stack;
+  }
+
+  if (kind === "table") {
+    for (let i = 0; i < rows; i += 1) stack.appendChild(h("div", { class: "skeleton skeleton--row" }));
+    return stack;
+  }
+
+  for (let i = 0; i < rows; i += 1) {
+    const line = h("div", { class: "skeleton" });
+    line.style.width = `${88 - i * 9}%`;
+    stack.appendChild(line);
+  }
+  return stack;
+}
+
+// ── 5b. Орб ассистента ───────────────────────────────────────────
+
+export type OrbState = "idle" | "listening" | "thinking" | "speaking" | "offline" | "error";
+
+/** Состояние ассистента одной фигурой: кольца — это состояние, не декор. */
+export function orb(state: OrbState, opts: { large?: boolean; label?: string } = {}): HTMLElement {
+  const title = opts.label ?? t("Состояние ассистента");
+  const el = h(
+    "span",
+    {
+      class: `orb orb--${state}${opts.large ? " orb--lg" : ""}`,
+      role: "img",
+      ariaLabel: title,
+      title,
+    },
+    h("span", { class: "orb__ring" }),
+    h("span", { class: "orb__ring orb__ring--2" }),
+    h("span", { class: "orb__core" }),
+  );
+
+  return el;
+}
+
+/** Меняет состояние уже смонтированного орба без перерисовки. */
+export function setOrbState(el: HTMLElement, state: OrbState): void {
+  el.className = el.className.replace(/orb--(idle|listening|thinking|speaking|offline|error)/, `orb--${state}`);
+}
+
+
 
 // ── 6. Поле формы ────────────────────────────────────────────────
 
@@ -238,6 +367,7 @@ export function slider(opts: {
     oninput: (e) => {
       const next = Number((e.target as HTMLInputElement).value);
       valueLabel.textContent = format(next);
+      applyFill(input, next);
       opts.onChange?.(next);
     },
   });
@@ -246,30 +376,41 @@ export function slider(opts: {
     return opts.step < 1 ? v.toFixed(2) : String(v);
   }
 
+  /** Заливка трека до ползунка: доля видна без наведения на цифру. */
+  function applyFill(el: HTMLInputElement, value: number): void {
+    const ratio = (value - opts.min) / Math.max(opts.max - opts.min, Number.EPSILON);
+    el.style.setProperty("--fill", `${Math.min(100, Math.max(0, ratio * 100))}%`);
+  }
+
+  applyFill(input, opts.value);
+
   return h("div", { class: "slider-row" }, input, valueLabel);
 }
 
 // ── 11. EmptyState ───────────────────────────────────────────────
 
 export function emptyState(opts: {
-  icon: string;
+  icon: IconName;
   title: string;
   hint?: string;
   action?: { label: string; onClick: () => void };
 }): HTMLElement {
+  const iconEl = h("div", { class: "empty-state__icon" });
+  iconEl.appendChild(icon(opts.icon, { size: 26 }));
+
   return h(
     "div",
     { class: "empty-state" },
-    h("div", { class: "empty-state__icon", text: opts.icon }),
+    iconEl,
     h("h3", { class: "empty-state__title", text: opts.title }),
-    opts.hint ? h("p", { class: "empty-state__hint", text: opts.hint }) : null,
+    opts.hint ? h("p", { class: "empty-state__hint", text: opts.hint }) : undefined,
     opts.action
       ? h(
           "div",
           { class: "empty-state__action" },
           button(opts.action.label, opts.action.onClick, "primary"),
         )
-      : null,
+      : undefined,
   );
 }
 
@@ -459,14 +600,46 @@ export function initToasts(host: HTMLElement): void {
   toastHost = host;
 }
 
+const TOAST_ICON = {
+  plain: "info",
+  ok: "check",
+  warn: "alert",
+  danger: "alert",
+} satisfies Record<string, IconName>;
+
 export function toast(message: string, tone: "plain" | "ok" | "warn" | "danger" = "plain"): void {
   if (!toastHost) return;
 
   const cls = tone === "plain" ? "toast" : `toast toast--${tone}`;
-  const el = h("div", { class: cls, text: message });
+  const iconEl = h("span", { class: "toast__icon" });
+  iconEl.appendChild(icon(TOAST_ICON[tone], { size: 16 }));
+
+  const el = h(
+    "div",
+    { class: cls },
+    iconEl,
+    h("span", { class: "toast__text", text: message }),
+  );
+
   toastHost.appendChild(el);
 
-  window.setTimeout(() => el.remove(), 4200);
+  // На экране живут последние четыре сообщения: остальные не копятся стеной.
+  const overflow = Array.from(toastHost.children).slice(0, -4);
+  for (const old of overflow) old.remove();
+
+  const dismiss = (): void => {
+    if (reducedMotion()) {
+      el.remove();
+      return;
+    }
+
+    el.classList.add("toast--leaving");
+    el.addEventListener("animationend", () => el.remove(), { once: true });
+    // Страховка: если анимация не доехала (вкладка была скрыта), убираем сами.
+    window.setTimeout(() => el.remove(), 600);
+  };
+
+  window.setTimeout(dismiss, 4200);
 }
 
 // ── 16. Заголовок страницы ───────────────────────────────────────

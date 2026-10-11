@@ -13,10 +13,11 @@ import {
   clear,
   emptyState,
   h,
-  loadingRow,
+  skeleton,
   pageHeader,
   select,
   toast,
+  withIcon,
 } from "../ui";
 import type { Cleanup, ScreenFactory } from "../router";
 
@@ -56,17 +57,24 @@ export const logsScreen: ScreenFactory = (container): Cleanup => {
     },
   });
 
-  const refreshButton = button(t("Обновить"), () => void load());
+  const refreshButton = button(t("Обновить"), () => void load(), "default", "refresh");
 
-  const prevButton = button(t("← Назад"), () => {
-    offset = Math.max(0, offset - PAGE_SIZE);
-    void load();
-  });
+  const prevButton = withIcon(
+    button(t("Назад"), () => {
+      offset = Math.max(0, offset - PAGE_SIZE);
+      void load();
+    }),
+    "chevronRight",
+    true,
+  );
 
-  const nextButton = button(t("Вперёд →"), () => {
-    offset += PAGE_SIZE;
-    void load();
-  });
+  const nextButton = withIcon(
+    button(t("Вперёд"), () => {
+      offset += PAGE_SIZE;
+      void load();
+    }),
+    "chevronRight",
+  );
 
   container.appendChild(
     pageHeader(
@@ -121,7 +129,7 @@ export const logsScreen: ScreenFactory = (container): Cleanup => {
     updateControls();
 
     clear(list);
-    list.appendChild(loadingRow(t("Чтение логов…")));
+    list.appendChild(skeleton("list", 6));
 
     try {
       const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset) });
@@ -145,7 +153,7 @@ export const logsScreen: ScreenFactory = (container): Cleanup => {
       clear(list);
       list.appendChild(
         emptyState({
-          icon: "⚠️",
+          icon: "alert",
           title: t("Не удалось прочитать логи"),
           hint: message,
           action: { label: t("Повторить"), onClick: () => void load() },
@@ -167,7 +175,7 @@ export const logsScreen: ScreenFactory = (container): Cleanup => {
     if (items.length === 0) {
       list.appendChild(
         emptyState({
-          icon: "📄",
+          icon: "logs",
           title: t("Записей нет"),
           hint: level
             ? t("Уровня «{level}» в логах нет.", { level })

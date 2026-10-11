@@ -23,7 +23,7 @@ import {
   confirmDialog,
   emptyState,
   h,
-  loadingRow,
+  skeleton,
   pageHeader,
   textInput,
   toast,
@@ -82,12 +82,12 @@ export const processesScreen: ScreenFactory = (container): Cleanup => {
     },
   });
 
-  const refreshButton = button(t("Обновить"), () => void load());
+  const refreshButton = button(t("Обновить"), () => void load(), "default", "refresh");
   const powerButtons: Array<{ action: PowerAction; el: HTMLButtonElement }> = (
     ["sleep", "restart", "shutdown"] as PowerAction[]
   ).map((action) => ({
     action,
-    el: button(t(POWER_LABELS[action].label), () => void power(action), action === "sleep" ? "default" : "danger"),
+    el: button(t(POWER_LABELS[action].label), () => void power(action), action === "sleep" ? "default" : "danger", "power"),
   }));
 
   container.appendChild(
@@ -126,7 +126,7 @@ export const processesScreen: ScreenFactory = (container): Cleanup => {
     updateControls();
 
     clear(list);
-    list.appendChild(loadingRow(t("Загрузка процессов…")));
+    list.appendChild(skeleton("table", 8));
 
     try {
       const params = new URLSearchParams();
@@ -147,7 +147,7 @@ export const processesScreen: ScreenFactory = (container): Cleanup => {
       clear(list);
       list.appendChild(
         emptyState({
-          icon: "⚠️",
+          icon: "alert",
           title: t("Не удалось загрузить процессы"),
           hint: message,
           action: { label: t("Повторить"), onClick: () => void load() },
@@ -168,7 +168,7 @@ export const processesScreen: ScreenFactory = (container): Cleanup => {
     if (items.length === 0) {
       list.appendChild(
         emptyState({
-          icon: "🔍",
+          icon: "search",
           title: query ? t("Ничего не найдено") : t("Процессы не найдены"),
           hint: query
             ? t("По запросу «{query}» совпадений нет.", { query })

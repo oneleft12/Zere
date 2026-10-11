@@ -12,7 +12,7 @@ import {
   clear,
   emptyState,
   h,
-  loadingRow,
+  skeleton,
   pageHeader,
   textInput,
   toast,
@@ -48,7 +48,7 @@ export const appsScreen: ScreenFactory = (container): Cleanup => {
     },
   });
 
-  const reindexButton = button(t("Переиндексировать"), () => void reindex(), "primary");
+  const reindexButton = button(t("Переиндексировать"), () => void reindex(), "primary", "refresh");
 
   container.appendChild(
     pageHeader(
@@ -85,7 +85,7 @@ export const appsScreen: ScreenFactory = (container): Cleanup => {
     updateControls();
 
     clear(list);
-    list.appendChild(loadingRow(t("Загрузка приложений…")));
+    list.appendChild(skeleton("table", 6));
 
     try {
       const params = new URLSearchParams();
@@ -106,7 +106,7 @@ export const appsScreen: ScreenFactory = (container): Cleanup => {
       clear(list);
       list.appendChild(
         emptyState({
-          icon: "⚠️",
+          icon: "alert",
           title: t("Не удалось загрузить приложения"),
           hint: message,
           action: { label: t("Повторить"), onClick: () => void load() },
@@ -127,7 +127,7 @@ export const appsScreen: ScreenFactory = (container): Cleanup => {
     if (items.length === 0) {
       list.appendChild(
         emptyState({
-          icon: "🧩",
+          icon: "plugins",
           title: query ? t("Ничего не найдено") : t("Индекс пуст"),
           hint: query
             ? t("По запросу «{query}» совпадений нет.", { query })

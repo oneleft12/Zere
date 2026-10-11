@@ -13,10 +13,11 @@ import {
   confirmDialog,
   emptyState,
   h,
-  loadingRow,
+  skeleton,
   pageHeader,
   textInput,
   toast,
+  withIcon,
 } from "../ui";
 import type { Cleanup, ScreenFactory } from "../router";
 
@@ -50,22 +51,29 @@ export const historyScreen: ScreenFactory = (container): Cleanup => {
     },
   });
 
-  const exportButton = button(t("Экспорт JSON"), () => void exportHistory());
-  const clearButton = button(t("Очистить"), () => void clearHistory(), "danger");
+  const exportButton = button(t("Экспорт JSON"), () => void exportHistory(), "default", "external");
+  const clearButton = button(t("Очистить"), () => void clearHistory(), "danger", "trash");
 
   const list = h("div", { class: "history-list" });
   const pager = h("div", { class: "history__pager" });
   const errorBox = h("div", { class: "form-error", hidden: true });
 
-  const prevButton = button(t("← Назад"), () => {
-    offset = Math.max(0, offset - PAGE_SIZE);
-    void load();
-  });
+  const prevButton = withIcon(
+    button(t("Назад"), () => {
+      offset = Math.max(0, offset - PAGE_SIZE);
+      void load();
+    }),
+    "chevronRight",
+    true,
+  );
 
-  const nextButton = button(t("Вперёд →"), () => {
-    offset += PAGE_SIZE;
-    void load();
-  });
+  const nextButton = withIcon(
+    button(t("Вперёд"), () => {
+      offset += PAGE_SIZE;
+      void load();
+    }),
+    "chevronRight",
+  );
 
   container.appendChild(
     pageHeader(
@@ -124,7 +132,7 @@ export const historyScreen: ScreenFactory = (container): Cleanup => {
     updateControls();
 
     clear(list);
-    list.appendChild(loadingRow(t("Загрузка истории…")));
+    list.appendChild(skeleton("list", 5));
 
     try {
       const page = await apiGet<HistoryPage>(buildPath(offset, search));
@@ -144,7 +152,7 @@ export const historyScreen: ScreenFactory = (container): Cleanup => {
       clear(list);
       list.appendChild(
         emptyState({
-          icon: "⚠️",
+          icon: "alert",
           title: t("Не удалось загрузить историю"),
           hint: message,
           action: { label: t("Повторить"), onClick: () => void load() },
@@ -166,7 +174,7 @@ export const historyScreen: ScreenFactory = (container): Cleanup => {
     if (items.length === 0) {
       list.appendChild(
         emptyState({
-          icon: "🗂",
+          icon: "history",
           title: search ? t("Ничего не найдено") : t("История пуста"),
           hint: search
             ? t("По запросу «{query}» совпадений нет.", { query: search })

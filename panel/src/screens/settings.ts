@@ -16,7 +16,7 @@ import {
   field,
   h,
   keyValue,
-  loadingRow,
+  skeleton,
   pageHeader,
   select,
   slider,
@@ -55,12 +55,12 @@ let cachedState: State | null = null;
 export const settingsScreen: ScreenFactory = (container): Cleanup => {
   let cancelled = false;
 
-  container.appendChild(loadingRow(t("Загрузка конфигурации…")));
+  container.appendChild(skeleton("card", 4));
 
   const load = async (): Promise<void> => {
     if (cancelled) return;
     clear(container);
-    container.appendChild(loadingRow(t("Загрузка конфигурации…")));
+    container.appendChild(skeleton("card", 4));
 
     try {
       const [config, health] = await Promise.all([
@@ -83,7 +83,7 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
       clear(container);
       container.appendChild(
         emptyState({
-          icon: "⚠️",
+          icon: "alert",
           title: t("Не удалось загрузить конфигурацию"),
           hint: error instanceof ApiError ? error.message : t("Неизвестная ошибка"),
           action: { label: t("Повторить"), onClick: () => void load() },
@@ -95,7 +95,7 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
   function render(state: State, health: Health | null): void {
     clear(container);
 
-    const saveBtn = button(t("Сохранить"), () => void save(), "primary");
+    const saveBtn = button(t("Сохранить"), () => void save(), "primary", "check");
     const revertBtn = button(t("Отменить изменения"), () => {
       state.draft = clone(state.base);
       render(state, health);

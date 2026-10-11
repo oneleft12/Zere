@@ -10,8 +10,8 @@ export const LOGS_EN: Record<string, string> = {
     "logs/*.log files in reverse order: newest on top; failures are shown here, not in the UI",
   "Все уровни": "All levels",
   "Обновить": "Refresh",
-  "← Назад": "← Back",
-  "Вперёд →": "Forward →",
+  "Назад": "Back",
+  "Вперёд": "Forward",
 
   // ── Пагинация и счётчик ───────────────────────────────────────
   "{count} записей": "{count} entries",

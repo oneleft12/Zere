@@ -22,11 +22,15 @@ import {
   clear,
   emptyState,
   h,
-  loadingRow,
   metric,
+  metricAnimated,
+  orb,
   pageHeader,
+  skeleton,
   statusPill,
+  type OrbState,
 } from "../ui";
+import { staggerChildren } from "../motion";
 import { navigate, type Cleanup, type ScreenFactory } from "../router";
 
 interface DashboardData {
@@ -75,7 +79,7 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
       button(t("Обновить"), () => {
         logEvent("Обновление статусов по кнопке");
         void load();
-      }, "primary"),
+      }, "primary", "refresh"),
     ]),
   );
 
@@ -97,7 +101,7 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
 
     if (items.length === 0) {
       box.appendChild(
-        emptyState({ icon: "🗒", title: t("Событий пока нет"), hint: t("Здесь появятся действия в этой сессии панели.") }),
+        emptyState({ icon: "list", title: t("Событий пока нет"), hint: t("Здесь появятся действия в этой сессии панели.") }),
       );
       return;
     }
@@ -114,11 +118,42 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
       );
     }
     box.appendChild(list);
+    staggerChildren(list, ":scope > li", 22, 120);
   }
 
   function renderData(data: DashboardData): void {
     const { health, config, personality, update, ai, aiSupport: support } = data;
     clear(body);
+
+    // ── Состояние ассистента: один взгляд вместо чтения пяти строк ──
+    // Орб, подпись и одно действие — ответ на вопрос «ZERE работает?».
+    const ready = ai ? ai.ready : health.ollama === "ok";
+    const orbState: OrbState = ready ? "idle" : "error";
+    const stateTitle = ready ? t("ZERE готов отвечать") : t("ZERE без модели");
+    const stateHint = `${t("Модель")}: ${config.model} · ${t("Стиль")}: ${personality?.activeStyle ?? "—"}`;
+
+    const stateOrb = orb(orbState, { large: true, label: stateTitle });
+
+    const assistantCard = card(
+      undefined,
+      h(
+        "div",
+        { class: "assistant-state" },
+        stateOrb,
+        h(
+          "div",
+          { class: "assistant-state__text" },
+          h("div", { class: "assistant-state__title", text: stateTitle }),
+          h("div", { class: "assistant-state__hint", text: stateHint }),
+        ),
+        h(
+          "div",
+          { class: "assistant-state__action" },
+          button(t("Открыть чат"), () => navigate("/chat"), "primary", "chat"),
+        ),
+      ),
+    );
+    assistantCard.classList.add("col-12");
 
     const pills = h(
       "div",
@@ -135,20 +170,31 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
         state: health.whisper === "ok" ? "ok" : "warn",
       }),
       statusPill({ label: t("TTS-движок"), value: health.tts.engine, state: "ok" }),
-      statusPill({ label: t("Память"), value: `${health.memory.count}`, state: "ok" }),
+      statusPill({
+        label: t("Память"),
+        value: `${health.memory.count}`,
+        state: "ok",
+      }),
     );
 
     const metrics = h(
       "div",
       { class: "metrics-row" },
       metric(personality?.activeStyle ?? "—", t("Стиль личности")),
-      metric(`${Math.round(config.voiceVolume * 100)}%`, t("Громкость голоса")),
-      metric(t("{value} мин", { value: config.ollamaTimeoutMinutes }), t("Таймаут Ollama")),
+      metricAnimated({
+        value: Math.round(config.voiceVolume * 100),
+        label: t("Громкость голоса"),
+        format: (value) => `${value}%`,
+      }),
+      metricAnimated({
+        value: health.memory.count,
+        label: t("Записей в памяти"),
+      }),
       metric(health.version, t("Версия"), t("ветка {branch}", { branch: health.branch })),
     );
 
     const statusesCard = card(t("Статусы"), pills);
-    statusesCard.classList.add("col-12");
+    statusesCard.classList.add("col-6");
 
     // ── ИИ: облачный ключ или локальная модель (требование 1) ────
     // Без /api/ai (старая сборка или не перезапущенный сервер) показываем
@@ -220,8 +266,8 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
       h(
         "div",
         { class: "pill-row" },
-        button(t("Настройки"), () => navigate("/settings")),
-        button(t("Личности"), () => navigate("/personalities")),
+        button(t("Настройки"), () => navigate("/settings"), "default", "settings"),
+        button(t("Личности"), () => navigate("/personalities"), "default", "personalities"),
       ),
     );
     actionsCard.classList.add("col-12");
@@ -250,19 +296,22 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
         h(
           "div",
           { class: "pill-row" },
-          button(t("Открыть обновления"), () => navigate("/update")),
+          button(t("Открыть обновления"), () => navigate("/update"), "default", "update"),
         ),
       ),
     );
     updateCard.classList.add("col-12");
 
+    // Карточки встают волной: шесть блоков не вспыхивают одновременно.
+    body.appendChild(assistantCard);
     body.appendChild(statusesCard);
-    body.appendChild(aiCard);
     body.appendChild(metricsCard);
+    body.appendChild(aiCard);
     body.appendChild(eventsCard);
     body.appendChild(actionsCard);
     body.appendChild(updateCard);
 
+    staggerChildren(body, ":scope > *", 28, 160);
     renderEvents();
   }
 
@@ -275,7 +324,7 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
         "div",
         { class: "col-12" },
         emptyState({
-          icon: "⚠️",
+          icon: "alert",
           title: t("Не удалось загрузить статусы"),
           hint: message,
           action: { label: t("Повторить"), onClick: () => void load() },
@@ -286,7 +335,9 @@ export const dashboardScreen: ScreenFactory = (container): Cleanup => {
 
   async function load(): Promise<void> {
     clear(body);
-    body.appendChild(h("div", { class: "col-12" }, loadingRow(t("Опрос сервисов…"))));
+    // Скелетон вместо строки «Опрос сервисов…»: форма карточек уже видна,
+    // поэтому загрузка читается как «данные на подходе», а не как пауза.
+    body.appendChild(h("div", { class: "col-12 card" }, skeleton("card", 3)));
 
     try {
       renderData(await fetchData());

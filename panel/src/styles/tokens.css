@@ -1,56 +1,134 @@
-/* Токены дизайна ZERE (docs/GUI_DEVELOPMENT_PLAN.md §5.2).
-   Тёмная тема — по умолчанию; светлая — инверсия токенов. */
+/* Токены дизайна ZERE (docs/GUI_DEVELOPMENT_PLAN.md §5.2, docs/PANEL_DESIGN.md).
+   Мир: диспетчерская одного ассистента. База — чернильная (приборная),
+   свет из глубины — циан ассистента, фиолет — второй контур данных.
+   Тёмная тема — основная (вечер, свет выключен); светлая — инверсия слоёв. */
 
 :root {
   color-scheme: dark;
 
-  /* Палитра */
-  --bg: #0a0e14;
-  --surface: #11161f;
-  --surface-2: #1a2130;
-  --accent: #00e5ff;
-  --accent-2: #7c4dff;
-  --text: #e6edf3;
-  --text-dim: #8b949e;
-  --ok: #3fb950;
-  --warn: #d29922;
-  --danger: #f85149;
+  /* ── Слои: глубина вместо границ ─────────────────────────────── */
+  --bg: #05080d;
+  --bg-2: #080e16;
+  --surface: #0d141d;
+  --surface-2: #141d28;
+  --surface-3: #1d2937;
+  --surface-glass: rgba(12, 18, 26, 0.72);
 
-  /* Производные */
-  --border: rgba(230, 237, 243, 0.09);
-  --accent-soft: rgba(0, 229, 255, 0.12);
-  --accent-glow: rgba(0, 229, 255, 0.25);
-  --danger-soft: rgba(248, 81, 73, 0.12);
-  --ok-soft: rgba(63, 185, 80, 0.14);
-  --warn-soft: rgba(210, 153, 34, 0.14);
-  --backdrop: rgba(4, 7, 11, 0.72);
+  /* ── Свет: циан ассистента и фиолет данных ───────────────────── */
+  --accent: #22e0ff;
+  --accent-2: #8b5cff;
+  --accent-contrast: #03222a;
+  --text: #e9f2fa;
+  --text-dim: #93a7bc;
+  --text-faint: #6b7d92;
 
-  /* Типографика (§5.1) */
-  --font-ui: "Inter", "Manrope", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", "Cascadia Mono", ui-monospace, "Consolas", monospace;
+  /* ── Состояния ───────────────────────────────────────────────── */
+  --ok: #46d17f;
+  --warn: #e5b53f;
+  --danger: #ff6b6b;
 
-  /* Размеры каркаса (§5.3) */
-  --sidebar-w: 220px;
-  --header-h: 52px;
-  --status-h: 36px;
-  --radius: 10px;
-  --radius-sm: 6px;
+  /* ── Производные ─────────────────────────────────────────────── */
+  --border: rgba(233, 242, 250, 0.08);
+  --border-strong: rgba(233, 242, 250, 0.16);
+  --accent-soft: rgba(34, 224, 255, 0.12);
+  --accent-glow: rgba(34, 224, 255, 0.3);
+  --accent-2-soft: rgba(139, 92, 255, 0.14);
+  --danger-soft: rgba(255, 107, 107, 0.12);
+  --ok-soft: rgba(70, 209, 127, 0.13);
+  --warn-soft: rgba(229, 181, 63, 0.13);
+  --backdrop: rgba(3, 6, 10, 0.7);
+  --hairline: rgba(233, 242, 250, 0.06);
+
+  /* ── Типографика (§5.1) ──────────────────────────────────────── */
+  /* Продукт живёт на Windows: берём его же оптические начертания,
+     а не чужой веб-шрифт, который нельзя гарантировать офлайн. */
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", "Manrope", system-ui, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", "Manrope", system-ui, sans-serif;
+  --font-mono: "Cascadia Code", "Cascadia Mono", "JetBrains Mono", Consolas, ui-monospace, monospace;
+
+  --fs-2xs: 10.5px;
+  --fs-xs: 11.5px;
+  --fs-sm: 12.5px;
+  --fs-base: 13.5px;
+  --fs-md: 15px;
+  --fs-lg: 18px;
+  --fs-xl: 24px;
+  --fs-2xl: 30px;
+
+  /* ── Ритм ────────────────────────────────────────────────────── */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 44px;
+
+  /* ── Формы ───────────────────────────────────────────────────── */
+  --radius-xs: 6px;
+  --radius-sm: 9px;
+  --radius: 13px;
+  --radius-lg: 18px;
+  --radius-full: 999px;
+
+  /* ── Тени: со смещением и мягким размытием, не цветные ореолы ── */
+  --elev-1: 0 1px 2px rgba(0, 0, 0, 0.45), 0 2px 6px -2px rgba(0, 0, 0, 0.4);
+  --elev-2: 0 2px 6px rgba(0, 0, 0, 0.4), 0 16px 40px -16px rgba(0, 0, 0, 0.7);
+  --elev-3: 0 2px 8px rgba(0, 0, 0, 0.45), 0 32px 72px -20px rgba(0, 0, 0, 0.85);
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent-glow);
+
+  /* ── Каркас (§5.3) ───────────────────────────────────────────── */
+  --sidebar-w: 236px;
+  --sidebar-w-rail: 68px;
+  --header-h: 56px;
+  --status-h: 38px;
+  --content-max: 1180px;
+  --dur-sidebar: 320ms;
+
+  /* ── Движение: вход уверенный, выход короче ──────────────────── */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-1: 120ms;
+  --dur-2: 200ms;
+  --dur-3: 320ms;
+  --dur-4: 560ms;
 }
 
 [data-theme="light"] {
   color-scheme: light;
 
-  --bg: #f6f8fa;
+  --bg: #f4f7fa;
+  --bg-2: #eaeff5;
   --surface: #ffffff;
-  --surface-2: #eef1f5;
-  --text: #1f2328;
-  --text-dim: #59636e;
+  --surface-2: #f1f5f9;
+  --surface-3: #e5ebf2;
+  --surface-glass: rgba(255, 255, 255, 0.78);
 
-  --border: rgba(31, 35, 40, 0.14);
-  --accent-soft: rgba(0, 122, 138, 0.1);
-  --accent-glow: rgba(0, 150, 170, 0.28);
-  --danger-soft: rgba(248, 81, 73, 0.1);
-  --ok-soft: rgba(63, 185, 80, 0.12);
-  --warn-soft: rgba(210, 153, 34, 0.12);
-  --backdrop: rgba(31, 35, 40, 0.45);
+  /* Акцент светлой темы темнее: циан на белом не добирает контраст
+     для мелкого текста (проверено измерением, ≥4.5:1 на surface). */
+  --accent: #00707f;
+  --accent-2: #6b45d6;
+  --accent-contrast: #ffffff;
+  --text: #0e1822;
+  --text-dim: #55677c;
+  --text-faint: #77879a;
+
+  --ok: #1a9e59;
+  --warn: #a57500;
+  --danger: #d92d20;
+
+  --border: rgba(14, 24, 34, 0.12);
+  --border-strong: rgba(14, 24, 34, 0.22);
+  --accent-soft: rgba(0, 137, 167, 0.1);
+  --accent-glow: rgba(0, 137, 167, 0.26);
+  --accent-2-soft: rgba(107, 69, 214, 0.12);
+  --danger-soft: rgba(217, 45, 32, 0.1);
+  --ok-soft: rgba(26, 158, 89, 0.12);
+  --warn-soft: rgba(165, 117, 0, 0.12);
+  --backdrop: rgba(14, 24, 34, 0.4);
+  --hairline: rgba(14, 24, 34, 0.07);
+
+  --elev-1: 0 1px 2px rgba(14, 24, 34, 0.08), 0 2px 6px -2px rgba(14, 24, 34, 0.08);
+  --elev-2: 0 2px 6px rgba(14, 24, 34, 0.08), 0 16px 40px -20px rgba(14, 24, 34, 0.22);
+  --elev-3: 0 2px 8px rgba(14, 24, 34, 0.1), 0 32px 72px -24px rgba(14, 24, 34, 0.3);
 }

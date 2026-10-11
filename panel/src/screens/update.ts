@@ -27,6 +27,7 @@ import {
   h,
   keyValue,
   loadingRow,
+  skeleton,
   pageHeader,
   statusPill,
   toast,
@@ -38,8 +39,8 @@ export const updateScreen: ScreenFactory = (container): Cleanup => {
   let state: UpdateStatus | null = null;
   let working = false; // ожидание ответа check/apply — блокируем кнопки
 
-  const checkButton = button(t("Проверить обновления"), () => void check());
-  const applyButton = button(t("Обновить сейчас"), () => void apply(), "primary");
+  const checkButton = button(t("Проверить обновления"), () => void check(), "default", "refresh");
+  const applyButton = button(t("Обновить сейчас"), () => void apply(), "primary", "update");
 
   const body = h("div", { class: "grid-12 fade-in" });
 
@@ -137,7 +138,7 @@ export const updateScreen: ScreenFactory = (container): Cleanup => {
     clear(body);
 
     if (state === null && !working) {
-      body.appendChild(h("div", { class: "col-12" }, loadingRow(t("Чтение состояния обновления…"))));
+      body.appendChild(h("div", { class: "col-12" }, skeleton("card", 3)));
       return;
     }
 
@@ -250,7 +251,7 @@ export const updateScreen: ScreenFactory = (container): Cleanup => {
   function commitList(commits: UpdateCommit[]): HTMLElement {
     if (commits.length === 0) {
       return emptyState({
-        icon: "✅",
+        icon: "check",
         title: t("Новых коммитов нет"),
         hint: t("Локальная ветка совпадает с удалённой."),
       });
@@ -277,7 +278,7 @@ export const updateScreen: ScreenFactory = (container): Cleanup => {
     if (outcome === null) {
       element.appendChild(
         emptyState({
-          icon: "🗒",
+          icon: "list",
           title: t("Обновление ещё не запускалось"),
           hint: t("История обновлений не ведётся: показан результат последнего запуска."),
         }),
@@ -321,7 +322,7 @@ export const updateScreen: ScreenFactory = (container): Cleanup => {
         "div",
         { class: "col-12" },
         emptyState({
-          icon: "⚠️",
+          icon: "alert",
           title: t("Не удалось получить состояние обновления"),
           hint: message,
           action: { label: t("Повторить"), onClick: () => void load() },

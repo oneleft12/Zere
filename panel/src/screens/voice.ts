@@ -13,7 +13,7 @@ import {
   type VoiceSettings,
   type VoiceSettingsApplied,
 } from "../api";
-import { logEvent } from "../events";
+import { announceAssistantState, logEvent } from "../events";
 import { t } from "../i18n";
 import {
   badge,
@@ -25,7 +25,9 @@ import {
   field,
   h,
   keyValue,
-  loadingRow,
+  orb,
+  setOrbState,
+  skeleton,
   pageHeader,
   select,
   slider,
@@ -33,6 +35,7 @@ import {
   textInput,
   toast,
   toggle,
+  type OrbState,
   type PillState,
 } from "../ui";
 import type { Cleanup, ScreenFactory } from "../router";
@@ -75,12 +78,12 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
   // Опрос /api/voice/mode: переживает перерисовку экрана, гасится на уходе.
   let stopPoll: (() => void) | null = null;
 
-  container.appendChild(loadingRow(t("Загрузка голосовых настроек…")));
+  container.appendChild(skeleton("card", 4));
 
   const load = async (): Promise<void> => {
     if (cancelled) return;
     clear(container);
-    container.appendChild(loadingRow(t("Загрузка голосовых настроек…")));
+    container.appendChild(skeleton("card", 4));
 
     try {
       const [settings, mode] = await Promise.all([
@@ -97,7 +100,7 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
       clear(container);
       container.appendChild(
         emptyState({
-          icon: "⚠️",
+          icon: "alert",
           title: t("Не удалось загрузить голосовые настройки"),
           hint: error instanceof ApiError ? error.message : t("Неизвестная ошибка"),
           action: { label: t("Повторить"), onClick: () => void load() },
@@ -113,7 +116,7 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
 
     clear(container);
 
-    const saveBtn = button(t("Сохранить"), () => void save(), "primary");
+    const saveBtn = button(t("Сохранить"), () => void save(), "primary", "check");
     const revertBtn = button(t("Отменить изменения"), () => {
       render(base, toDraft(base), modeState);
       logEvent("Изменения голосовых настроек отброшены");
@@ -315,6 +318,24 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
     });
     const modeToggleInput = modeToggle.querySelector<HTMLInputElement>("input");
 
+    // Орб режима: единственное место, где фазу слышно и видно одновременно.
+    const voiceOrb = orb("idle", { large: true, label: t("Состояние ассистента") });
+    const voiceStateText = h("div", { class: "assistant-state__title", text: t("нет данных") });
+    const voiceStateLead = h(
+      "div",
+      { class: "assistant-state" },
+      voiceOrb,
+      h(
+        "div",
+        { class: "assistant-state__text" },
+        voiceStateText,
+        h("div", {
+          class: "assistant-state__hint",
+          text: t("Фаза непрерывного слушателя: слово-триггер → команда → ответ"),
+        }),
+      ),
+    );
+
     /** Движок триггера в подписи: KWS — своя ONNX-модель, STT — VAD + STT. */
     function engineSuffix(mode: VoiceModeState): string {
       if (!mode.wakeWordEnabled) return "";
@@ -349,6 +370,25 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
       return "idle";
     }
 
+    /** Фаза голосового режима в состояние орба: то же лицо, что в статус-строке. */
+    function orbStateOf(mode: VoiceModeState | null): OrbState {
+      if (mode === null) return "offline";
+
+      switch (mode.state) {
+        case "sleeping":
+        case "listening":
+          return "listening";
+        case "processing":
+          return "thinking";
+        case "speaking":
+          return "speaking";
+        case "error":
+          return "error";
+        default:
+          return "idle";
+      }
+    }
+
     function paintMode(): void {
       const mode = modeState;
 
@@ -362,6 +402,8 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
         );
         modeKvHost.replaceChildren();
         if (modeToggleInput) modeToggleInput.disabled = true;
+        setOrbState(voiceOrb, "offline");
+        voiceStateText.textContent = t("нет данных");
         return;
       }
 
@@ -381,6 +423,11 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
           ? ""
           : t("Распознавание речи недоступно — режим голоса включить нельзя");
       }
+
+      // Живое состояние: орб экрана и орб статус-строки показывают одну фазу.
+      setOrbState(voiceOrb, orbStateOf(mode));
+      voiceStateText.textContent = stateLabel(mode);
+      announceAssistantState(orbStateOf(mode), stateLabel(mode));
 
       modeHint.textContent = !mode.available
         ? t("STT недоступен: режим голоса включить нельзя, доступны только тесты.")
@@ -452,6 +499,7 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
 
     const modeCard = card(
       t("Режим голоса"),
+      h("div", { class: "update-section" }, voiceStateLead),
       h("div", { class: "form-grid form-grid--single" }, pillHost, modeToggle, modeHint),
       modeKvHost,
       modeErrorBox,
@@ -474,9 +522,9 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
       },
     });
 
-    const speakBtn = button(t("Озвучить"), () => void speak(), "primary");
+    const speakBtn = button(t("Озвучить"), () => void speak(), "primary", "volume");
 
-    const recordBtn = button(t("Записать референс (15 с)"), () => void recordReference(), "default");
+    const recordBtn = button(t("Записать референс (15 с)"), () => void recordReference(), "default", "voice");
     recordBtn.disabled = !caps.recordReference;
     if (!caps.recordReference) {
       recordBtn.title = t(
@@ -484,7 +532,7 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
       );
     }
 
-    const listenBtn = button(t("Тест микрофона"), () => void listen());
+    const listenBtn = button(t("Тест микрофона"), () => void listen(), "default", "voiceOff");
     listenBtn.disabled = !caps.sttTest;
     if (!caps.sttTest) listenBtn.title = t("STT сейчас недоступен (capabilities.sttTest=false)");
 
@@ -638,5 +686,6 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
     cancelled = true;
     stopPoll?.();
     stopPoll = null;
+    announceAssistantState("idle", t("ZERE готов"));
   };
 };

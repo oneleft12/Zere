@@ -14,13 +14,27 @@
 
 import { ApiError, aiSupport, apiGet, apiSse, type AiStatus } from "../api";
 import { COMMAND_GROUPS, COMMAND_TOTAL, type CommandItem } from "../commands";
-import { logEvent } from "../events";
+import { announceAssistantState, logEvent } from "../events";
 import { t } from "../i18n";
-import { badge, button, clear, emptyState, h, loadingRow, pageHeader, textInput, toast } from "../ui";
+import { badge, button, clear, emptyState, h, pageHeader, textInput, toast } from "../ui";
+import { registerChatPrefill } from "../palette";
+import { slideToggle } from "../motion";
+import { icon } from "../icons";
 import { navigate, type Cleanup, type ScreenFactory } from "../router";
 
 /** Открыта ли панель команд (запоминаем между заходами в чат). */
 const COMMANDS_OPEN_KEY = "zere-chat-commands-open";
+
+/** Три точки ожидания первого токена внутри строки загрузки. */
+function typingDots(): HTMLElement {
+  return h(
+    "span",
+    { class: "typing" },
+    h("span", {}),
+    h("span", {}),
+    h("span", {}),
+  );
+}
 
 function readCommandsOpen(): boolean {
   try {
@@ -66,6 +80,12 @@ interface ChatView {
 
 let view: ChatView | null = null;
 
+// Палитра (Ctrl+K) подставляет выбранную команду в тот же черновик:
+// состояние диалога одно, независимо от того, откуда пришла команда.
+registerChatPrefill((text) => {
+  chatState.draft = text;
+});
+
 /** Отрисовка лога из состояния (общая для экрана и стрима). */
 function renderLogInto(log: HTMLElement): void {
   clear(log);
@@ -73,7 +93,7 @@ function renderLogInto(log: HTMLElement): void {
   if (chatState.messages.length === 0) {
     log.appendChild(
       emptyState({
-        icon: "💬",
+        icon: "chat",
         title: t("Начните диалог"),
         hint: t("Спросите ZERE о процессах, файлах или погоде — ответ придёт потоком и попадёт в историю."),
       }),
@@ -82,11 +102,15 @@ function renderLogInto(log: HTMLElement): void {
   }
 
   chatState.messages.forEach((message, index) => {
+    const streaming = chatState.busy && chatState.streamingIndex === index;
+
     const bubble = h("div", {
       class: [
         "msg",
         message.role === "user" ? "msg--user" : "msg--assistant",
         message.error ? "msg--error" : "",
+        // Каретка у последней реплики: видно, что поток ещё пишет.
+        streaming && message.text !== "" ? "msg--streaming" : "",
       ]
         .filter(Boolean)
         .join(" "),
@@ -94,8 +118,10 @@ function renderLogInto(log: HTMLElement): void {
     });
 
     // Пузырь ответа живёт до конца стрима: пока токенов нет — «Думаю…».
-    if (chatState.busy && chatState.streamingIndex === index && message.text === "") {
-      bubble.appendChild(loadingRow(t("Думаю…")));
+    if (streaming && message.text === "") {
+      bubble.appendChild(
+        h("div", { class: "loading-row" }, typingDots(), h("span", { text: t("Думаю…") })),
+      );
     }
 
     log.appendChild(bubble);
@@ -120,16 +146,23 @@ async function send(): Promise<void> {
   chatState.draft = "";
   view?.sync();
 
+  // Ассистент ушёл думать: орб в статус-строке показывает это же состояние.
+  announceAssistantState("thinking", t("ZERE думает"));
   logEvent(`Запрос в чат: ${text.slice(0, 60)}`);
 
   const controller = new AbortController();
   chatState.controller = controller;
+  let firstToken = true;
 
   try {
     await apiSse(
       `/api/chat/stream?text=${encodeURIComponent(text)}`,
       {
         onToken: (chunk) => {
+          if (firstToken) {
+            firstToken = false;
+            announceAssistantState("speaking", t("ZERE отвечает"));
+          }
           answer.text += chunk;
           view?.appendChunk();
         },
@@ -148,12 +181,17 @@ async function send(): Promise<void> {
       error instanceof ApiError ? error.message : t("Неизвестная ошибка");
     answer.text = message;
     answer.error = true;
+    announceAssistantState("error", t("Ответ не получен"));
     toast(t("Не удалось получить ответ"), "danger");
     logEvent(`Ошибка чата: ${message}`);
   } finally {
     if (chatState.controller === controller) chatState.controller = null;
     chatState.busy = false;
     chatState.streamingIndex = -1;
+
+    // Ответ закончился — ассистент снова в покое: причину сбоя несёт
+    // сама реплика, а не вечный сигнал в статус-строке.
+    announceAssistantState("idle", t("ZERE готов"));
 
     // Экран мог быть пересоздан (переход по вкладкам) или вообще не открыт:
     // состояние уже в модуле, поэтому рисуем только если чат на экране.
@@ -169,9 +207,11 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
 
   const log = h("div", { class: "chat__log", role: "log", ariaLabel: t("Диалог с ассистентом") });
 
-  const status = h("span", { class: "chat__hint", text: t("Enter — отправить") });
+  const statusKey = h("kbd", { text: "Enter" });
+  const statusText = h("span", { class: "chat__hint", text: t("отправить") });
+  const status = h("span", { class: "chat__state" }, statusKey, statusText);
 
-  const sendButton = button(t("Отправить"), () => void send(), "primary");
+  const sendButton = button(t("Отправить"), () => void send(), "primary", "send");
 
   const input = textInput({
     value: chatState.draft,
@@ -329,6 +369,7 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
   }
 
   const commandsChevron = h("span", { class: "chat__commands-chevron" });
+  commandsChevron.appendChild(icon("chevronDown", { size: 16 }));
 
   const commandsHead = h(
     "button",
@@ -371,11 +412,23 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
 
   let commandsOpen = true;
 
+  /**
+   * Раскрытие анимируется по реальной высоте, а `hidden` ставится после
+   * сворачивания: закрытая панель не остаётся в раскладке и не ловит фокус.
+   */
   function setCommandsOpen(open: boolean, persist = false): void {
     commandsOpen = open;
-    commandsBody.hidden = !open;
-    commandsChevron.textContent = open ? "▾" : "▸";
     commandsHead.setAttribute("aria-expanded", String(open));
+
+    if (open) {
+      commandsBody.hidden = false;
+      void slideToggle(commandsBody, true);
+    } else if (!commandsBody.hidden) {
+      void slideToggle(commandsBody, false).then(() => {
+        // Пользователь мог успеть раскрыть панель обратно.
+        if (!commandsOpen) commandsBody.hidden = true;
+      });
+    }
 
     if (!persist) return;
 
@@ -415,7 +468,8 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
       input.value = chatState.draft;
       input.disabled = chatState.busy;
       sendButton.disabled = chatState.busy;
-      status.textContent = chatState.busy ? t("ZERE отвечает…") : t("Enter — отправить");
+      statusText.textContent = chatState.busy ? t("ZERE отвечает…") : t("отправить");
+      statusKey.hidden = chatState.busy;
     },
 
     appendChunk(): void {
@@ -428,8 +482,10 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
         return;
       }
 
+      // Пока идут токены, у реплики мигает каретка — поток виден, а не угадывается.
       bubble.textContent = message.text;
       bubble.classList.toggle("msg--error", Boolean(message.error));
+      bubble.classList.toggle("msg--streaming", message.text !== "");
       log.scrollTop = log.scrollHeight;
     },
 

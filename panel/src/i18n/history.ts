@@ -11,8 +11,8 @@ export const HISTORY_EN: Record<string, string> = {
   "Поиск по вопросам и ответам…": "Search questions and answers…",
   "Экспорт JSON": "Export JSON",
   "Очистить": "Clear",
-  "← Назад": "← Back",
-  "Вперёд →": "Forward →",
+  "Назад": "Back",
+  "Вперёд": "Forward",
 
   // ── Пагинация, загрузка, ошибки ───────────────────────────────
   "0 записей": "0 records",

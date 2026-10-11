@@ -389,6 +389,10 @@ Zere/
 │   └── wake_word/                # Обучение wake word: record/synth/negatives/data/model/train/evaluate
 ├── panel/                        # Web-панель (SPA, Vite + vanilla TS)
 │   ├── src/                      # main/shell/router/ui/i18n + 13 экранов (screens/)
+│   │   ├── icons.ts              # авторский набор SVG-иконок (24×24, штрих 1.6)
+│   │   ├── motion.ts             # движение: счётчики, раскрытие, волна, reduced-motion
+│   │   ├── palette.ts            # командная палитра Ctrl+K (экраны, действия, команды)
+│   │   ├── styles/               # tokens.css (слои/свет/ритм/движение) + base + components
 │   │   └── commands.ts           # каталог команд ZERE (панель на вкладке «Чат»)
 │   ├── e2e/                      # Playwright-смоук (npm run test:e2e)
 │   └── dist/                     # Сборка — коммитится, раздаётся сервером
@@ -423,7 +427,7 @@ Zere/
 │   ├── fake_http.py              # Фейковый requests.Session для тестов ИИ (без сети)
 │   ├── check_ai_contract_external.py  # /api/ai* против запущенной панели (C# и Python)
 │   └── e2e_server.py             # Раннер панели с фейками для E2E
-├── docs/                         # Планы, отчёты, openapi.yaml (UPDATE.md, AI_PROVIDERS.md, TTS_SILERO.md, WAKE_WORD.md)
+├── docs/                         # Планы, отчёты, openapi.yaml (PANEL_DESIGN.md, UPDATE.md, AI_PROVIDERS.md, TTS_SILERO.md, WAKE_WORD.md)
 ├── logs/                         # Логи
 └── backups/                      # Бэкапы версий
 ```

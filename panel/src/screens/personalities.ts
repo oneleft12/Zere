@@ -13,7 +13,7 @@ import {
   clear,
   emptyState,
   h,
-  loadingRow,
+  skeleton,
   pageHeader,
   toast,
 } from "../ui";
@@ -38,7 +38,7 @@ export const personalitiesScreen: ScreenFactory = (container): Cleanup => {
     if (!personality) {
       container.appendChild(
         emptyState({
-          icon: "⚠️",
+          icon: "alert",
           title: t("Не удалось загрузить личности"),
           hint: error ?? t("Неизвестная ошибка"),
           action: { label: t("Повторить"), onClick: () => void load() },
@@ -129,7 +129,7 @@ export const personalitiesScreen: ScreenFactory = (container): Cleanup => {
 
   const load = async (): Promise<void> => {
     clear(container);
-    container.appendChild(loadingRow(t("Загрузка личностей…")));
+    container.appendChild(skeleton("card", 3));
 
     try {
       const personality = await apiGet<Personality>("/api/personality");

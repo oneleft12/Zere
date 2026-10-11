@@ -1,6 +1,10 @@
 /**
- * Точка входа панели ZERE. Этап 2: оболочка, роутер, статус-строка;
- * экраны подключаются по мере реализации (дашборд, настройки, личности).
+ * Точка входа панели ZERE: оболочка, роутер, командная палитра, статус-строка.
+ *
+ * Статус-строка — пульт панели: каждая служба со своей точкой состояния,
+ * орб слева показывает состояние ассистента целиком (покой / не настроен /
+ * нет связи). Экран «Голос» перехватывает орб, пока открыт: там он
+ * показывает слушание, размышление и речь по-настоящему.
  */
 
 import "./styles/tokens.css";
@@ -8,11 +12,14 @@ import "./styles/base.css";
 import "./styles/components.css";
 
 import { aiSupport, apiGet, type AiStatus, type AiSupport, type Health, type UpdateStatus } from "./api";
-import { logEvent } from "./events";
-import { initLang, onLangChange, t } from "./i18n";
-import { initToasts, toast } from "./ui";
+import { ASSISTANT_STATE_EVENT, logEvent, type AssistantStateDetail } from "./events";
+import { initLang, lang, onLangChange, t } from "./i18n";
+import { clear, initToasts, toast } from "./ui";
+import { icon } from "./icons";
+import { initMotionGuards } from "./motion";
+import { initPalette, openPalette } from "./palette";
 import { navigate, registerRoute, startRouter } from "./router";
-import { createShell } from "./shell";
+import { createShell, type StatusItem } from "./shell";
 import { initTheme, toggleTheme, THEME_EVENT, type Theme } from "./theme";
 import { aiScreen } from "./screens/ai";
 import { dashboardScreen } from "./screens/dashboard";
@@ -28,41 +35,114 @@ import { pluginsScreen } from "./screens/plugins";
 import { logsScreen } from "./screens/logs";
 import { updateScreen } from "./screens/update";
 
+/** Состояние ассистента, объявленное экраном (например, голосовым режимом). */
+
 // Язык (этап 5, i18n) читается до создания оболочки.
 initLang();
+initMotionGuards();
 
 const theme = initTheme();
-const shell = createShell((path) => navigate(path));
+const shell = createShell((path) => navigate(path), { onOpenPalette: openPalette });
 initToasts(shell.toastHost);
+initPalette();
 
-shell.themeButton.textContent = theme === "dark" ? "☾" : "☀";
+/** Иконка темы: луна в тёмной теме, солнце в светлой. */
+function renderThemeIcon(next: Theme): void {
+  clear(shell.themeButton);
+  shell.themeButton.appendChild(icon(next === "dark" ? "moon" : "sun", { size: 17 }));
+}
+
+renderThemeIcon(theme);
+
 shell.themeButton.addEventListener("click", () => {
   const next = toggleTheme();
-  shell.themeButton.textContent = next === "dark" ? "☾" : "☀";
+  renderThemeIcon(next);
   logEvent(`Тема переключена: ${next === "dark" ? "тёмная" : "светлая"}`);
 });
 
-// Кнопка темы в шапке синхронизируется, когда тему меняют из Настроек.
+// Кнопка темы в шапке синхронизируется, когда тему меняют из Настроек
+// или командной палитры.
 document.addEventListener(THEME_EVENT, (event) => {
-  const next = (event as CustomEvent<Theme>).detail;
-  shell.themeButton.textContent = next === "dark" ? "☾" : "☀";
+  renderThemeIcon((event as CustomEvent<Theme>).detail);
 });
 
-// Маршруты. Этап 2: дашборд/настройки/личности; 3: чат/история/память;
-// 4: голос/процессы/приложения/плагины/логи.
-registerRoute({ path: "/", title: "Дашборд", factory: dashboardScreen });
-registerRoute({ path: "/ai", title: "Подключение ИИ", factory: aiScreen });
-registerRoute({ path: "/settings", title: "Настройки", factory: settingsScreen });
-registerRoute({ path: "/personalities", title: "Личности", factory: personalitiesScreen });
-registerRoute({ path: "/chat", title: "Чат", factory: chatScreen });
-registerRoute({ path: "/history", title: "История", factory: historyScreen });
-registerRoute({ path: "/memory", title: "Память", factory: memoryScreen });
-registerRoute({ path: "/voice", title: "Голос", factory: voiceScreen });
-registerRoute({ path: "/processes", title: "Процессы", factory: processesScreen });
-registerRoute({ path: "/apps", title: "Приложения", factory: appsScreen });
-registerRoute({ path: "/plugins", title: "Плагины", factory: pluginsScreen });
-registerRoute({ path: "/logs", title: "Логи", factory: logsScreen });
-registerRoute({ path: "/update", title: "Обновления", factory: updateScreen });
+// Экраны объявляют состояние ассистента (голосовой режим: слушает/думает/говорит).
+// Пока экран ведёт орб сам, оболочка в него не вмешивается: иначе опрос
+// /api/health раз в 20 с гасил бы живую фазу голосового режима.
+let screenOwnsAssistantState = 0;
+
+document.addEventListener(ASSISTANT_STATE_EVENT, (event) => {
+  const detail = (event as CustomEvent<AssistantStateDetail>).detail;
+  screenOwnsAssistantState = Date.now();
+  shell.setAssistantState(detail.state, detail.label ? t(detail.label) : undefined);
+});
+
+// Маршруты: название экрана в шапке, описание — в самом экране.
+registerRoute({
+  path: "/",
+  title: "Дашборд",
+  factory: dashboardScreen,
+});
+registerRoute({
+  path: "/ai",
+  title: "Подключение ИИ",
+  factory: aiScreen,
+});
+registerRoute({
+  path: "/settings",
+  title: "Настройки",
+  factory: settingsScreen,
+});
+registerRoute({
+  path: "/personalities",
+  title: "Личности",
+  factory: personalitiesScreen,
+});
+registerRoute({
+  path: "/chat",
+  title: "Чат",
+  factory: chatScreen,
+});
+registerRoute({
+  path: "/history",
+  title: "История",
+  factory: historyScreen,
+});
+registerRoute({
+  path: "/memory",
+  title: "Память",
+  factory: memoryScreen,
+});
+registerRoute({
+  path: "/voice",
+  title: "Голос",
+  factory: voiceScreen,
+});
+registerRoute({
+  path: "/processes",
+  title: "Процессы",
+  factory: processesScreen,
+});
+registerRoute({
+  path: "/apps",
+  title: "Приложения",
+  factory: appsScreen,
+});
+registerRoute({
+  path: "/plugins",
+  title: "Плагины",
+  factory: pluginsScreen,
+});
+registerRoute({
+  path: "/logs",
+  title: "Логи",
+  factory: logsScreen,
+});
+registerRoute({
+  path: "/update",
+  title: "Обновления",
+  factory: updateScreen,
+});
 
 startRouter(shell.content, (route) => {
   shell.setTitle(t(route.title));
@@ -74,6 +154,15 @@ startRouter(shell.content, (route) => {
 // отметка о доступном обновлении из /api/update (кэш автопроверки, без сети).
 let updateNoticeShown = false;
 let aiNoticeShown = false;
+
+/** Метка свежести данных в шапке: видно, что состояние не «застыло». */
+function freshTime(): string {
+  return new Date().toLocaleTimeString(lang() === "en" ? "en-US" : "ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
 
 // Редакция бэкенда: Python-панель умеет настройку ИИ, C#-панель — нет.
 // Определяем один раз, чтобы не показывать «Маршрут не найден» и не
@@ -108,31 +197,61 @@ async function refreshStatus(): Promise<void> {
       ? await apiGet<AiStatus>("/api/ai").catch(() => null)
       : null;
 
-    const ollama = health.ollama === "ok" ? "Ollama OK" : t("Ollama недоступен");
-    const whisper = health.whisper === "ok" ? "Whisper OK" : t("Whisper отсутствует");
-    const memory = t("память: {count}", { count: health.memory.count });
+    const statuses: StatusItem[] = [
+      {
+        text: health.ollama === "ok" ? "Ollama OK" : t("Ollama недоступен"),
+        state: health.ollama === "ok" ? "ok" : "danger",
+      },
+      {
+        text: health.whisper === "ok" ? "Whisper OK" : t("Whisper отсутствует"),
+        state: health.whisper === "ok" ? "ok" : "warn",
+      },
+      { text: health.tts.engine, state: "ok" },
+      { text: t("память: {count}", { count: health.memory.count }), state: "ok" },
+    ];
 
     let aiLabel = "";
+    let aiState: StatusItem["state"] = "idle";
+
     if (canAskAi) {
-      aiLabel = ai
-        ? ai.activeProvider === "cloud"
-          ? t("ИИ: облако")
-          : ai.activeProvider === "local"
-            ? t("ИИ: локально")
-            : t("ИИ: не настроен")
-        : "";
+      if (ai) {
+        if (ai.activeProvider === "cloud") {
+          aiLabel = t("ИИ: облако");
+          aiState = "ok";
+        } else if (ai.activeProvider === "local") {
+          aiLabel = t("ИИ: локально");
+          aiState = "ok";
+        } else {
+          aiLabel = t("ИИ: не настроен");
+          aiState = "warn";
+        }
+      }
     } else if (aiSupportState === "restart-required") {
       aiLabel = t("ИИ: перезапустите ZERE");
+      aiState = "warn";
     } else {
       aiLabel = t("ИИ: только локально");
+      aiState = "idle";
     }
 
-    shell.statusLeft.textContent =
-      `● ${ollama} · ${whisper} · ${health.tts.engine} · ${memory}` +
-      (aiLabel ? ` · ${aiLabel}` : "");
+    if (aiLabel) statuses.push({ text: aiLabel, state: aiState });
+
+    shell.setStatuses(statuses);
+    shell.setVersion(health.version);
+    shell.setSubtitle(t("обновлено {time}", { time: freshTime() }));
+
+    // Состояние ассистента — только если его не ведёт открытый экран.
+    if (Date.now() - screenOwnsAssistantState > 5000) {
+      shell.setAssistantState(
+        ai && !ai.ready ? "error" : "idle",
+        ai && !ai.ready
+          ? t("ИИ не настроен: включите ключ или локальную модель")
+          : t("ZERE готов"),
+      );
+    }
 
     shell.statusRight.textContent = update?.updateAvailable
-      ? `${health.branch} · ${health.version} · ⬆ ${t("обновление: {count}", { count: update.behind })}`
+      ? `${health.branch} · ${health.version} · ${t("обновление: {count}", { count: update.behind })}`
       : `${health.branch} · ${health.version}`;
 
     // Один раз за сессию: не превращаем каждые 20 с в напоминание.
@@ -148,7 +267,9 @@ async function refreshStatus(): Promise<void> {
       toast(t("Чтобы начать, введите API-ключ или установите локальную модель"), "warn");
     }
   } catch {
-    shell.statusLeft.textContent = t("● панель не отвечает");
+    shell.setStatuses([{ text: t("панель не отвечает"), state: "danger" }]);
+    shell.setAssistantState("offline", t("Нет связи с ZERE"));
+    shell.setSubtitle(t("нет связи с сервером"));
   }
 }
 

@@ -15,7 +15,7 @@ import {
   emptyState,
   h,
   keyValue,
-  loadingRow,
+  skeleton,
   pageHeader,
   toast,
 } from "../ui";
@@ -34,7 +34,7 @@ export const pluginsScreen: ScreenFactory = (container): Cleanup => {
   let loading = false;
 
   const body = h("div", {});
-  const refreshButton = button(t("Обновить"), () => void load());
+  const refreshButton = button(t("Обновить"), () => void load(), "default", "refresh");
 
   container.appendChild(
     pageHeader(
@@ -53,7 +53,7 @@ export const pluginsScreen: ScreenFactory = (container): Cleanup => {
     refreshButton.disabled = true;
 
     clear(body);
-    body.appendChild(loadingRow(t("Загрузка плагинов…")));
+    body.appendChild(skeleton("card", 3));
 
     try {
       const data = await apiGet<PluginList>("/api/plugins");
@@ -68,7 +68,7 @@ export const pluginsScreen: ScreenFactory = (container): Cleanup => {
       clear(body);
       body.appendChild(
         emptyState({
-          icon: "⚠️",
+          icon: "alert",
           title: t("Не удалось загрузить плагины"),
           hint: message,
           action: { label: t("Повторить"), onClick: () => void load() },
@@ -118,7 +118,7 @@ export const pluginsScreen: ScreenFactory = (container): Cleanup => {
           "div",
           { class: "col-12" },
           emptyState({
-            icon: "🧩",
+            icon: "plugins",
             title: t("Плагины не найдены"),
             hint: t("PluginManager не загрузил ни встроенного, ни внешнего плагина."),
           }),

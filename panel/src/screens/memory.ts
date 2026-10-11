@@ -16,7 +16,7 @@ import {
   emptyState,
   field,
   h,
-  loadingRow,
+  skeleton,
   modal,
   pageHeader,
   select,
@@ -69,7 +69,7 @@ export const memoryScreen: ScreenFactory = (container): Cleanup => {
     },
   });
 
-  const addButton = button(t("Добавить запись"), () => openEditor(null), "primary");
+  const addButton = button(t("Добавить запись"), () => openEditor(null), "primary", "plus");
 
   container.appendChild(
     pageHeader(
@@ -103,7 +103,7 @@ export const memoryScreen: ScreenFactory = (container): Cleanup => {
     addButton.disabled = true;
 
     clear(list);
-    list.appendChild(loadingRow(t("Загрузка памяти…")));
+    list.appendChild(skeleton("table", 6));
 
     try {
       const data = await apiGet<MemoryList>(
@@ -125,7 +125,7 @@ export const memoryScreen: ScreenFactory = (container): Cleanup => {
       clear(list);
       list.appendChild(
         emptyState({
-          icon: "⚠️",
+          icon: "alert",
           title: t("Не удалось загрузить память"),
           hint: message,
           action: { label: t("Повторить"), onClick: () => void load() },
@@ -169,7 +169,7 @@ export const memoryScreen: ScreenFactory = (container): Cleanup => {
     if (rows.length === 0) {
       list.appendChild(
         emptyState({
-          icon: "🧠",
+          icon: "memory",
           title: search || category ? t("Ничего не найдено") : t("Память пуста"),
           hint:
             search || category
@@ -223,7 +223,7 @@ export const memoryScreen: ScreenFactory = (container): Cleanup => {
             "td",
             { class: "mem-table__actions" },
             button(t("Изменить"), () => openEditor(item)),
-            button(t("Удалить"), () => void remove(item), "danger"),
+            button(t("Удалить"), () => void remove(item), "danger", "trash"),
           ),
         ),
       ),
