@@ -1236,6 +1236,36 @@ kbd {
   50% { box-shadow: 0 0 0 4px var(--danger-soft); }
 }
 
+/* Кнопка «Режим голоса» в шапке чата: включённый слушатель виден цветом и
+   живой точкой, а фаза цикла написана в самой подписи. */
+.chat__mode--on {
+  background: var(--accent-soft);
+  border-color: color-mix(in oklab, var(--accent) 45%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.chat__mode--on:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--accent) 18%, var(--surface));
+  border-color: var(--accent);
+}
+
+.chat__mode--on::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  animation: zere-live 1.6s var(--ease-in-out) infinite;
+}
+
+@keyframes zere-live {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
 /* ── Чат: справочник команд (единый каталог `commands.ts`) ─────── */
 
 .chat__split {

@@ -19,6 +19,7 @@ import {
   apiPost,
   apiSse,
   type AiStatus,
+  type VoiceModeState,
   type VoiceSettings,
 } from "../api";
 import { COMMAND_GROUPS, COMMAND_TOTAL, type CommandItem } from "../commands";
@@ -145,6 +146,100 @@ async function recordVoice(immediate: boolean): Promise<void> {
 
   // Shift+клик по микрофону: распознанное уходит в чат без правки в поле.
   if (recognized && immediate) void send();
+}
+
+/**
+ * Режим голоса в шапке чата — тот же непрерывный слушатель, что включается
+ * тумблером на экране «Голос» (`GET/POST /api/voice/mode`), но под рукой
+ * там, где идёт диалог: слушать команды, не переключая экран.
+ *
+ * Кнопка не «немая»: в подписи — фаза цикла (ждёт слово-триггер, слушает
+ * команду, формулирует ответ, озвучивает), поэтому видно, что микрофон жив.
+ * Состояние в модуле: переживает переход по вкладкам, как диалог.
+ */
+
+/** Состояние режима; null — бэкенд его не отдаёт (старого образца). */
+let voiceMode: VoiceModeState | null = null;
+
+/** Переключение в полёте: кнопка не даёт нажать себя дважды. */
+let voiceModeBusy = false;
+
+/**
+ * Поколение состояния: растёт на каждом переключении. Опрос, начатый до
+ * нажатия, не должен перебить свежий ответ `POST` — его результат устарел.
+ */
+let voiceModeSeq = 0;
+
+/** Опрос фазы режима, пока экран чата открыт. */
+const MODE_POLL_MS = 2000;
+
+/** Фаза цикла словами — формулировки те же, что на экране «Голос». */
+function voiceModePhase(mode: VoiceModeState): string {
+  switch (mode.state) {
+    case "sleeping":
+      return mode.wakeWordEnabled
+        ? t("ждёт «{word}»", { word: mode.wakeWord })
+        : t("слушает без триггера");
+    case "listening":
+      return t("слушает команду");
+    case "processing":
+      return t("формулирует ответ");
+    case "speaking":
+      return t("озвучивает ответ");
+    case "error":
+      return t("ошибка");
+    default:
+      return t("выключен");
+  }
+}
+
+/** Подпись кнопки режима: включён — с фазой, выключен — просто имя. */
+function voiceModeLabel(mode: VoiceModeState | null): string {
+  if (mode?.enabled) return t("Режим голоса: {state}", { state: voiceModePhase(mode) });
+  return t("Режим голоса");
+}
+
+/** Подсказка кнопки: что будет по нажатию и почему нельзя, если нельзя. */
+function voiceModeHint(mode: VoiceModeState | null, busy: boolean): string {
+  if (mode === null) {
+    return t("Состояние режима недоступно: сервер не отдаёт /api/voice/mode");
+  }
+  if (!mode.available) {
+    return t("Распознавание речи недоступно — режим голоса включить нельзя");
+  }
+  if (busy) return t("Переключаю режим голоса…");
+  return mode.enabled
+    ? t("Выключить режим голоса")
+    : t("Включить режим голоса: слово-триггер → команда → ответ голосом");
+}
+
+/** Переключение режима: POST /api/voice/mode и честный результат в тосте. */
+async function toggleVoiceMode(): Promise<void> {
+  if (voiceMode === null || voiceModeBusy) return;
+
+  const enable = !voiceMode.enabled;
+  voiceModeBusy = true;
+  voiceModeSeq += 1; // ответы опроса «до нажатия» больше не актуальны
+  view?.sync();
+
+  try {
+    voiceMode = await apiPost<VoiceModeState>("/api/voice/mode", { enabled: enable });
+
+    toast(
+      enable ? t("Голосовой режим включён") : t("Голосовой режим выключен"),
+      "ok",
+    );
+    logEvent(
+      enable ? "Режим голоса включён из чата" : "Режим голоса выключен из чата",
+    );
+  } catch (error) {
+    const message = error instanceof ApiError ? error.message : t("Неизвестная ошибка");
+    toast(t("Не удалось переключить режим: {message}", { message }), "danger");
+    logEvent(`Ошибка переключения режима голоса: ${message}`);
+  } finally {
+    voiceModeBusy = false;
+    view?.sync();
+  }
 }
 
 /** Смонтированный экран: стрим пишет в него, только пока он на экране. */
@@ -302,7 +397,6 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
   // поэтому тестам и стилям нужен признак, который не зависит от подписи.
   micButton.classList.add("chat__mic");
 
-
   micButton.addEventListener("click", (event) => {
     void recordVoice((event as MouseEvent).shiftKey);
   });
@@ -338,6 +432,57 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
     view?.sync();
   }
 
+  // ── Режим голоса в шапке чата (GET/POST /api/voice/mode) ────────
+  // Тот же непрерывный слушатель, что включается на экране «Голос», но
+  // под рукой в диалоге. Подпись кнопки несёт фазу цикла: включённый
+  // режим видно, а не приходится верить на слово.
+  const voiceModeButton = button(
+    t("Режим голоса"),
+    () => void toggleVoiceMode(),
+    "default",
+    "voice",
+  );
+  voiceModeButton.classList.add("chat__mode");
+  const voiceModeButtonLabel = voiceModeButton.querySelector<HTMLElement>("span");
+
+  let modeTimer: number | null = null;
+
+  function stopModePoll(): void {
+    if (modeTimer !== null) window.clearInterval(modeTimer);
+    modeTimer = null;
+  }
+
+  /** Опрос фазы: состояние живёт на сервере, кнопка обязана его догнать. */
+  async function pollVoiceMode(): Promise<void> {
+    const seq = voiceModeSeq;
+
+    try {
+      const next = await apiGet<VoiceModeState>("/api/voice/mode");
+      // Ответ мог прийти после переключения — тогда он уже не про то состояние.
+      if (!mounted || seq !== voiceModeSeq) return;
+      voiceMode = next;
+    } catch (error) {
+      if (!mounted || seq !== voiceModeSeq) return;
+
+      // 404 — бэкенд старого образца: кнопки режима в чате просто нет,
+      // и опрашивать больше нечего.
+      if (error instanceof ApiError && error.status === 404) {
+        voiceMode = null;
+        stopModePoll();
+        view?.sync();
+        return;
+      }
+
+      // Прочие сбои (панель не ответила) состояние не выдумывают:
+      // остаётся последнее известное.
+    }
+
+    view?.sync();
+  }
+
+  void pollVoiceMode();
+  modeTimer = window.setInterval(() => void pollVoiceMode(), MODE_POLL_MS);
+
   const input = textInput({
     value: chatState.draft,
     placeholder: t("Спросите ZERE…"),
@@ -372,7 +517,9 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
     pageHeader(
       t("Чат"),
       t("Ответ приходит потоком (SSE) и сразу сохраняется в истории диалогов"),
-      [providerBadge, badge(t("SSE-стрим"), "accent")],
+      // Режим голоса — первым действием: он про то, как говорить с ZERE,
+      // а бейджи ИИ и стрима — про то, как приходит ответ.
+      [voiceModeButton, providerBadge, badge(t("SSE-стрим"), "accent")],
     ),
   );
 
@@ -601,6 +748,15 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
       micButton.title = micHint();
       micButton.setAttribute("aria-label", micLabel());
 
+      // Кнопка режима голоса: у бэкенда без /api/voice/mode её нет вовсе,
+      // у бэкенда без STT — выключена и объясняет причину.
+      voiceModeButton.hidden = voiceMode === null;
+      voiceModeButton.disabled = voiceModeBusy || voiceMode?.available === false;
+      voiceModeButton.classList.toggle("chat__mode--on", voiceMode?.enabled === true);
+      voiceModeButton.setAttribute("aria-pressed", String(voiceMode?.enabled === true));
+      voiceModeButton.title = voiceModeHint(voiceMode, voiceModeBusy);
+      if (voiceModeButtonLabel) voiceModeButtonLabel.textContent = voiceModeLabel(voiceMode);
+
       // Строка состояния одна на все фазы: запись микрофона видно там же,
       // где «отправить» и «ZERE отвечает…».
       statusText.textContent = recording
@@ -640,6 +796,8 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
 
   return () => {
     mounted = false;
+    // Опрос фазы режима — ресурс экрана: ушли из чата, таймер погас.
+    stopModePoll();
     // Стрим не обрываем: состояние живёт в модуле, а `view = null` просто
     // отключает запись в уже снесённый DOM.
     if (view === viewImpl) view = null;

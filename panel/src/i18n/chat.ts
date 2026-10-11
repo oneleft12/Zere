@@ -31,6 +31,17 @@ export const CHAT_EN: Record<string, string> = {
   "Микрофон ничего не распознал": "The microphone picked up nothing",
   "Не удалось записать голосовое: {message}": "Failed to record the voice message: {message}",
 
+  // ── Режим голоса в шапке чата (GET/POST /api/voice/mode) ──────
+  // Фазы цикла берутся из i18n/voice.ts: формулировки те же, что на «Голосе».
+  "Режим голоса": "Voice mode",
+  "Режим голоса: {state}": "Voice mode: {state}",
+  "Включить режим голоса: слово-триггер → команда → ответ голосом":
+    "Turn voice mode on: wake word → command → spoken answer",
+  "Выключить режим голоса": "Turn voice mode off",
+  "Переключаю режим голоса…": "Switching voice mode…",
+  "Состояние режима недоступно: сервер не отдаёт /api/voice/mode":
+    "Mode state is unavailable: the server does not expose /api/voice/mode",
+
   // ── Пустой лог ────────────────────────────────────────────────
   "Начните диалог": "Start a conversation",
   "Спросите ZERE о процессах, файлах или погоде — ответ придёт потоком и попадёт в историю.":
