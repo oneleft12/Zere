@@ -4,6 +4,12 @@
  * а контракт требует `X-ZERE-Token`, поэтому стрим читается через
  * `fetch` + `ReadableStream` (см. `api.ts`). Каждый диалог сохраняется
  * движком в истории — он появляется на экране «История».
+ *
+ * Состояние диалога живёт в модуле (`chatState`), а не внутри фабрики
+ * экрана: роутер пересоздаёт экран на каждом переходе, и раньше диалог
+ * сбрасывался при переключении вкладки (чат → «Подключение ИИ» → чат).
+ * Ответ, начатый до ухода с экрана, тоже продолжает стримиться: вернувшись,
+ * видно дописанный до конца ответ, а не пустой пузырь.
  */
 
 import { ApiError, aiSupport, apiGet, apiSse, type AiStatus } from "../api";
@@ -30,13 +36,136 @@ interface Message {
   error?: boolean;
 }
 
+interface ChatState {
+  messages: Message[];
+  draft: string;
+  busy: boolean;
+  /** Индекс пузыря, в который пишется текущий ответ (-1 — стрима нет). */
+  streamingIndex: number;
+  controller: AbortController | null;
+}
+
+/** Диалог переживает уход на другую вкладку и возврат в чат. */
+const chatState: ChatState = {
+  messages: [],
+  draft: "",
+  busy: false,
+  streamingIndex: -1,
+  controller: null,
+};
+
+/** Смонтированный экран: стрим пишет в него, только пока он на экране. */
+interface ChatView {
+  /** Полная перерисовка лога из состояния + синхронизация ввода и статуса. */
+  sync(): void;
+  /** Дописать текущий ответ в его пузырь, без полной перерисовки лога. */
+  appendChunk(): void;
+  /** Вернуть фокус в поле ввода. */
+  focusInput(): void;
+}
+
+let view: ChatView | null = null;
+
+/** Отрисовка лога из состояния (общая для экрана и стрима). */
+function renderLogInto(log: HTMLElement): void {
+  clear(log);
+
+  if (chatState.messages.length === 0) {
+    log.appendChild(
+      emptyState({
+        icon: "💬",
+        title: t("Начните диалог"),
+        hint: t("Спросите ZERE о процессах, файлах или погоде — ответ придёт потоком и попадёт в историю."),
+      }),
+    );
+    return;
+  }
+
+  chatState.messages.forEach((message, index) => {
+    const bubble = h("div", {
+      class: [
+        "msg",
+        message.role === "user" ? "msg--user" : "msg--assistant",
+        message.error ? "msg--error" : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      text: message.text,
+    });
+
+    // Пузырь ответа живёт до конца стрима: пока токенов нет — «Думаю…».
+    if (chatState.busy && chatState.streamingIndex === index && message.text === "") {
+      bubble.appendChild(loadingRow(t("Думаю…")));
+    }
+
+    log.appendChild(bubble);
+  });
+
+  log.scrollTop = log.scrollHeight;
+}
+
+/** Отправка запроса в чат — вне экрана: стрим переживает пересоздание вкладки. */
+async function send(): Promise<void> {
+  const text = chatState.draft.trim();
+  if (chatState.busy || !text) return;
+
+  chatState.messages.push({ role: "user", text });
+  chatState.messages.push({ role: "assistant", text: "" });
+
+  const index = chatState.messages.length - 1;
+  const answer = chatState.messages[index];
+
+  chatState.busy = true;
+  chatState.streamingIndex = index;
+  chatState.draft = "";
+  view?.sync();
+
+  logEvent(`Запрос в чат: ${text.slice(0, 60)}`);
+
+  const controller = new AbortController();
+  chatState.controller = controller;
+
+  try {
+    await apiSse(
+      `/api/chat/stream?text=${encodeURIComponent(text)}`,
+      {
+        onToken: (chunk) => {
+          answer.text += chunk;
+          view?.appendChunk();
+        },
+        onDone: (full) => {
+          if (full) answer.text = full; // авторитетный итог от сервера
+        },
+        onError: (code, message) => {
+          answer.text = `${message} (${code})`;
+          answer.error = true;
+        },
+      },
+      controller.signal,
+    );
+  } catch (error) {
+    const message =
+      error instanceof ApiError ? error.message : t("Неизвестная ошибка");
+    answer.text = message;
+    answer.error = true;
+    toast(t("Не удалось получить ответ"), "danger");
+    logEvent(`Ошибка чата: ${message}`);
+  } finally {
+    if (chatState.controller === controller) chatState.controller = null;
+    chatState.busy = false;
+    chatState.streamingIndex = -1;
+
+    // Экран мог быть пересоздан (переход по вкладкам) или вообще не открыт:
+    // состояние уже в модуле, поэтому рисуем только если чат на экране.
+    view?.sync();
+    view?.focusInput();
+  }
+}
+
 export const chatScreen: ScreenFactory = (container): Cleanup => {
-  const messages: Message[] = [];
-  let draft = "";
-  let busy = false;
-  let cancelled = false;
-  let controller: AbortController | null = null;
-  let pendingEl: HTMLElement | null = null;
+  // Своя «живость» на монтаж: асинхронные обновления этого экрана (бейдж ИИ)
+  // не должны трогать DOM после ухода на другую вкладку.
+  let mounted = true;
 
   const log = h("div", { class: "chat__log", role: "log", ariaLabel: t("Диалог с ассистентом") });
 
@@ -45,10 +174,10 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
   const sendButton = button(t("Отправить"), () => void send(), "primary");
 
   const input = textInput({
-    value: "",
+    value: chatState.draft,
     placeholder: t("Спросите ZERE…"),
     onInput: (value) => {
-      draft = value;
+      chatState.draft = value;
     },
   });
 
@@ -90,14 +219,14 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
       // Бэкенд без /api/ai (старая сборка) или со старым кодом: бейджа нет,
       // подсказку не показываем — чат работает и без этой информации.
       const support = await aiSupport();
-      if (cancelled || support !== "ready") {
+      if (!mounted || support !== "ready") {
         providerBadge.hidden = true;
         aiNotice.hidden = true;
         return;
       }
 
       const ai = await apiGet<AiStatus>("/api/ai");
-      if (cancelled) return;
+      if (!mounted) return;
 
       providerBadge.textContent =
         ai.activeProvider === "cloud"
@@ -193,7 +322,7 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
 
   /** Подставляет команду в композер: остаётся дописать аргумент и нажать Enter. */
   function insertCommand(command: string): void {
-    draft = command;
+    chatState.draft = command;
     input.value = command;
     input.focus();
     input.setSelectionRange(command.length, command.length);
@@ -278,122 +407,46 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
     ),
   );
 
-  renderLog();
-  setBusy(false);
-
   // ── Рендер ─────────────────────────────────────────────────────
 
-  function renderLog(): void {
-    clear(log);
+  const viewImpl: ChatView = {
+    sync(): void {
+      renderLogInto(log);
+      input.value = chatState.draft;
+      input.disabled = chatState.busy;
+      sendButton.disabled = chatState.busy;
+      status.textContent = chatState.busy ? t("ZERE отвечает…") : t("Enter — отправить");
+    },
 
-    if (messages.length === 0) {
-      log.appendChild(
-        emptyState({
-          icon: "💬",
-          title: t("Начните диалог"),
-          hint: t("Спросите ZERE о процессах, файлах или погоде — ответ придёт потоком и попадёт в историю."),
-        }),
-      );
-      return;
-    }
+    appendChunk(): void {
+      const index = chatState.streamingIndex;
+      const message = chatState.messages[index];
+      const bubble = log.querySelectorAll<HTMLElement>(".msg")[index];
 
-    for (const message of messages) {
-      log.appendChild(
-        h(
-          "div",
-          {
-            class: [
-              "msg",
-              message.role === "user" ? "msg--user" : "msg--assistant",
-              message.error ? "msg--error" : "",
-            ]
-              .filter(Boolean)
-              .join(" "),
-          },
-          message.text,
-        ),
-      );
-    }
+      if (!message || !bubble) {
+        renderLogInto(log);
+        return;
+      }
 
-    pendingEl = null;
-    scrollToEnd();
-  }
+      bubble.textContent = message.text;
+      bubble.classList.toggle("msg--error", Boolean(message.error));
+      log.scrollTop = log.scrollHeight;
+    },
 
-  function scrollToEnd(): void {
-    log.scrollTop = log.scrollHeight;
-  }
-
-  function setBusy(value: boolean): void {
-    busy = value;
-    input.disabled = value;
-    sendButton.disabled = value;
-    status.textContent = value ? t("ZERE отвечает…") : t("Enter — отправить");
-  }
-
-  // ── Отправка ───────────────────────────────────────────────────
-
-  async function send(): Promise<void> {
-    const text = draft.trim();
-    if (busy || !text) return;
-
-    messages.push({ role: "user", text });
-    messages.push({ role: "assistant", text: "" });
-    const answer = messages[messages.length - 1];
-
-    renderLog();
-    // Пузырь ответа живёт до конца стрима — дописываем токены в него,
-    // а не перерисовываем лог на каждое событие.
-    pendingEl = log.lastElementChild as HTMLElement;
-    pendingEl.appendChild(loadingRow(t("Думаю…")));
-    setBusy(true);
-
-    draft = "";
-    input.value = "";
-    controller = new AbortController();
-    logEvent(`Запрос в чат: ${text.slice(0, 60)}`);
-
-    try {
-      await apiSse(
-        `/api/chat/stream?text=${encodeURIComponent(text)}`,
-        {
-          onToken: (chunk) => {
-            if (cancelled || !pendingEl) return;
-            answer.text += chunk;
-            pendingEl.textContent = answer.text;
-            scrollToEnd();
-          },
-          onDone: (full) => {
-            if (full) answer.text = full; // авторитетный итог от сервера
-          },
-          onError: (code, message) => {
-            answer.text = `${message} (${code})`;
-            answer.error = true;
-          },
-        },
-        controller.signal,
-      );
-    } catch (error) {
-      if (cancelled) return;
-
-      const message =
-        error instanceof ApiError ? error.message : t("Неизвестная ошибка");
-      answer.text = message;
-      answer.error = true;
-      toast(t("Не удалось получить ответ"), "danger");
-      logEvent(`Ошибка чата: ${message}`);
-    } finally {
-      controller = null;
-
-      if (cancelled) return;
-
-      renderLog();
-      setBusy(false);
+    focusInput(): void {
       input.focus();
-    }
-  }
+    },
+  };
+
+  // Экран пересоздан (возврат на вкладку или смена языка) — показываем
+  // накопленный диалог и, если стрим ещё идёт, продолжаем писать в него.
+  view = viewImpl;
+  viewImpl.sync();
 
   return () => {
-    cancelled = true;
-    controller?.abort();
+    mounted = false;
+    // Стрим не обрываем: состояние живёт в модуле, а `view = null` просто
+    // отключает запись в уже снесённый DOM.
+    if (view === viewImpl) view = null;
   };
 };
