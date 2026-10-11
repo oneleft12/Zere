@@ -17,6 +17,20 @@ export const CHAT_EN: Record<string, string> = {
   "Отправить": "Send",
   "Спросите ZERE…": "Ask ZERE…",
 
+  // ── Голосовое в чате (POST /api/voice/listen) ─────────────────
+  "Записать голосовое": "Record a voice message",
+  "Идёт запись голосового…": "Recording a voice message…",
+  "Распознавание речи недоступно": "Speech recognition is unavailable",
+  "STT недоступен (capabilities.sttTest=false) — кнопка выключена":
+    "STT is unavailable (capabilities.sttTest=false) — the button is disabled",
+  "Проверяю микрофон…": "Checking the microphone…",
+  "Запись ≈5 с с микрофона машины ZERE, затем распознавание; Shift+клик — отправить сразу":
+    "Records ≈5 s from the ZERE machine's microphone, then transcribes; Shift+click sends right away",
+  "Слушаю микрофон…": "Listening to the microphone…",
+  "ZERE слушает": "ZERE is listening",
+  "Микрофон ничего не распознал": "The microphone picked up nothing",
+  "Не удалось записать голосовое: {message}": "Failed to record the voice message: {message}",
+
   // ── Пустой лог ────────────────────────────────────────────────
   "Начните диалог": "Start a conversation",
   "Спросите ZERE о процессах, файлах или погоде — ответ придёт потоком и попадёт в историю.":

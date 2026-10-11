@@ -12,11 +12,29 @@
  * видно дописанный до конца ответ, а не пустой пузырь.
  */
 
-import { ApiError, aiSupport, apiGet, apiSse, type AiStatus } from "../api";
+import {
+  ApiError,
+  aiSupport,
+  apiGet,
+  apiPost,
+  apiSse,
+  type AiStatus,
+  type VoiceSettings,
+} from "../api";
 import { COMMAND_GROUPS, COMMAND_TOTAL, type CommandItem } from "../commands";
 import { announceAssistantState, logEvent } from "../events";
 import { t } from "../i18n";
-import { badge, button, clear, emptyState, h, pageHeader, textInput, toast } from "../ui";
+import {
+  badge,
+  button,
+  clear,
+  emptyState,
+  h,
+  iconButton,
+  pageHeader,
+  textInput,
+  toast,
+} from "../ui";
 import { registerChatPrefill } from "../palette";
 import { slideToggle } from "../motion";
 import { icon } from "../icons";
@@ -67,6 +85,67 @@ const chatState: ChatState = {
   streamingIndex: -1,
   controller: null,
 };
+
+/**
+ * Голосовое в чате. Запись идёт на сервере (`POST /api/voice/listen` — та же
+ * дорожка, что у «Теста микрофона» на экране «Голос»), а не через
+ * `getUserMedia`: панель локальная, микрофон принадлежит машине ZERE, и
+ * браузер не спрашивает разрешение.
+ *
+ * Оба поля живут в модуле, как и диалог: запись длится несколько секунд, и
+ * переход на другую вкладку не должен её терять или оставлять кнопку в
+ * состоянии «идёт запись» навсегда.
+ */
+
+/** `capabilities.sttTest` из `/api/voice`; null — ещё не спросили. */
+let sttAvailable: boolean | null = null;
+
+/** Идёт запись голосового. */
+let recording = false;
+
+/** Запись голосового: распознанный текст встаёт в поле ввода. */
+async function recordVoice(immediate: boolean): Promise<void> {
+  if (recording) return;
+
+  recording = true;
+  view?.sync();
+  announceAssistantState("listening", t("ZERE слушает"));
+  logEvent("Запись голосового из чата");
+
+  let recognized = "";
+
+  try {
+    const result = await apiPost<{ text: string }>("/api/voice/listen", {});
+    recognized = (result.text ?? "").trim();
+
+    if (recognized) {
+      // Дописываем к черновику: сказанное голосом не затирает набранное руками.
+      chatState.draft = chatState.draft.trim()
+        ? `${chatState.draft.trim()} ${recognized}`
+        : recognized;
+      // В тосте — начало фразы: длинная реплика целиком не читается, а
+      // целиком она уже стоит в поле ввода перед глазами.
+      const preview = recognized.length > 60 ? `${recognized.slice(0, 60)}…` : recognized;
+      toast(t("Распознано: «{text}»", { text: preview }), "ok");
+      logEvent(`Голосовое распознано: «${recognized.slice(0, 60)}»`);
+    } else {
+      toast(t("Микрофон ничего не распознал"), "warn");
+      logEvent("Голосовое: микрофон ничего не распознал");
+    }
+  } catch (error) {
+    const message = error instanceof ApiError ? error.message : t("Неизвестная ошибка");
+    toast(t("Не удалось записать голосовое: {message}", { message }), "danger");
+    logEvent(`Ошибка записи голосового: ${message}`);
+  } finally {
+    recording = false;
+    announceAssistantState("idle", t("ZERE готов"));
+    view?.sync();
+    view?.focusInput();
+  }
+
+  // Shift+клик по микрофону: распознанное уходит в чат без правки в поле.
+  if (recognized && immediate) void send();
+}
 
 /** Смонтированный экран: стрим пишет в него, только пока он на экране. */
 interface ChatView {
@@ -213,6 +292,52 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
 
   const sendButton = button(t("Отправить"), () => void send(), "primary", "send");
 
+  // ── Голосовое: «Записать голосовое» → текст в поле ввода ─────────
+  // Клик — запись и вставка распознанного в композер (видно, что услышано,
+  // можно поправить); Shift+клик — сразу отправить. Подписи кнопки честные:
+  // если STT нет, она выключена и объясняет причину, а не молчит.
+  // ghost-иконка: в композере главное — «Отправить», микрофон рядом и тише.
+  const micButton = iconButton("voice", t("Записать голосовое"));
+  // Стабильный крючок: aria-label честно меняется по фазе («идёт запись»),
+  // поэтому тестам и стилям нужен признак, который не зависит от подписи.
+  micButton.classList.add("chat__mic");
+
+
+  micButton.addEventListener("click", (event) => {
+    void recordVoice((event as MouseEvent).shiftKey);
+  });
+
+  function micLabel(): string {
+    if (sttAvailable === false) return t("Распознавание речи недоступно");
+    return recording ? t("Идёт запись голосового…") : t("Записать голосовое");
+  }
+
+  function micHint(): string {
+    if (sttAvailable === false) {
+      return t("STT недоступен (capabilities.sttTest=false) — кнопка выключена");
+    }
+    if (sttAvailable === null) return t("Проверяю микрофон…");
+    return t(
+      "Запись ≈5 с с микрофона машины ZERE, затем распознавание; Shift+клик — отправить сразу",
+    );
+  }
+
+  /** Доступность STT не угадываем, а спрашиваем у `/api/voice`. */
+  async function refreshMic(): Promise<void> {
+    try {
+      const settings = await apiGet<VoiceSettings>("/api/voice");
+      if (!mounted) return;
+      sttAvailable = Boolean(settings.capabilities?.sttTest);
+    } catch {
+      // Голосовой модуль не подключён или бэкенд старее контракта:
+      // кнопка выключена с причиной, сам чат работает как раньше.
+      if (!mounted) return;
+      sttAvailable = false;
+    }
+
+    view?.sync();
+  }
+
   const input = textInput({
     value: chatState.draft,
     placeholder: t("Спросите ZERE…"),
@@ -237,6 +362,7 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
       },
     },
     input,
+    micButton,
     sendButton,
   );
 
@@ -291,6 +417,7 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
 
   container.appendChild(aiNotice);
   void refreshProvider();
+  void refreshMic();
 
   // ── Список доступных команд (единый каталог `commands.ts`) ──────
   // Команды вставляются в поле ввода нажатием: не нужно помнить точную
@@ -468,8 +595,20 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
       input.value = chatState.draft;
       input.disabled = chatState.busy;
       sendButton.disabled = chatState.busy;
-      statusText.textContent = chatState.busy ? t("ZERE отвечает…") : t("отправить");
-      statusKey.hidden = chatState.busy;
+
+      micButton.disabled = recording || chatState.busy || sttAvailable === false;
+      micButton.classList.toggle("btn--recording", recording);
+      micButton.title = micHint();
+      micButton.setAttribute("aria-label", micLabel());
+
+      // Строка состояния одна на все фазы: запись микрофона видно там же,
+      // где «отправить» и «ZERE отвечает…».
+      statusText.textContent = recording
+        ? t("Слушаю микрофон…")
+        : chatState.busy
+          ? t("ZERE отвечает…")
+          : t("отправить");
+      statusKey.hidden = chatState.busy || recording;
     },
 
     appendChunk(): void {

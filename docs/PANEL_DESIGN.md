@@ -76,7 +76,7 @@
 
 ```bash
 npm run build                 # tsc + vite → panel/dist (коммитится)
-npx playwright test           # 24 e2e: экраны, чат, команды, ИИ, обновления, голос
+npx playwright test           # 33 e2e: экраны, чат, голосовое, команды, ИИ, обновления, голос
 node e2e/audit.cjs            # расширенный аудит: XSS, обрыв связи, 390×844, i18n
 ```
 
@@ -84,7 +84,7 @@ node e2e/audit.cjs            # расширенный аудит: XSS, обры
 
 ## 6. Правила правки
 
-1. Классы, за которые держатся e2e (`e2e/*.spec.ts`): `.card`, `.msg`/`.msg--user`/`.msg--assistant`, `.loading-row`, `.nav-item[title]`, `.shell__status`, `.page-header__title`, `.chat__commands*`, `.cmd*`, `.form-error`, `.status-pill__value`, `.toast`, `.table`. Переименование = падающий сценарий приёмки.
+1. Классы, за которые держатся e2e (`e2e/*.spec.ts`): `.card`, `.msg`/`.msg--user`/`.msg--assistant`, `.loading-row`, `.nav-item[title]`, `.shell__status`, `.page-header__title`, `.chat__commands*`, `.chat__mic`, `.cmd*`, `.form-error`, `.status-pill__value`, `.toast`, `.table`. Переименование = падающий сценарий приёмки.
 2. Тексты интерфейса не хардкодятся: строка идёт через `t()`, перевод — в `panel/src/i18n/<экран>.ts` (ключ — точная русская строка).
 3. Экраны не расставляют внешние отступы: вертикальный ритм задаёт `.shell__content` (flex + `gap`).
 4. Новое движение добавляется только с ответом на вопрос «что это объясняет». Декоративные циклы не заводятся.

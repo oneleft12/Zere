@@ -1222,6 +1222,20 @@ kbd {
   flex: none;
 }
 
+/* Кнопка «Записать голосовое»: пока идёт запись, она красная и «дышит» —
+   микрофон пишет, и это видно независимо от того, что в комнате тихо. */
+.chat__composer .btn--recording {
+  background: var(--danger-soft);
+  border-color: color-mix(in oklab, var(--danger) 45%, transparent);
+  color: var(--danger);
+  animation: zere-rec 1.4s var(--ease-in-out) infinite;
+}
+
+@keyframes zere-rec {
+  0%, 100% { box-shadow: 0 0 0 0 var(--danger-soft); }
+  50% { box-shadow: 0 0 0 4px var(--danger-soft); }
+}
+
 /* ── Чат: справочник команд (единый каталог `commands.ts`) ─────── */
 
 .chat__split {

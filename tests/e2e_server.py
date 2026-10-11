@@ -49,6 +49,20 @@ from tests.test_panel_api import (
 PORT = int(os.environ.get("E2E_PORT", "8099"))
 
 
+class E2eVoiceManager(FakeVoiceManager):
+    """Голос для E2E: фраза микрофона отдаётся сколько угодно раз.
+
+    Контрактный фейк расходует `listen_results` (pop) — это верно для теста
+    «одна запись → один результат», но спеки Playwright живут на одном
+    сервере: вторая запись голосового получала бы «микрофон молчит».
+    """
+
+    def listen(self) -> str:
+        self.listen_results = ["привет из микрофона"]
+        return super().listen()
+
+
+
 def _ai_service() -> AiService:
     """Сервис ИИ с фейковым HTTP: детерминированное состояние для E2E.
 
@@ -100,7 +114,7 @@ def main() -> None:
                 process_service=FakeProcessService(),
                 safe_actions=FakeSafeActionManager(),
                 app_launcher=FakeApplicationLauncher(),
-                voice=FakeVoiceManager(),
+                voice=E2eVoiceManager(),
                 # Обновление из GitHub: в E2E — «есть 1 новый коммит»,
                 # без git, сети и записи в рабочую копию.
                 updater=FakeUpdater(update_available=True),
