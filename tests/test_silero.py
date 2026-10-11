@@ -29,6 +29,7 @@ import subprocess
 import sys
 import tempfile
 import types
+import warnings
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -136,6 +137,9 @@ class FakePackageImporter:
     instances: list["FakePackageImporter"] = []
     model: FakeModel | None = None
     error: Exception | None = None
+    #: Предупреждения, которые «печатает» код ВНУТРИ модели при загрузке:
+    #: реальный `v5_5_ru.pt` сыпет SyntaxWarning про `"\^"` (см. тесты ниже).
+    warnings_to_emit: list[tuple[str, type[Warning]]] = []
 
     def __init__(self, path: str) -> None:
         self.path = path
@@ -146,6 +150,9 @@ class FakePackageImporter:
 
         if FakePackageImporter.error is not None:
             raise FakePackageImporter.error
+
+        for message, category in FakePackageImporter.warnings_to_emit:
+            warnings.warn(message, category, stacklevel=2)
 
         return FakePackageImporter.model or FakeModel()
 
@@ -200,6 +207,7 @@ def fake_dependencies() -> Iterator[FakeModel]:
     FakePackageImporter.instances = []
     FakePackageImporter.model = model
     FakePackageImporter.error = None
+    FakePackageImporter.warnings_to_emit = []
     FakeHub.downloads = []
     FakeSoundfile.writes = []
     FakeTorch.threads = []
@@ -219,6 +227,7 @@ def reset_fakes() -> None:
     FakePackageImporter.instances = []
     FakePackageImporter.model = None
     FakePackageImporter.error = None
+    FakePackageImporter.warnings_to_emit = []
     FakeHub.downloads = []
     FakeSoundfile.writes = []
     FakeTorch.threads = []
@@ -355,6 +364,73 @@ def test_broken_model_file_gives_readable_error() -> None:
                 assert "Удалите файл" in str(ex)
             else:  # pragma: no cover — ветка обязана бросать
                 raise AssertionError("ожидалась SileroUnavailable")
+
+
+#: Дословный текст предупреждения из модели `v5_5_ru.pt`
+#: (`<torch_package_0>.multi_acc_v3_package.py:286`, torch 2.14 / Python 3.14).
+FOREIGN_WARNING_TEXT = (
+    '"\\^" is an invalid escape sequence. Such sequences will not work in the '
+    'future. Did you mean "\\\\^"? A raw string is also an option.'
+)
+
+
+def test_foreign_syntax_warning_from_model_is_silenced() -> None:
+    """Чужой SyntaxWarning из кода внутри модели не попадает в консоль ZERE.
+
+    `v5_5_ru.pt` — torch.package-архив, и его `multi_acc_v3_package.py`
+    собирает регулярку через `'\\^'`. Python 3.12+ компилирует этот файл при
+    загрузке модели и печатает SyntaxWarning в консоль (реальный лог ZERE).
+    Правкой кода это не убрать: файл внутри 145-МБ модели, которая качается
+    заново, поэтому предупреждение гасится на время загрузки.
+    """
+    reset_fakes()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        model_file = Path(tmp) / "v5_5_ru.pt"
+        model_file.write_bytes(b"PT")
+
+        with fake_dependencies():
+            FakePackageImporter.warnings_to_emit = [
+                (FOREIGN_WARNING_TEXT, SyntaxWarning)
+            ]
+
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                SileroManager(model_path=model_file).load_model()
+
+    assert FakePackageImporter.instances, "модель всё-таки загружается"
+    assert [w for w in caught if issubclass(w.category, SyntaxWarning)] == [], (
+        "чужой SyntaxWarning из модели не должен попадать в консоль"
+    )
+
+
+def test_other_warnings_from_model_stay_visible() -> None:
+    """Гасится только SyntaxWarning про escape-последовательности.
+
+    Иначе «чистая консоль» означала бы, что мы прячем любые предупреждения
+    чужого кода: предупреждения с другим текстом и другого класса остаются
+    видимыми (их печатает консоль ZERE).
+    """
+    reset_fakes()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        model_file = Path(tmp) / "v5_5_ru.pt"
+        model_file.write_bytes(b"PT")
+
+        with fake_dependencies():
+            FakePackageImporter.warnings_to_emit = [
+                ("модель устарела", UserWarning),
+                ("'is' with a literal. Did you mean '=='?", SyntaxWarning),
+            ]
+
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                SileroManager(model_path=model_file).load_model()
+
+    categories = [w.category for w in caught]
+
+    assert UserWarning in categories, "чужие предупреждения видны в консоли"
+    assert SyntaxWarning in categories, "гасится только текст про escape"
 
 
 # ── Синтез ──────────────────────────────────────────────────────────

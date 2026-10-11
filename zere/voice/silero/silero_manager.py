@@ -25,6 +25,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import threading
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,19 @@ BUILTIN_VOICES: tuple[str, ...] = ("baya", "xenia", "kseniya", "aidar", "eugene"
 MODEL_ID = "v5_5_ru"
 MODEL_URL = "https://models.silero.ai/models/tts/ru/v5_5_ru.pt"
 MODEL_FILENAME = "v5_5_ru.pt"
+
+# Чужое предупреждение из кода ВНУТРИ модели: `v5_5_ru.pt` — это
+# torch.package-архив, и его `multi_acc_v3_package.py` собирает регулярку
+# через `'\^'`. Python 3.12+ компилирует этот файл при загрузке модели и
+# печатает в консоль ZERE:
+#
+#   <torch_package_0>.multi_acc_v3_package.py:286: SyntaxWarning: "\^" is an
+#   invalid escape sequence. …
+#
+# Убрать это правкой кода нельзя: файл лежит внутри 145-МБ модели, которая
+# качается заново при удалении (и предупреждение вернётся). Поэтому гасим
+# его точечно — только по тексту и только на время загрузки модели.
+FOREIGN_SYNTAX_WARNING = r".*invalid escape sequence.*"
 
 
 class SileroUnavailable(RuntimeError):
@@ -207,9 +221,19 @@ class SileroManager:
             model_file = self.ensure_model_file()
 
             try:
-                model = torch.package.PackageImporter(str(model_file)).load_pickle(
-                    "tts_models", "model"
-                )
+                # Гасим чужой SyntaxWarning из кода внутри модели (см.
+                # FOREIGN_SYNTAX_WARNING). Фильтр глобальный, но загрузка идёт
+                # под self._lock и один раз на процесс; предупреждения с другим
+                # текстом (в том числе из нашего кода) остаются видимыми.
+                with warnings.catch_warnings():
+                    warnings.filterwarnings(
+                        "ignore",
+                        message=FOREIGN_SYNTAX_WARNING,
+                        category=SyntaxWarning,
+                    )
+                    model = torch.package.PackageImporter(str(model_file)).load_pickle(
+                        "tts_models", "model"
+                    )
             except Exception as ex:  # noqa: BLE001 — битый/недокачанный файл
                 raise SileroUnavailable(
                     f"не удалось загрузить модель Silero ({model_file.name}): {ex}. "

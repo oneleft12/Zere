@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -211,9 +212,18 @@ class DirectSileroBackend:
         torch = self._torch
 
         try:
-            model = torch.package.PackageImporter(str(self.model_path)).load_pickle(
-                "tts_models", "model"
-            )
+            # Тот же чужой SyntaxWarning, что гасит SileroManager: код внутри
+            # v5_5_ru.pt собирает регулярку через '\^' (см.
+            # zere/voice/silero/silero_manager.py, FOREIGN_SYNTAX_WARNING).
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=r".*invalid escape sequence.*",
+                    category=SyntaxWarning,
+                )
+                model = torch.package.PackageImporter(str(self.model_path)).load_pickle(
+                    "tts_models", "model"
+                )
         except Exception as error:  # noqa: BLE001 — битый/недокачанный файл
             raise TtsUnavailable(
                 f"не удалось загрузить модель Silero ({self.model_path.name}): {error}"
