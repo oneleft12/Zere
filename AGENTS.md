@@ -398,16 +398,18 @@ Zere/
 │   ├── e2e/                      # Playwright-смоук (npm run test:e2e)
 │   └── dist/                     # Сборка — коммитится, раздаётся сервером
 ├── installer/                    # Установщик Windows (PowerShell + Inno Setup)
-│   ├── install.ps1               # Установка: Python/Ollama/голос/ярлыки, SHA-256, -CheckOnly
+│   ├── install.ps1               # Установка: Python/Ollama/голос/ярлыки, SHA-256, -CheckOnly,
+│   │                             #   проверка всего requirements.txt и лог install-log.txt
 │   ├── uninstall.ps1             # Деинсталляция (-RemoveAssets, -PurgeData)
 │   ├── ZereLauncher.bat          # Шаблон лаунчера ZERE.bat
 │   ├── Install-Zere.bat          # Двойной клик → install.ps1
 │   ├── Uninstall-Zere.bat        # Двойной клик → uninstall.ps1
-│   ├── Zere.iss                  # Inno Setup: готовый Setup.exe
+│   ├── Zere.iss                  # Inno Setup: готовый Setup.exe (код возврата install.ps1 проверяется)
 │   └── build-setup.ps1           # Сборка Setup.exe (git archive + ISCC)
 ├── tests/
 │   ├── test_panel_api.py         # Контрактные тесты панели (123, по OpenAPI)
-│   ├── test_installer.py         # Тесты установщика (BOM, CRLF, SHA-256, связность)
+│   ├── test_installer.py         # Тесты установщика (BOM, CRLF, SHA-256, связность,
+│   │                             #   покрытие зависимостей, лог, код возврата Setup)
 │   ├── test_stt_engine.py        # Тесты STT GigaAM (константы, роутинг, живое распознавание)
 │   ├── test_audio_device.py      # Тесты звуковых устройств (WASAPI+auto_convert, откат, регрессия -9997, живой микрофон)
 │   ├── test_voice_mode.py        # Тесты голосового режима (сбой записи/озвучки не убивает цикл)

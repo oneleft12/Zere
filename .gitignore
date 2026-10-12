@@ -195,6 +195,7 @@ config/router.json
 /ZereInstaller.exe
 /ZERE.bat
 /installer/install-manifest.json
+/installer/install-log.txt
 /installer/stage/
 /installer/stage.zip
 /installer/Output/

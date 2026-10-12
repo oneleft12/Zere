@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import shutil
@@ -290,6 +291,179 @@ def test_ps1_parse_powershell() -> None:
             f"{name}: ошибки парсинга:\n"
             + (proc.stdout + proc.stderr).decode("utf-8", errors="replace")
         )
+
+
+# ---------------------------------------------------------------------------
+# Зависимости: регрессия на «установщик сказал, что всё создал, а ZERE падает
+# с "No module named ..."». Проверяются три вещи: requirements.txt покрывает
+# то, что импортирует рантайм; установщик проверяет весь список пакетов, а не
+# два; шаг установки зависимостей не пропускается на частично готовом
+# окружении. Плюс Setup.exe обязан сообщать о сбое, а не «Установка завершена».
+# ---------------------------------------------------------------------------
+
+# импорт в коде -> имя пакета в requirements.txt (имена расходятся)
+IMPORT_TO_PACKAGE = {
+    "PIL": "pillow",
+    "faster_whisper": "faster-whisper",
+    "sherpa_onnx": "sherpa-onnx",
+}
+
+# Осознанно не объявляются в requirements.txt
+IMPORT_EXEMPT = {
+    "webview": "pywebview — необязательное окно панели, есть откат в браузер",
+    "torch": "приходит транзитивно с ChatTTS (см. requirements.txt)",
+}
+
+
+def _requirements_packages() -> list[str]:
+    """Имена пакетов из requirements.txt (без версий, маркеров и комментариев)."""
+    names: list[str] = []
+    for line in (ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        name = re.split(r"[<>=!~;\[ ]", line, maxsplit=1)[0].strip()
+        if name:
+            names.append(name)
+    return names
+
+
+def _runtime_imports() -> dict[str, str]:
+    """Сторонние импорты рантайма (main.py + zere/): модуль -> файл."""
+    std = set(sys.stdlib_module_names)
+    local = {"zere", "tools", "scripts", "main"}
+    found: dict[str, str] = {}
+    files = sorted((ROOT / "zere").rglob("*.py"))
+    files.append(ROOT / "main.py")
+    for path in files:
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="ignore"))
+        except SyntaxError:  # pragma: no cover — рабочий код парсится
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                names = [a.name.split(".")[0] for a in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                names = [node.module.split(".")[0]]
+            else:
+                continue
+            for name in names:
+                if name in std or name in local:
+                    continue
+                found.setdefault(name, str(path.relative_to(ROOT)))
+    return found
+
+
+def test_requirements_cover_runtime_imports() -> None:
+    """Каждый импорт рантайма объявлен в requirements.txt.
+
+    numpy не был объявлен: он приезжал «попутно» с onnxruntime/sherpa-onnx/
+    ChatTTS, и там, где pip не дошёл до них, ZERE падал на `import numpy as np`
+    в zere/voice/audio/.
+    """
+    declared = {n.lower().replace("_", "-") for n in _requirements_packages()}
+    missing = []
+    for module, where in sorted(_runtime_imports().items()):
+        if module in IMPORT_EXEMPT:
+            continue
+        package = IMPORT_TO_PACKAGE.get(module, module)
+        if package.lower().replace("_", "-") not in declared:
+            missing.append(f"{module} ({where}) -> нет пакета {package}")
+    assert not missing, "импорты рантайма без объявленной зависимости: " + "; ".join(missing)
+
+
+def test_installer_verifies_every_requirement() -> None:
+    """Таблица модулей установщика покрывает весь requirements.txt.
+
+    Иначе добавили пакет в requirements.txt — и установщик его «не видит»:
+    отметит зависимости установленными, а пакета нет.
+    """
+    text = _read("install.ps1")
+    table = {
+        m.group(1).lower().replace("_", "-")
+        for m in re.finditer(
+            r"@\{\s*Package\s*=\s*'([^']+)';\s*Module\s*=\s*'([^']+)'\s*\}", text
+        )
+    }
+    assert table, "в install.ps1 нет таблицы проверяемых модулей"
+    missing = [p for p in _requirements_packages() if p.lower().replace("_", "-") not in table]
+    assert not missing, f"install.ps1 не проверяет пакеты: {missing}"
+    assert "numpy" in table, "install.ps1 не проверяет numpy — старт ZERE снова может упасть"
+
+
+def test_installer_reinstalls_deps_on_partial_env() -> None:
+    """Частично установленное окружение не считается готовым.
+
+    Раньше «зависимости установлены» означало «pip show faster-whisper и
+    sherpa-onnx прошли»: если pip падал в середине списка, эти два пакета уже
+    стояли, шаг установки пропускался целиком — и ZERE падал с
+    «No module named ...», хотя установщик отчитался об успехе.
+    """
+    text = _read("install.ps1")
+    assert "function Get-MissingModules" in text, "нет проверки всего списка модулей"
+    assert re.search(r"\$depsOk\s*=\s*\(\$depState\.Ok", text), (
+        "нет вердикта по всему списку зависимостей"
+    )
+    assert re.search(
+        r"\$needVenv\s*=\s*\(-not \$venvState\.Venv\)\s*-or\s*\(-not \$depsOk\)", text
+    ), "needVenv не учитывает недостающие зависимости — шаг будет пропущен"
+    assert "pip install -r $reqPath" in text, "pip не запускается по requirements.txt"
+    smoke = text.split("function Invoke-SmokeTest", 1)[1].split("\nfunction ", 1)[0]
+    assert "Get-MissingModules" in smoke, "smoke-тест не проверяет зависимости"
+
+
+def test_installer_writes_log() -> None:
+    """Полный лог установки: без него «какие файлы не найдены» не разобрать."""
+    text = _read("install.ps1")
+    assert "Start-InstallLog" in text and "install-log.txt" in text, "нет лога установки"
+    assert "[System.IO.File]::AppendAllText" in text, "лог не пишется построчно"
+    assert "installer/install-log.txt" in (ROOT / ".gitignore").read_text(encoding="utf-8"), (
+        "лог установки не добавлен в .gitignore"
+    )
+
+
+def test_default_config_covers_project_config() -> None:
+    """Конфиг по умолчанию в установщике не отстаёт от config/config.json.
+
+    Установщик сам создаёт config/config.json на новой машине, поэтому ключ,
+    добавленный в проект и забытый здесь (audioProcessing), до новых установок
+    не доезжает.
+    """
+    project = json.loads((ROOT / "config" / "config.json").read_text(encoding="utf-8"))
+    text = _read("install.ps1")
+    match = re.search(r"\$DefaultConfigJson = @'\s*(\{.*?\})\s*'@", text, re.S)
+    assert match, "в install.ps1 не найден $DefaultConfigJson"
+    default = json.loads(match.group(1))
+    only_default = sorted(set(default) - set(project))
+    only_project = sorted(set(project) - set(default))
+    assert not only_default and not only_project, (
+        f"набор ключей разошёлся: только в установщике {only_default}, "
+        f"только в config.json {only_project}"
+    )
+
+
+def test_iss_has_utf8_bom() -> None:
+    """Кириллица в MsgBox из [Code] требует BOM: без него Inno читает файл как ANSI."""
+    data = (INSTALLER / "Zere.iss").read_bytes()
+    assert data.startswith(BOM), "Zere.iss без UTF-8 BOM — кириллица в мастере станет кракозябрами"
+
+
+def test_setup_reports_install_failure() -> None:
+    """Setup.exe обязан проверить код возврата install.ps1 и сказать о сбое.
+
+    Через [Run] мастер показывал «Установка завершена», даже когда pip не
+    поставил зависимости: пользователь узнавал об этом только при запуске ZERE.
+    """
+    iss = _read("Zere.iss")
+    assert "CurStepChanged" in iss and "ssPostInstall" in iss, (
+        "в Zere.iss нет [Code] с запуском настройки на шаге postinstall"
+    )
+    assert "ewWaitUntilTerminated" in iss, "install.ps1 не ожидается до конца"
+    assert re.search(r"ResultCode\s*<>\s*0", iss), "код возврата install.ps1 не проверяется"
+    assert "install-log.txt" in iss, "мастер не подсказывает, где искать лог"
+    assert 'ExpandConstant(\'{app}\\installer\\install.ps1\')' in iss, (
+        "install.ps1 запускается не из каталога установки"
+    )
 
 
 def main() -> None:

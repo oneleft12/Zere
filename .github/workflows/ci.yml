@@ -101,6 +101,13 @@ jobs:
       - name: Проверка порта (AST-контракт)
         run: python scripts/check_port.py
 
+      - name: Тесты установщика (SHA-256, связность, зависимости, лог)
+        # Ловят класс сбоев, невидимый на машине разработчика: пакет есть в
+        # requirements.txt, а установщик его не проверяет, считает окружение
+        # готовым — и ZERE падает с «No module named ...». Парсинг .ps1
+        # пропускается вне Windows.
+        run: python tests/test_installer.py
+
       - name: Контрактные тесты панели (внутрипроцессная)
         run: python tests/test_panel_api.py
 

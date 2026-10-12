@@ -1,4 +1,13 @@
 requests>=2.32
+
+# ── Аудио: numpy импортируется напрямую, а не только транзитивно ─────
+# zere/voice/audio/*.py (recorder, player, processor, preprocessor) делают
+# `import numpy as np` на уровне модуля, поэтому без него ZERE не стартует.
+# Раньше пакет не был объявлен и приезжал «попутно» с onnxruntime/sherpa-onnx/
+# ChatTTS: неудачная установка любого из них оставляла окружение без numpy,
+# а установщик считал зависимости установленными (см. installer/install.ps1).
+numpy>=1.26
+
 faster-whisper>=1.0
 sherpa-onnx>=1.13.8
 sounddevice>=0.4.6

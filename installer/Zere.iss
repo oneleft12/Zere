@@ -1,4 +1,4 @@
-; ============================================================
+﻿; ============================================================
 ; ZERE — Inno Setup script (Windows Installer GUI)
 ;
 ; Компиляция:
@@ -73,12 +73,47 @@ Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDi
 Name: "{userprograms}\{#MyAppName}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: startmenuicon
 
 [Run]
-; Основная настройка: venv, зависимости, Ollama/модель, голос, ярлыки, smoke-тест.
-; Окно консоли НЕ скрыто — пользователь видит ход установки.
-Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
-    Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\install.ps1"" -Prefix ""{app}"" -Edition {#Edition} -Yes -NoLaunch"; \
-    StatusMsg: "Настройка ZERE ( зависимости, модели, ярлыки )..."; \
-    Flags: waituntilterminated postinstall
+; Настройку (venv, зависимости, Ollama/модель, голос, ярлыки, smoke-тест)
+; запускает секция [Code] ниже — там проверяется код возврата install.ps1.
+; Через [Run] мастер показывал «Установка завершена» даже когда pip не поставил
+; зависимости: пользователь узнавал об этом только при запуске ZERE, уже с
+; ошибкой «No module named ...». Окно консоли НЕ скрыто — виден ход установки.
+
+[Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+  Params: String;
+  LogPath: String;
+begin
+  if CurStep <> ssPostInstall then
+    Exit;
+
+  Params := '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\installer\install.ps1') +
+            '" -Prefix "' + ExpandConstant('{app}') + '" -Edition {#Edition} -Yes -NoLaunch';
+
+  if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Params,
+              ExpandConstant('{app}'), SW_SHOW, ewWaitUntilTerminated, ResultCode) then
+  begin
+    if not WizardSilent then
+      MsgBox('Не удалось запустить настройку ZERE (installer\install.ps1).' + #13#10 +
+             'Файлы скопированы, но окружение (зависимости, модели, ярлыки) не настроено.',
+             mbError, MB_OK);
+    Exit;
+  end;
+
+  if ResultCode <> 0 then
+  begin
+    LogPath := ExpandConstant('{app}') + '\installer\install-log.txt';
+    if not WizardSilent then
+      MsgBox('Настройка ZERE завершилась с ошибкой (код ' + IntToStr(ResultCode) + ').' + #13#10 + #13#10 +
+             'Файлы программы установлены, но зависимости или модели — не полностью,' + #13#10 +
+             'поэтому ZERE может не запуститься.' + #13#10 + #13#10 +
+             'Полный лог: ' + LogPath + #13#10 + #13#10 +
+             'Устраните причину и запустите installer\install.ps1 ещё раз — установка идемпотентна.',
+             mbError, MB_OK);
+  end;
+end;
 
 [UninstallRun]
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \

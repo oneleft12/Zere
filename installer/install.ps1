@@ -102,6 +102,7 @@ $DefaultConfigJson = @'
   "ttsEngine": "chattts",
   "sttEngine": "gigaam",
   "voiceReferencePath": "",
+  "audioProcessing": true,
   "llmKeepAlive": -1,
   "llmMaxTokens": 96,
   "llmTimeoutSeconds": 60
@@ -118,13 +119,54 @@ $DefaultPluginsJson = @'
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 # ---------------------------------------------------------------------------
+# Лог установки
+# ---------------------------------------------------------------------------
+# Полный вывод (в том числе pip/npm/dotnet) пишется в installer\install-log.txt.
+# Без него разбор «установщик сказал, что всё создал, а потом файлы не найдены»
+# невозможен: вывод уходит вместе с закрытым окном консоли.
+$script:LogPath = ''
+
+function Write-LogLine([string]$Text) {
+    if ($script:LogPath -eq '') { return }
+    try {
+        [System.IO.File]::AppendAllText($script:LogPath, ($Text + [Environment]::NewLine), $Utf8NoBom)
+    } catch {
+        # Лог — вспомогательный: его недоступность не срывает установку.
+    }
+}
+
+function Start-InstallLog {
+    param([string]$Path, [string]$Prefix, [string]$Edition, [string]$Python, [string]$Model)
+    try {
+        $dir = Split-Path -Parent $Path
+        if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        }
+        $script:LogPath = $Path
+        $head = @(
+            ('ZERE install log — ' + (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')),
+            ('PowerShell: ' + $PSVersionTable.PSVersion.ToString()),
+            ('Корень:     ' + $Prefix),
+            ('Редакция:  ' + $Edition),
+            ('Модель:    ' + $Model),
+            ('Python:    ' + $Python),
+            ('Командная строка: ' + [Environment]::CommandLine),
+            ('-' * 60)
+        ) -join [Environment]::NewLine
+        [System.IO.File]::WriteAllText($Path, ($head + [Environment]::NewLine), $Utf8NoBom)
+    } catch {
+        $script:LogPath = ''
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Консольные помощники
 # ---------------------------------------------------------------------------
-function Write-Step([string]$Msg) { Write-Host ('' + [char]10 + '== ' + $Msg) -ForegroundColor Cyan }
-function Write-Ok([string]$Msg)   { Write-Host ('   [OK] ' + $Msg) -ForegroundColor Green }
-function Write-Warn2([string]$Msg) { Write-Host ('   [!]  ' + $Msg) -ForegroundColor Yellow }
-function Write-Fail2([string]$Msg) { Write-Host ('   [X]  ' + $Msg) -ForegroundColor Red }
-function Write-Info([string]$Msg) { Write-Host ('   ' + $Msg) -ForegroundColor Gray }
+function Write-Step([string]$Msg) { Write-Host ('' + [char]10 + '== ' + $Msg) -ForegroundColor Cyan; Write-LogLine ('== ' + $Msg) }
+function Write-Ok([string]$Msg)   { Write-Host ('   [OK] ' + $Msg) -ForegroundColor Green; Write-LogLine ('[OK] ' + $Msg) }
+function Write-Warn2([string]$Msg) { Write-Host ('   [!]  ' + $Msg) -ForegroundColor Yellow; Write-LogLine ('[!] ' + $Msg) }
+function Write-Fail2([string]$Msg) { Write-Host ('   [X]  ' + $Msg) -ForegroundColor Red; Write-LogLine ('[X] ' + $Msg) }
+function Write-Info([string]$Msg) { Write-Host ('   ' + $Msg) -ForegroundColor Gray; Write-LogLine ('    ' + $Msg) }
 
 $script:Results = New-Object System.Collections.ArrayList
 
@@ -141,6 +183,7 @@ function Add-Result {
         Detail   = $Detail
         Critical = [bool]$Critical
     })
+    Write-LogLine ('RESULT ' + $Status + ' | ' + $Name + $(if ($Detail) { ' | ' + $Detail } else { '' }))
 }
 
 function Finish {
@@ -310,6 +353,35 @@ function Write-Utf8NoBom {
 # ---------------------------------------------------------------------------
 # Состояние компонентов (используется и в -CheckOnly, и в установке)
 # ---------------------------------------------------------------------------
+
+# Зависимости Python: требование requirements.txt -> имя импортируемого модуля.
+# Раньше «зависимости установлены» означало «pip show faster-whisper и
+# sherpa-onnx прошли». Если pip падал в середине списка (numpy, onnxruntime,
+# ChatTTS), эти два пакета уже стояли — и шаг установки зависимостей
+# пропускался целиком: в отчёте «всё создано», а ZERE падал с
+# «No module named ...». Поэтому проверяется весь список, а не два пакета.
+# Тест tests/test_installer.py сверяет таблицу с requirements.txt.
+$RequiredModules = @(
+    @{ Package = 'requests';       Module = 'requests' },
+    @{ Package = 'numpy';          Module = 'numpy' },
+    @{ Package = 'faster-whisper'; Module = 'faster_whisper' },
+    @{ Package = 'sherpa-onnx';    Module = 'sherpa_onnx' },
+    @{ Package = 'sounddevice';    Module = 'sounddevice' },
+    @{ Package = 'soundfile';      Module = 'soundfile' },
+    @{ Package = 'pycaw';          Module = 'pycaw' },
+    @{ Package = 'comtypes';       Module = 'comtypes' },
+    @{ Package = 'psutil';         Module = 'psutil' },
+    @{ Package = 'mss';            Module = 'mss' },
+    @{ Package = 'pillow';         Module = 'PIL' },
+    @{ Package = 'wmi';            Module = 'wmi' },
+    @{ Package = 'onnxruntime';    Module = 'onnxruntime' }
+)
+# Необязательные: без них ZERE стартует (текстовый режим / откат движка).
+# Их отсутствие попадает в отчёт предупреждением, но установку не срывает.
+$OptionalModules = @(
+    @{ Package = 'ChatTTS'; Module = 'ChatTTS' }
+)
+
 function Get-PythonCandidates {
     $found = @()
     $py = Get-Command 'py.exe' -ErrorAction SilentlyContinue
@@ -363,20 +435,64 @@ function Get-PythonState {
 
 function Get-VenvState {
     param([string]$VenvPy)
-    $res = @{ Venv = $false; Deps = $false; Detail = 'виртуальное окружение не создано' }
+    $res = @{ Venv = $false; Detail = 'виртуальное окружение не создано (.venv\Scripts\python.exe)' }
     if (Test-Path -LiteralPath $VenvPy) {
         $res.Venv = $true
-        $r = Invoke-Native -FilePath $VenvPy -Arguments @('-m', 'pip', 'show', 'faster-whisper')
-        # sherpa-onnx — рантайм основного STT (GigaAM), см. requirements.txt
-        $r2 = Invoke-Native -FilePath $VenvPy -Arguments @('-m', 'pip', 'show', 'sherpa-onnx')
-        if (($r.ExitCode -eq 0) -and ($r2.ExitCode -eq 0)) {
-            $res.Deps = $true
-            $res.Detail = '.venv готов, зависимости установлены'
-        } else {
-            $res.Detail = '.venv создан, зависимости не установлены'
-        }
+        $res.Detail = '.venv создан'
     }
     return $res
+}
+
+function Get-MissingModules {
+    <#
+        Каких модулей нет в окружении.
+
+        Возвращает @{ Required = @(); Optional = @(); Ok = $bool; All = N }.
+        Ok = $false — проверить не удалось (нет .venv или сбой Python): тогда
+        вызывающий код обязан считать зависимости неизвестными, а не
+        «установленными».
+
+        Проверка идёт одним запуском Python через importlib.util.find_spec:
+        без импорта тяжёлых библиотек (torch — секунды) и без побочных эффектов.
+    #>
+    param([string]$VenvPy)
+    $res = @{ Required = @(); Optional = @(); Ok = $false; All = 0 }
+    if (-not (Test-Path -LiteralPath $VenvPy)) { return $res }
+
+    $mods = @()
+    foreach ($m in $RequiredModules) { $mods += $m.Module }
+    foreach ($m in $OptionalModules) { $mods += $m.Module }
+    $res.All = $mods.Count
+
+    # Код без пробелов внутри кавычек и без двойных кавычек: Windows
+    # PowerShell 5.1 искажает их при передаче нативным командам, а имена
+    # модулей идут отдельными аргументами.
+    $code = 'import importlib.util as u,sys;print('',''.join(m for m in sys.argv[1:] if u.find_spec(m) is None))'
+    $r = Invoke-Native -FilePath $VenvPy -Arguments (@('-c', $code) + $mods)
+    if ($r.ExitCode -ne 0) { return $res }
+
+    $line = ($r.Output -split "`r?`n" | Where-Object { $_ -ne '' } | Select-Object -Last 1)
+    $missing = @()
+    if ($null -ne $line) { $missing = @($line.Trim() -split ',' | Where-Object { $_ -ne '' }) }
+
+    $requiredNames = @($RequiredModules | ForEach-Object { $_.Module })
+    $res.Required = @($missing | Where-Object { $requiredNames -contains $_ })
+    $res.Optional = @($missing | Where-Object { $requiredNames -notcontains $_ })
+    $res.Ok = $true
+    return $res
+}
+
+function Format-Missing {
+    <# Человекочитаемое состояние зависимостей для отчёта и -CheckOnly. #>
+    param($State)
+    if ($null -eq $State -or -not $State.Ok) { return 'не проверено (нет .venv)' }
+    if ($State.Required.Count -eq 0 -and $State.Optional.Count -eq 0) {
+        return ('все ' + $State.All + ' модулей на месте')
+    }
+    $parts = @()
+    if ($State.Required.Count -gt 0) { $parts += ('нет: ' + ($State.Required -join ', ')) }
+    if ($State.Optional.Count -gt 0) { $parts += ('необязательные не встали: ' + ($State.Optional -join ', ')) }
+    return ($parts -join '; ')
 }
 
 function Get-OllamaExe {
@@ -459,26 +575,65 @@ function Install-PythonEngine {
 
 function Install-Venv {
     param([string]$VenvDir, [string]$VenvPy, [string]$PythonExe, [string]$Root)
+    $res = @{ Ok = $false; Detail = ''; Required = @(); Optional = @() }
     if (-not (Test-Path -LiteralPath $VenvPy)) {
         Write-Info ('создание окружения: ' + $VenvDir)
         $r = Invoke-Native -FilePath $PythonExe -Arguments @('-m', 'venv', $VenvDir)
         if ($r.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $VenvPy)) {
-            Write-Fail2 ('не удалось создать .venv: ' + $r.Output)
-            return $false
+            $res.Detail = ('не удалось создать .venv: ' + $r.Output)
+            return $res
         }
     }
+
+    $reqPath = Join-Path $Root 'requirements.txt'
+    if (-not (Test-Path -LiteralPath $reqPath)) {
+        $res.Detail = ('не найден файл зависимостей: ' + $reqPath)
+        return $res
+    }
+
     Write-Info 'обновление pip'
     $null = Invoke-Native -FilePath $VenvPy -Arguments @('-m', 'pip', 'install', '--upgrade', 'pip', '--disable-pip-version-check', '-q')
+
+    # pip ставится всегда, а не только при создании окружения: неудачная
+    # попытка оставляет .venv частично заполненным, и без повторного pip
+    # недостающие пакеты не появятся уже никогда.
     Write-Info 'установка зависимостей из requirements.txt (может занять несколько минут)'
+    if ($script:LogPath -ne '') { Write-Info ('полный вывод pip: ' + $script:LogPath) }
     Push-Location $Root
+    # $ErrorActionPreference='Continue' на время pip — как в Invoke-Native:
+    # иначе stderr pip (а туда он пишет и обычные предупреждения) при
+    # перенаправлении 2>&1 становится terminating error, срабатывает trap и
+    # установка обрывается, не дойдя до отчёта и до проверки модулей.
+    $oldEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     try {
-        & $VenvPy -m pip install -r (Join-Path $Root 'requirements.txt') --disable-pip-version-check | Out-Host
+        & $VenvPy -m pip install -r $reqPath --disable-pip-version-check 2>&1 |
+            ForEach-Object {
+                $line = $_.ToString()
+                Write-Host $line
+                Write-LogLine $line
+            }
         $code = $LASTEXITCODE
     } finally {
+        $ErrorActionPreference = $oldEap
         Pop-Location
     }
     if ($null -eq $code) { $code = -1 }
-    return ($code -eq 0)
+
+    $missing = Get-MissingModules -VenvPy $VenvPy
+    if ($null -eq $missing -or -not $missing.Ok) {
+        $res.Detail = ('pip завершился с кодом ' + $code + ', а проверка модулей не удалась — см. лог')
+        return $res
+    }
+    $res.Required = @($missing.Required)
+    $res.Optional = @($missing.Optional)
+    $res.Ok = ($code -eq 0) -and ($missing.Required.Count -eq 0)
+    if ($res.Ok) {
+        $res.Detail = '.venv готов, зависимости установлены'
+    } else {
+        $res.Detail = ('pip код ' + $code + '; ' + (Format-Missing -State $missing))
+    }
+    return $res
 }
 
 function Install-OllamaEngine {
@@ -632,11 +787,19 @@ function Build-Panel {
     param([string]$Root)
     $dist = Join-Path $Root 'panel\dist\index.html'
     if (Test-Path $dist) { return $true }
+    # Без каталога panel Push-Location ниже бросает terminating error и роняет
+    # всю установку через trap — вместо понятного «панель не собрана».
+    # (Дистрибутив Setup.exe собирается из git archive, где panel на месте.)
+    $panelDir = Join-Path $Root 'panel'
+    if (-not (Test-Path -LiteralPath $panelDir)) {
+        Write-Warn2 ('нет каталога panel — панель не собрать: ' + $panelDir)
+        return $false
+    }
     $npm = Get-Command 'npm.cmd' -ErrorAction SilentlyContinue
     if ($null -eq $npm) { $npm = Get-Command 'npm' -ErrorAction SilentlyContinue }
     if ($null -eq $npm) { return $false }
     Write-Info 'сборка web-панели: npm install + npm run build'
-    Push-Location (Join-Path $Root 'panel')
+    Push-Location $panelDir
     try {
         & $npm.Source install --no-audit --no-fund | Out-Host
         if ($LASTEXITCODE -ne 0) { return $false }
@@ -727,8 +890,13 @@ function Write-InstallManifest {
 }
 
 function Invoke-SmokeTest {
+    <# Компиляция исходников + проверка, что зависимости действительно есть:
+       иначе получается «установка прошла успешно», а ZERE падает на старте
+       с «No module named ...» (ровно этот случай ловится здесь). #>
     param([string]$VenvPy, [string]$Root)
-    if (-not (Test-Path $VenvPy)) { return $false }
+    if (-not (Test-Path $VenvPy)) {
+        return @{ Ok = $false; Detail = 'нет .venv\Scripts\python.exe' }
+    }
     Write-Info 'python -m compileall main.py zere'
     Push-Location $Root
     try {
@@ -736,7 +904,23 @@ function Invoke-SmokeTest {
     } finally {
         Pop-Location
     }
-    return ($r.ExitCode -eq 0)
+    if ($r.ExitCode -ne 0) {
+        return @{ Ok = $false; Detail = 'ошибки компиляции в main.py/zere' }
+    }
+    $missing = Get-MissingModules -VenvPy $VenvPy
+    if ($null -eq $missing -or -not $missing.Ok) {
+        return @{ Ok = $false; Detail = 'зависимости проверить не удалось (см. лог)' }
+    }
+    if ($missing.Required.Count -gt 0) {
+        return @{ Ok = $false; Detail = ('не хватает модулей: ' + ($missing.Required -join ', ')) }
+    }
+    if ($missing.Optional.Count -gt 0) {
+        $opt = ($missing.Optional -join ', ')
+        $detail = 'main.py + zere компилируются; необязательные не встали: ' + $opt + ' (озвучка ChatTTS недоступна)'
+        return @{ Ok = $true; Detail = $detail }
+    }
+    $allOk = 'main.py + zere компилируются, все ' + $missing.All + ' модулей на месте'
+    return @{ Ok = $true; Detail = $allOk }
 }
 
 function Show-Report {
@@ -810,6 +994,10 @@ Write-Host '=================================================' -ForegroundColor 
 # --- Сбор состояния ---
 $pyState = Get-PythonState
 $venvState = Get-VenvState -VenvPy $venvPy
+# Зависимости — по факту (весь список модулей), а не по двум пакетам
+$depState = Get-MissingModules -VenvPy $venvPy
+$depsOk = ($depState.Ok -and $depState.Required.Count -eq 0)
+$depsDetail = Format-Missing -State $depState
 $ollamaState = Get-OllamaState -WantedModel $Model
 
 $whisperPath = Join-Path $Prefix 'ZERE.Voice\Models\ggml-base.bin'
@@ -830,7 +1018,7 @@ $panelDistOk = Test-Path (Join-Path $Prefix 'panel\dist\index.html')
 $launcherOk = Test-Path (Join-Path $Prefix 'ZERE.bat')
 
 $needPython = -not $pyState.Ok
-$needVenv = -not ($venvState.Venv -and $venvState.Deps)
+$needVenv = (-not $venvState.Venv) -or (-not $depsOk)
 $needOllama = (-not $SkipOllama) -and (-not $ollamaState.Installed)
 $needServer = (-not $SkipOllama) -and $ollamaState.Installed -and (-not $ollamaState.Running)
 $needModel = (-not $SkipOllama) -and $ollamaState.Running -and (-not $ollamaState.Model)
@@ -845,6 +1033,11 @@ $needShortcuts = (-not $SkipShortcuts)
 
 if ($needPython)   { $script:PythonExe = $null } else { $script:PythonExe = $pyState.Exe }
 
+# Лог установки: пишется рядом с install.ps1 и переживает закрытие окна
+# консоли (а также попадает в дистрибутив Setup.exe рядом с манифестом).
+Start-InstallLog -Path (Join-Path $Prefix 'installer\install-log.txt') -Prefix $Prefix -Edition $Edition `
+    -Python $(if ($script:PythonExe) { $script:PythonExe } else { 'не найден (будет установлен)' }) -Model $Model
+
 # --- Режим проверки: только отчёт ---
 if ($CheckOnly) {
     Write-Step 'Состояние компонентов'
@@ -853,8 +1046,11 @@ if ($CheckOnly) {
     }
     _line $pyState.Ok $pyState.Detail
     if ($needPython) { Write-Info '=> потребуется установка Python 3.12+' }
-    _line ($venvState.Venv -and $venvState.Deps) $venvState.Detail
-    if ($needVenv) { Write-Info '=> потребуется создание .venv и установка зависимостей' }
+    _line $venvState.Venv $venvState.Detail
+    _line $depsOk ('Зависимости Python: ' + $depsDetail)
+    if ($needVenv) {
+        Write-Info '=> потребуется создание .venv и/или доустановка зависимостей из requirements.txt'
+    }
     if ($SkipOllama) {
         Write-Info 'Ollama: пропущено (-SkipOllama)'
     } else {
@@ -881,7 +1077,8 @@ if ($CheckOnly) {
 
     $problems = @()
     if ($needPython) { $problems += 'Python' }
-    if ($needVenv) { $problems += '.venv/зависимости' }
+    if (-not $venvState.Venv) { $problems += '.venv' }
+    if ($venvState.Venv -and -not $depsOk) { $problems += ('зависимости (' + $depsDetail + ')') }
     if ($needOllama -or $needServer -or $needModel) { $problems += 'Ollama/модель' }
     if ($needWhisper -or $needUv) { $problems += 'голос' }
     if ($needDotnetSdk -or $needPublish) { $problems += '.NET/публикация' }
@@ -900,7 +1097,7 @@ if ($CheckOnly) {
 Write-Step 'План установки'
 $plan = @()
 if ($needPython)   { $plan += 'Установить Python 3.12+ (winget)' }
-if ($needVenv)     { $plan += 'Создать .venv и установить зависимости из requirements.txt' }
+if ($needVenv)     { $plan += ('Создать .venv и установить зависимости из requirements.txt (' + $depsDetail + ')') }
 if ($needOllama)   { $plan += 'Установить Ollama (winget)' }
 if ($needServer)   { $plan += 'Запустить сервер Ollama' }
 if ($needModel)    { $plan += ('Загрузить модель Ollama "' + $Model + '" (интернет)' ) }
@@ -954,11 +1151,22 @@ if ($needPython) {
 Write-Step 'Виртуальное окружение и зависимости'
 if (-not $failedCritical) {
     if ($needVenv) {
-        $okV = Install-Venv -VenvDir $venvDir -VenvPy $venvPy -PythonExe $script:PythonExe -Root $Prefix
-        Finish -Ok $okV -Name '.venv и зависимости' -OkDetail '.venv создан, зависимости установлены' -FailDetail 'ошибка создания .venv или pip install' -Critical:(-not $okV)
-        if (-not $okV) { $failedCritical = $true }
+        $vres = Install-Venv -VenvDir $venvDir -VenvPy $venvPy -PythonExe $script:PythonExe -Root $Prefix
+        if ($vres.Ok) {
+            $okDetail = $vres.Detail
+            if ($vres.Optional.Count -gt 0) {
+                $opt = ($vres.Optional -join ', ')
+                $okDetail = ($okDetail + '; необязательные не встали: ' + $opt)
+                Write-Warn2 ('необязательные пакеты не установились: ' + $opt + ' — ChatTTS недоступен, ZERE работает в текстовом режиме')
+                Add-Result -Name ('Необязательные пакеты (' + $opt + ')') -Status warn -Detail 'ChatTTS недоступен — озвучка не работает, текстовая работа не затронута'
+            }
+            Finish -Ok $true -Name '.venv и зависимости' -OkDetail $okDetail
+        } else {
+            Finish -Ok $false -Name '.venv и зависимости' -FailDetail ($vres.Detail + ' — подробности в installer\install-log.txt') -Critical
+            $failedCritical = $true
+        }
     } else {
-        Skip-Result -Name '.venv и зависимости' -Detail $venvState.Detail
+        Skip-Result -Name '.venv и зависимости' -Detail ($venvState.Detail + ', ' + $depsDetail)
     }
 } else {
     Add-Result -Name '.venv и зависимости' -Status fail -Detail 'пропущено: нет Python' -Critical
@@ -1123,10 +1331,10 @@ try {
 # --- 10. Smoke-тест ---
 Write-Step 'Smoke-тест'
 if (Test-Path $venvPy) {
-    $smokeOk = Invoke-SmokeTest -VenvPy $venvPy -Root $Prefix
-    Finish -Ok $smokeOk -Name 'Smoke-тест (compileall)' -OkDetail 'main.py + zere компилируются' -FailDetail 'ошибки компиляции в main.py/zere'
+    $smoke = Invoke-SmokeTest -VenvPy $venvPy -Root $Prefix
+    Finish -Ok $smoke.Ok -Name 'Smoke-тест (compileall + зависимости)' -OkDetail $smoke.Detail -FailDetail $smoke.Detail -Critical:(-not $smoke.Ok)
 } else {
-    Add-Result -Name 'Smoke-тест (compileall)' -Status fail -Detail 'нет .venv' -Critical
+    Add-Result -Name 'Smoke-тест (compileall + зависимости)' -Status fail -Detail 'нет .venv' -Critical
 }
 
 # --- Отчёт ---
@@ -1146,6 +1354,9 @@ if ($fails.Count -gt 0) {
     Write-Host 'Установка ZERE завершена успешно.' -ForegroundColor Green
 }
 Write-Host ('Время: ' + [int]$elapsed.TotalSeconds + ' с') -ForegroundColor Gray
+if ($script:LogPath -ne '') {
+    Write-Host ('Лог установки: ' + $script:LogPath) -ForegroundColor Gray
+}
 
 # --- Запуск ---
 $batPath = Join-Path $Prefix 'ZERE.bat'
