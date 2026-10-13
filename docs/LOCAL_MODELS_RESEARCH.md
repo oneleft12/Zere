@@ -22,14 +22,23 @@
    (51.2 ГБ/с) `qwen3.5:2b` (2.7 ГБ) не превысит ~19 ток/с, `qwen3.5:0.8b`
    (1.2 ГБ) — ~42 ток/с. Промпт-обработка (prefill) упирается в арифметику,
    поэтому **длинный промпт на слабом CPU дороже длинного ответа**.
-4. **Русский язык — отдельная ось.** Универсальные малые модели (Qwen3.5 2B,
-   Gemma 4 E2B) держат русский заметно слабее, чем 8B-класс. Для 16 ГБ лучший
-   компромисс — `qwen3.5:9b` или **T-lite-it-2.1** (8B, Qwen3-база, Apache-2.0,
-   tool calling, Ru Arena Hard 83.9 против 57.2 у Qwen3-8B).
+4. **Русский язык — отдельная ось, и в 2026 году здесь есть готовые решения.**
+   Универсальные малые модели (Qwen3.5 2B, Gemma 4 E2B) держат русский заметно
+   слабее 8B-класса. Но появились три практичных варианта: **T-lite-it-2.1**
+   (8B, Qwen3-база, Apache-2.0, tool calling, Ru Arena Hard 83.9 против 57.2
+   у Qwen3-8B, **официальный namespace `t-tech/` в Ollama**),
+   **GigaChat3.1-10B-A1.8B** (Sber, MIT, MoE 10B/1.8B активных — быстро на CPU,
+   262K контекст, tool calling) и **QVikhr-3-4B** (Apache-2.0, Q4 всего 2.33 ГиБ —
+   русский на 4–8 ГБ). Подробный разбор — `docs/research/RU_SLM_CPU_2025-2026.md`.
 5. **Модели-«тяжеловесы» 2026 года не для слабых ПК:** Qwen3.8-27B (~24 ГБ VRAM),
    Kolibri 78B-A3.5B, Nemotron 3 Nano 30B-A3B, Gemma 4 12B+. Их не предлагать.
 6. **BitNet b1.58 2B4T** (0.4 ГБ весов, 29 мс на ток) остаётся самым экономичным
    вариантом по памяти, но **в Ollama он не работает** — нужен `bitnet.cpp`.
+7. **Реальность жёстче расчётов.** Замеры сторонних авторов: i5-8250U с 8 ГБ даёт
+   **2.3 ток/с** на Qwen3.5 2B, N100 с одноканальной памятью — 2.1 ток/с на
+   Llama 3.1 8B, а i7-10700 выдаёт 18 ток/с на Gemma 4 E2B. Разница — в каналах
+   памяти и поколении CPU, а не в модели. Двухканальная память даёт **+52…58 %**
+   к скорости генерации, SMT — **−25 %**.
 
 **Рекомендация для ZERE (кратко):** оставить Ollama, но переписать подсказки
 локальных моделей на Qwen3.5-линейку (0.8B / 2B / 4B), исправить размеры, добавить
@@ -83,13 +92,65 @@ HDD вместо SSD превращает загрузку модели в де�
 
 Это **потолки, а не прогнозы**: реальная пропускная способность всегда ниже
 пиковой (активация строк, refresh, конфликты банков), а число потоков
-`llama.cpp -t` обычно насыщается **ниже** числа ядер.
+`llama.cpp -t` обычно насыщается **ниже** числа ядер. Колонка «реально ожидать»
+предполагает **двухканальную** память: на одной планке делите её примерно вдвое,
+а на старом CPU (только AVX) — ещё вдвое (см. замеры в §3.1, где Qwen3.5 2B на
+i5-8250U даёт 2.3 ток/с). Практическое правило из
+[разбора OllamaLab](https://ollamalab.com/posts/ollama-without-gpu-cpu-only/):
+реально достижимо **½–⅔ от потолка**, то есть «до 4B — удобно, 7–8B — терпимо на
+DDR5 и мучительно на DDR4, 14B+ — не интерактивно».
+
+Два следствия, которые важнее выбора кванта:
+
+* **MoE на CPU непропорционально выгодны.** GigaChat 3.1 Lightning (10B всего,
+  1.8B активных) читает ~1.1 ГБ весов на токен против ~4.8 ГБ у плотной 8B —
+  на одном и том же железе это разница в разы, при том что в RAM лежат все 6.47 ГБ.
+* **iGPU ускоряет только prefill.** Генерация читает ту же системную память, поэтому
+  встроенная графика ток/с почти не поднимает — выигрыш лишь в обработке промпта.
+
+Замеры для ориентира: Qwen3.5-4B Q4 — 5–15 ток/с на скромном CPU-only ПК;
+Qwen3.5-9B — 40.6 ток/с и Gemma 4 12B — 29.8 ток/с на GTX 1080 Ti (11 ГБ);
+форк `ik_llama.cpp` даёт до **5× prefill и 1.7× генерацию** против mainline
+llama.cpp на Qwen3.5-4B IQ4_XS — то есть на слабом CPU с длинным промптом это
+может быть выгоднее смены модели.
 
 **Prefill — другая физика.** Промпт обрабатывается параллельно и упирается в
 арифметику (~2 FLOP на параметр на токен). Для 8B-модели и промпта в 512 токенов
 это ~8.2 TFLOP, то есть **секунды тишины до первого токена** даже на приличном
 CPU. Вывод: на слабом ПК короткий системный промпт и короткая история диалога
 важнее, чем квантование.
+
+### 3.1 Что показывают реальные замеры (а не оценки)
+
+| Железо | Модель / квант | decode, ток/с | Источник |
+|---|---|---|---|
+| i5-8350U (4 потока) | LFM2.5-2.6B Q4_K_M | 13.1 | [CPU-only отчёт](https://huggingface.co/ljupco/cpu-only-inference-models/raw/main/README.md) |
+| i5-8350U | **LFM2.5-8B-A1B (MoE)** Q4 | 13.8 | там же |
+| i5-8350U | LFM2.5-1.2B Q4 | 25.3 | там же |
+| i7-10700 | Gemma 4 E2B Q4_K_M | 18.2 (prefill 96) | [local-llm-lab](https://github.com/quanhua92/local-llm-lab/blob/main/reports/gemma4-qat-comparison.md) |
+| i7-10700 | Gemma 4 E4B Q4_K_M | 9.7 (prefill 49) | там же |
+| i7-10700 | qwen3.5-4B Q4_K_M | 10.3 | там же |
+| i7-8550U (4C/8T, 16 ГБ) | Llama-2-7B Q4_0 | 5.6–6.4 | [бенчмарк старого железа](https://www.mgroeber.de/benchmarking-llamacpp-on-legacy-hardware-2.html) |
+| i7-2640M (2011, только AVX) | Llama-2-7B Q4_0 | 1.9 | там же |
+| **i5-8250U, 8 ГБ** | **Qwen3.5 2B** | **2.3** (428 с на ответ) | [Vulkan/llama.cpp](https://ozkanpakdil.github.io/posts/my_collections/2026/2026-03-22-vulkan-llamacpp-debian-13/) |
+| **N100, 16 ГБ (одноканал)** | Llama 3.1 8B Q4 / Mistral 7B / Qwen2.5 7B | **2.1 / 3.6 / 3.2** | [build-log](https://toolbrain.net/blog/build-log-n100-ollama/) |
+| N150, 16 ГБ | Llama 3.2 3B (Ollama) | 9.1 | [geerlingguy/ai-benchmarks](https://github.com/geerlingguy/ai-benchmarks) |
+| Xeon E5-2680 v4 (quad-channel DDR4) | Qwen3-Coder-30B-A3B Q4 (MoE) | 22.5 при ctx 0.6k / 9.1 при 16k | [on-prem-llm-cpu](https://github.com/Netstero/on-prem-llm-cpu) |
+
+Читать это надо так: **на 8 ГБ и слабом CPU даже 2B-модель может давать 2 ток/с**,
+если память одноканальная и CPU старый. Разброс между «i7-10700 + Gemma 4 E2B
+18 ток/с» и «i5-8250U + Qwen3.5 2B 2.3 ток/с» — это не про модель, а про железо.
+
+Что реально двигает цифры (замеры):
+
+* **Двухканальная память: +52…58 % к decode** (Gemma 3 4B: 5.89 → 9.15 ток/с),
+  prefill при этом почти не меняется (≤1.8 %).
+* **SMT вредит decode:** 20 потоков на 14-ядерном i7-12700H дали **−25 %**;
+  ставить число потоков = физические ядра.
+* **Одноканальный N100** — 2.1 ток/с на 8B, то есть «8B на 16 ГБ» звучит хорошо
+  только на бумаге.
+* **MoE выигрывает:** LFM2.5-8B-A1B (1B активных) на i5-8350U даёт 13.8 ток/с —
+  столько же, сколько плотная 2.6B, при втрое большем числе весов.
 
 ---
 
@@ -108,14 +169,26 @@ CPU. Вывод: на слабом ПК короткий системный пр
 | **Granite 4 micro** | `ibm/granite4:3b-h` | 3B (гибрид Mamba-2) | ~2–3 ГБ (Q4) | 128K | Apache-2.0 | Гибридная архитектура: дешёвый KV-кэш на длинном контексте |
 | **LFM2.5 8B-A1B** | `lfm2.5:8b` | 8B всего / 1B активных (MoE) | 5.2 ГБ | 125K | LFM Open License | Заявлен как «быстрейший в классе на CPU», заточен под tool calling |
 | **Phi-4-mini** | `phi4-mini` | 3.8B | ~2.4–2.5 ГБ | 128K | MIT | Всё ещё крепкий «малый рассуждатель», 4–12 ток/с на ноутбучном CPU |
-| **T-lite-it-2.1** | GGUF вручную | 8B (Qwen3-база) | ~5 ГБ (Q4) | 32K | Apache-2.0 | **Русский + tool calling**, non-thinking; см. §7 |
-| **YandexGPT-5-Lite-8B** | HF | 8B | ~5 ГБ (Q4) | 32K | открытые веса (pretrain) | Русский, но опубликована pretrain-версия |
 
-Наследие, которое ещё работает, но проигрывает новому поколению: Llama 3.2 1B/3B,
-Qwen2.5 0.5B/1.5B/3B, SmolLM3 3B (всего 6 языков, русского нет), Ministral 3B.
-Держать их имеет смысл только ради совместимости или очень маленького диска.
+### 4.2 Русскоязычные малые модели (проверено по HF/Ollama API)
 
-### 4.2 Decision-модели — новый класс (важно для ZERE)
+| Модель | Тег Ollama | Параметры | Q4 на диске | Контекст | Лицензия | Комментарий |
+|---|---|---|---|---|---|---|
+| **GigaChat3.1-10B-A1.8B** (Sber) | `second_constantine/gigachat3.1:10b` | MoE 10B / **1.8B активных** | 6.03 ГиБ | 262 144 | **MIT** | Лучший русский вариант для 16 ГБ: активных параметров мало → высокая скорость на CPU; tool calling |
+| **T-lite-it-2.1** (Т-Банк) | `t-tech/T-lite-it-2.1` (офиц.) | 8B (Qwen3-8B) | 4.68 ГиБ | 32 768 (до 131 072 через YaRN) | Apache-2.0 | Лучший instruction following в 8B (Ru Arena Hard 83.9), tool calling, **только non-thinking** |
+| **YandexGPT-5-Lite-8B-instruct** | `yandex/YandexGPT-5-Lite-8B-instruct-GGUF` (офиц.) | 8B | 4.58 ГиБ | 32 768 | своя (`yandexgpt-5-lite-8b`) | Русский «из коробки», но tool calling не заявлен и шаблон нестандартный |
+| **QVikhr-3-4B-Instruction** | GGUF `Vikhrmodels/QVikhr-3-4B-Instruction-GGUF` | 4B (Qwen3-4B) | **2.33 ГиБ** | 40 960 | Apache-2.0 | Русский на 4–8 ГБ с tool calling — лучший баланс |
+| **RuadaptQwen3-4B-Instruct** | GGUF `RefalMachine/RuadaptQwen3-4B-Instruct-GGUF` | 4B | 2.32 ГиБ | 262 144 | Apache-2.0 | Свой токенизатор (+48k ru-токенов) → до +100 % скорости генерации русского |
+| **QVikhr-3-1.7B-Instruction-noreasoning** | GGUF `Vikhrmodels/...-1.7B-...-GGUF` | 1.7B | ~1.2–1.3 ГиБ | 40 960 | Apache-2.0 | Самый лёгкий вменяемый русский инструкт (4 ГБ RAM) |
+| **GigaChat-20B-A3B-instruct-v1.5** | `infidelis/GigaChat-20B-A3B-instruct-v1.5` | MoE 20B / 3B активных | 11.64 ГиБ | 131 072 | MIT | Только 16 ГБ и с урезанием контекста |
+| **Saiga/Gemma3 12B** | `OxW/Saiga_Gemma3_12B` | 12B | 6.80 ГиБ | 131 072 | Gemma Terms | Последняя Saiga (апрель 2025); 12B на CPU уже медленно |
+
+Важно: **в официальной библиотеке Ollama русских LLM нет** — все теги лежат в
+namespace разработчиков или сообщества. Официальные (от самих авторов) есть только
+у `t-tech/` и `yandex/`. Наследие Vikhr/Saiga (2024) новее не стало: у Vikhrmodels
+последняя текстовая линия — QVikhr-3 (май–август 2025), у Saiga — апрель 2025.
+
+### 4.3 Decision-модели — новый класс (важно для ZERE)
 
 В Ollama 0.35+ появился эндпоинт `/v1/systemone`, повторяющий API Jev:
 на вход `state` + `questions` (типы `choice` / `noul` / `score`), на выход — выбор
@@ -135,7 +208,7 @@ Qwen2.5 0.5B/1.5B/3B, SmolLM3 3B (всего 6 языков, русского н
 нужно калибровать на своих данных. То есть локальный роутер на русском надо
 проверять своим набором фраз (у ZERE для этого уже есть `tools/jev_bench.py`).
 
-### 4.3 Что НЕ для слабого ПК (не предлагать)
+### 4.4 Что НЕ для слабого ПК (не предлагать)
 
 | Модель | Почему нет |
 |---|---|
@@ -174,22 +247,88 @@ Qwen2.5 0.5B/1.5B/3B, SmolLM3 3B (всего 6 языков, русского н
   он становится заметной долей трафика. Квантование KV-кэша (q8_0) и короткий
   контекст дают больше, чем попытки ужать веса ниже Q4.
 
+Независимая работа по Llama-3.1-8B (arXiv:2601.14277, январь 2026) даёт ту же
+картину: **Pareto-оптимум — Q4_K_S/Q4_K_M** (потеря среднего балла ≈0.4 %,
+PPL 7.56 против 7.32 у F16), ниже 4 бит — обрыв (Q3_K_S: PPL +22 %,
+GSM8K −9.3 пункта). Важно: **IQ-кванты (IQ4_XS, IQ3_*, IQ2_M) в этой работе не
+тестировались**, поэтому «IQ4_XS лучше Q4_0» — непроверенное утверждение.
+
+| RAM | Что брать | Контекст |
+|---|---|---|
+| 4 ГБ | 1B Q4_K_M (~0.75 ГБ) или 3B Q4_K_M (~2 ГБ) | 2K |
+| **8 ГБ** | **3B–4B Q4_K_M (~2.5–2.9 ГБ)** — оптимум; 8B Q4 (~5 ГБ) + KV + ОС уже на грани | 2–4K |
+| **16 ГБ** | 8B Q4_K_M (~5 ГБ) + 8K контекст; KV в q8_0 | 8K |
+
+По форматам: **GGUF** — стандарт для CPU (llama.cpp/Ollama); **MLX** — только
+Apple Silicon (Windows не поддерживается); для Windows есть путь через
+ONNX Runtime + DirectML/Windows ML. **MXFP4** (gpt-oss) ускоряется на GPU-стороне,
+CPU-кернелов с VNNI в 2026 не подтверждено. **BitNet/TQ2_0/Q2_0** — только для
+специально обученных тернарных моделей, обычный GGUF так не квантуется.
+
 ---
 
 ## 6. Настройка Ollama/llama.cpp под слабый ПК
 
-Проверенное по официальной документации и практике:
+### 6.1 Ollama: переменные и их реальные умолчания
 
-| Что | Как | Зачем |
+Значения по умолчанию проверены по `envconfig/config.go` и `docs/faq.mdx`
+(срез 13.10.2026):
+
+| Переменная | Дефолт | Что ставить на слабом ПК |
 |---|---|---|
-| Контекст | `OLLAMA_CONTEXT_LENGTH` (по умолчанию **4096**) | Прямо влияет на RAM: KV-кэш растёт линейно |
-| Thinking | `think: false` в `/api/chat`, значения смотреть в `/api/show` → `thinking.values` | Reasoning-модели на слабом CPU тратят сотни токенов «в никуда» |
-| KV-кэш | `OLLAMA_KV_CACHE_TYPE=q8_0` + `OLLAMA_FLASH_ATTENTION=1` | Экономия RAM на длинном контексте |
-| Параллелизм | `OLLAMA_NUM_PARALLEL=1`, `OLLAMA_MAX_LOADED_MODELS=1` | Не держать несколько моделей и слотов в памяти |
-| Выгрузка | `OLLAMA_KEEP_ALIVE=5m` (или `keep_alive` в запросе) | Иначе модель висит в RAM бессрочно |
-| Потоки llama.cpp | `-t` подбирать перебором **ниже** числа ядер | Больше потоков ≠ быстрее: конкуренция за контроллер памяти |
-| mmap | оставить включённым, но модели — на SSD | HDD превращает подкачку весов в катастрофу |
-| Длинный промпт | резать системный промпт и историю | Prefill упирается в арифметику, а не в память |
+| `OLLAMA_CONTEXT_LENGTH` | 4096 (FAQ); в доках — «по объёму VRAM» (расхождение в доках) | 2048–4096 на 8 ГБ, 8192 на 16 ГБ |
+| `OLLAMA_NUM_PARALLEL` | **1** | 1 — «Required RAM scales by `NUM_PARALLEL × CONTEXT_LENGTH`» |
+| `OLLAMA_MAX_LOADED_MODELS` | **0 → 3 для CPU** | **1**: иначе в RAM висят до трёх моделей |
+| `OLLAMA_KEEP_ALIVE` | **5m** | 5m; `0` — освобождать RAM сразу (важно при играх/браузере) |
+| `OLLAMA_FLASH_ATTENTION` | **0** | `1`, если бэкенд поддерживает |
+| `OLLAMA_KV_CACHE_TYPE` | f16 | `q8_0` (требует flash attention; действует на все модели) |
+| `OLLAMA_MODELS` | `C:\Users\<user>\.ollama\models` | вынести на SSD |
+| Число потоков | переменной нет | задаётся `options.num_thread` в запросе/Modelfile |
+
+Проверка состояния — `ollama ps` (показывает `PROCESSOR`, `CONTEXT`, `UNTIL`).
+
+### 6.2 llama.cpp: что важно в 2026 году
+
+* **Флаги `--mmap/--no-mmap/--mlock/--direct-io` объявлены deprecated** и заменены
+  единым `-lm/--load-mode` (`auto`/`none`/`mmap`/`mlock`/`mmap+mlock`/`dio`);
+  `auto` по умолчанию **избегает mmap на iGPU** (PR #20834, #26081). На 8 ГБ
+  `--mlock` не использовать: он пиннит модель и превращает нехватку памяти в
+  жёсткий отказ (`failed to mlock … Cannot allocate memory`).
+* **KV-кэш считается по формуле** `n_ctx × n_layer × n_head_kv × (k + v) × байт`,
+  где байт: f16 = 2, q8_0 = 1.0625, q4_0 = 0.5625. Выделяется **на весь `n_ctx`
+  сразу при загрузке**, а не по мере использования: Llama-3.1-8B на 128K — это
+  16 ГиБ только KV, на 4K — 0.5 ГиБ. Модели со sliding window (Gemma 4) держат
+  на SWA-слоях только `window + n_ubatch`, если не задан `--swa-full`.
+* **Logits-буфер = `n_vocab × n_outputs × 4` байт** и растёт вместе с `-b`.
+  У Qwen3.5/Gemma 4 словарь 151–262 тыс. токенов → ~0.6–1 МБ на токен вывода;
+  на слабом ПК `-b` стоит уменьшать.
+* Хост-кеш промптов у `llama-server` по умолчанию **8192 МиБ** (`-cram`) — на
+  слабой машине ставить `-cram 128…256` или `0`.
+* Полезное: `--cache-reuse N`, `-fa on`, `-ctk/-ctv q8_0`, `-rea off`
+  (или `--reasoning-budget 0`) для thinking, `--spec-type ngram-mod` —
+  n-gram спекулятивное декодирование без второй модели (~16 МБ).
+* **Что дал 2026 год по скорости на CPU:** IQ-panel для AVX2/VNNI (dense prefill
+  до 10×, MoE ~2×), tiled mul_mat для k-квантов (prefill 3–6×, но **−20 % на
+  decode**), `llama-bench --repack` (gemma3 1B: pp512 59.7 → 86.5 ток/с).
+  В Ollama с PR #16031 (май 2026) GGUF-модели идут через upstream `llama-server`,
+  то есть эти оптимизации приезжают автоматически с обновлением Ollama.
+* Форк `ik_llama.cpp` даёт до 5× prefill / 1.7× генерацию, но требует AVX2 и
+  собирается с правками — для ZERE это эксперимент, а не дефолт.
+
+### 6.3 Подводные камни, которые видно на слабом ПК
+
+1. **Thinking по умолчанию.** Ollama: поле `think` (`true/false` или уровни
+   `low…max`), CLI `/set nothink`, `--hidethinking`; llama.cpp: `-rea off`,
+   `--reasoning-budget 0`. На 2–3 ток/с лишняя сотня reasoning-токенов — это
+   +30–60 с задержки на ответ.
+2. **Огромный словарь** (151k–262k токенов) бьёт по logits-буферу и prefill.
+3. **Vision почти всегда лишний:** нужен отдельный `mmproj.gguf`, а на 8 ГБ это
+   чистая потеря памяти. Ollama-теги `gemma4:e2b` (4.6–7.5 ГБ) включают
+   мультимодальные части — по тексту модель весит заметно меньше.
+4. **Структурированный вывод не бесплатен:** legacy GBNF-обход стоит
+   4–8 мс/токен (12–24 % времени decode при словаре 152k).
+5. **Ollama держит модель 5 минут** после ответа — на 8 ГБ это причина
+   «необъяснимой» нехватки памяти.
 
 Оговорка по thinking: в трекере Ollama есть
 [issue #14617](https://github.com/ollama/ollama/issues/14617) о том, что отключить
@@ -198,27 +337,60 @@ thinking у Qwen3.5 через Modelfile (`no_think`) не получается 
 
 ---
 
-## 7. Русский язык: что реально работает
+## 7. Русский язык: объективные цифры
 
-| Модель | Класс | Русский | Лицензия | Вывод |
-|---|---|---|---|---|
-| **T-lite-it-2.1** (Т-Банк) | 8B, Qwen3-база | Ru Arena Hard **83.9** (Qwen3-8B — 57.2), ruIFeval 75.9 | Apache-2.0 | Лучший открытый русский в классе; **есть tool calling**, non-thinking, 32K |
-| **Qwen3.5 9B** | 9B | Сильный (201 язык, MMMLU) | Apache-2.0 | Практический выбор для 16 ГБ |
-| **YandexGPT-5-Lite-8B** | 8B | Русский по происхождению | открытые веса (pretrain) | Инструкт-версия/GGUF — под вопросом |
-| **T-pro-2.1** (Т-Банк) | крупнее | Гибридный reasoning | — | Уже не «слабый ПК» |
-| Vikhr / Saiga | 3B / 8B | Исторически «русские», но 2024–2025 | наследуется от базы | Только как специализированное наследие |
-| A-vibe (Авито) | 8B, Qwen3-база | Ru Arena Hard 50.1 | — | Слабее T-lite на русском |
+Главный источник — **MERA Text 2.0** (12 задач: юмор, регионализмы, эниантосемия,
+SAGE, IFHardBench и др.), срез 13.10.2026. Абсолютные значения низкие даже у
+флагманов (Gemini 3.7 Flash — 0.678), поэтому важны относительные позиции:
 
-Что важно: у T-lite-it-2.1 **нет официального тега в Ollama** — только GGUF
-сообщества, то есть в ZERE это «скачать и импортировать», а не одна кнопка
-`ollama pull`. Для 8 ГБ RAM 8B-модель в Q4 (~5 ГБ) — это впритык, комфортно
-только на 16 ГБ.
+| Модель | Итог | SAGE | Humor | IFHard | NewReasoning |
+|---|---|---|---|---|---|
+| **Qwen3.5-9B** | **0.186** | 0.121 | 0.132 | 0.235 | 0.411 |
+| **Gemma 4 E4B (non-reasoning)** | 0.170 | 0.453 | 0.087 | 0.066 | 0.377 |
+| RuadaptQwen3-8B-Hybrid | 0.134 | 0.437 | 0.101 | 0.048 | 0.206 |
+| **T-lite-it-2.1** | 0.130 | **0.628** | 0.067 | 0.048 | 0.128 |
+| LFM2.5-2.6B | 0.120 | 0.369 | 0.061 | 0.247 | 0.222 |
+| A-vibe (Авито) | 0.113 | 0.595 | 0.055 | 0.040 | 0.156 |
+| meno-lite-0.1 | 0.104 | 0.482 | 0.027 | 0.035 | 0.090 |
+| Gemma 4 E2B (non-reasoning) | 0.099 | 0.313 | 0.052 | 0.050 | 0.243 |
+| **Qwen3.5-4B** | 0.093 | 0.038 | 0.043 | 0.120 | 0.232 |
+| SmolLM-3B | 0.049 | 0.322 | 0.018 | 0.038 | 0.049 |
 
-Осторожно с источниками: обзоры вида «топ русских моделей 2026» на SEO-сайтах
+Для калибровки: Qwen3.5-27B — 0.422, T-pro-it-2.1 (33B) — 0.196, то есть **9B-класс
+уже дотягивает до 33B-модели прошлого поколения**.
+
+**Ловушка сопоставимости:** MERA Text 2.0 и «старая» MERA v1 из карточек вендоров —
+разные доски. A-vibe заявляет MERA v1 = 0.618 против 0.510 у Qwen3-8B, а на Text 2.0
+у него 0.113. То же с Ru Arena Hard 83.9 у T-lite-it-2.1: арены премируют стиль,
+MERA 2.0 — тяжёлые знания, юмор и культуру. Сравнивать можно только числа одной
+версии доски.
+
+| Модель | Лицензия | Коммерция | Вывод для ZERE |
+|---|---|---|---|
+| **GigaChat 3.1 Lightning** (Sber) | **MIT** | ✅ без ограничений | Лучший «умный» вариант на 16 ГБ: MoE 1.8B активных, Q4 = 6.47 ГБ, 256K, tool-use, ruMMLU 0.680 |
+| **T-lite-it-2.1** (Т-Банк) | Apache-2.0 | ✅ | Лучшая **агентность** на русском: ruBFCL 56.45 против 52.6 у Qwen3-8B; SAGE 0.628 — лучший в таблице |
+| **A-vibe** (Авито) | Apache-2.0 | ✅ | ruMMLU 0.718 (выше Qwen3-8B 0.701), свой токенизатор |
+| **RuadaptQwen3-4B/8B-Hybrid** | Apache-2.0 | ✅ | Свой ru-токенизатор: +15…100 % скорости на русском; 4B Q4 = 2.49 ГБ |
+| **meno-lite-0.1** | Apache-2.0 | ✅ | 7B под RAG/QA, tool calling, Q4 = 4.65 ГБ |
+| **YandexGPT-5-Lite-8B-instruct** | своя (Яндекс) | ⚠️ **≤10 млн выходных токенов/мес** | Открыт, но лимит; независимые замеры противоречивы |
+| Vikhr-Nemo-12B / Saiga | Apache-2.0 / наследует базовую | ⚠️ | Vikhr текстово не обновлялся с 2024; Saiga юридически самый мутный |
+
+Как это ставить: в **официальной библиотеке Ollama русских моделей нет** — есть
+только namespace-репозитории авторов (`t-tech/T-lite-it-2.1`,
+`yandex/YandexGPT-5-Lite-8B-instruct-GGUF`), которые находятся по прямому тегу, но
+не в поиске. GigaChat, Ruadapt, A-vibe, Vikhr заводятся через `ollama create` из
+GGUF. То есть в ZERE это не «одна кнопка», а импорт — если добавлять их в панель,
+нужен сценарий «скачать GGUF → создать модель».
+
+Практические наблюдения из отзывов: малые модели без явного указания языка
+склонны отвечать по-английски (а раньше — по-китайски), поэтому русский язык надо
+жёстко фиксировать системным промптом; у Vikhr рекомендуют писать системный промпт
+по-английски и держать temperature 0.1–0.5.
+
+Осторожно с источниками: SEO-обзоры вида «топ русских моделей 2026»
 (например local-ai.com.ru) содержат сомнительные утверждения (Vikhr 3B на
-Raspberry Pi, «Saiga 70B — 40 ГБ VRAM»); как основание для решений они не годятся.
-Официальный лидерборд [MERA](https://mera.a-ai.ru/ru/text/leaderboard) отдаёт
-данные только через JS/выгрузку, поэтому цифры выше взяты из карточек моделей.
+Raspberry Pi, «Saiga 70B — 40 ГБ VRAM»); RussianSuperGLUE для выбора LLM-2026
+бесполезен — датасет 2020 года пересатурирован моделями 7–9B.
 
 ---
 
@@ -263,30 +435,55 @@ Raspberry Pi, «Saiga 70B — 40 ГБ VRAM»); как основание для 
    Пороги (0.85/0.55/0.93) придётся перекалибровать своим бенчмарком
    (`tools/jev_bench.py`), потому что Tev1 на русском не тестировался.
 6. **Подсказка «что качать» по железу**: 4 ГБ → `qwen3.5:0.8b`; 8 ГБ →
-   `qwen3.5:2b`; 16 ГБ → `qwen3.5:4b`, для русского — `qwen3.5:9b` или
-   T-lite-it-2.1 (импорт GGUF).
+   `qwen3.5:2b` (и `qwen3.5:4b`, если RAM позволяет); 16 ГБ → `qwen3.5:4b`, для
+   русского — `qwen3.5:9b`, **GigaChat 3.1 Lightning** (MIT, MoE 1.8B активных)
+   или T-lite-it-2.1; для 8 ГБ на русском — RuadaptQwen3-4B-Hybrid (2.49 ГБ).
 7. **Не предлагать**: `gemma4:12b+`, `qwen3.5:27b+`, Qwen3.8-27B, Kolibri,
    Nemotron 3 Nano. Для Gemma 4 из «малого» имеет смысл только E2B/E4B, и то
-   с оговоркой про 4.6–9.5 ГБ.
+   с оговоркой про 4.6–9.5 ГБ (это вместе с vision/audio-частями).
 8. **Требование к Ollama**: decision-модели требуют **Ollama 0.35+** — это надо
    проверять в `DependencyChecker` до включения локального роутера.
+9. **Добавить в проверку/подсказки окружения** (для слабого профиля):
+   `OLLAMA_MAX_LOADED_MODELS=1` (по умолчанию для CPU — до **3** моделей в RAM),
+   `OLLAMA_FLASH_ATTENTION=1` + `OLLAMA_KV_CACHE_TYPE=q8_0`,
+   `OLLAMA_NUM_PARALLEL=1`. ZERE сейчас сам не задаёт эти переменные — значит,
+   на слабой машине он живёт с дефолтами Ollama.
+10. **Учитывать словарь и контекст:** у Qwen3.5/Gemma 4 словарь 151–262 тыс.
+    токенов, поэтому `num_ctx=2048` в `OllamaClient` — правильное решение, его
+    стоит сохранить, а `num_predict` для голосового режима оставить коротким.
+    Дополнительно можно снижать `num_batch`/`-b` (logits-буфер = словарь × батч × 4 Б).
+11. **Вернуть пользователю управление выгрузкой модели.** Помимо `keep_alive`,
+    полезно показать в панели команду `ollama stop <model>` и статус `ollama ps`
+    (сколько RAM реально занято) — на 8 ГБ это главный источник «тормозит всё».
+12. **Русский RAG для памяти ZERE:** для поиска по воспоминаниям имеет смысл
+    русские эмбеддинги Giga-Embeddings-instruct-480M/3B (сентябрь 2026) вместо
+    мультиязычных общего назначения.
 
 ---
 
 ## 10. Риски и непроверенное
 
-* Цифры «реально ожидать» в §3 — оценка сверху из пропускной способности, не
-  замеры на конкретной машине. Единственный честный способ — `llama-bench` на
-  целевом железе.
+* Потолки в §3 — расчёт сверху; «реально ожидать» — уже замеры разных людей на
+  разном железе. Единственный честный способ для ZERE — прогнать `llama-bench`
+  на целевом ПК (в отчёте есть готовые ориентиры по i5-8250U, N100, i7-8550U).
+* **MERA Text 2.0 и MERA v1 несопоставимы** — карточки вендоров ссылаются на
+  старую доску. Сравнивать только числа одной версии.
 * Русское качество Qwen3.5-2B/4B подтверждено только косвенно (мультиязычные
   бенчмарки семейства). Нужен свой прогон на фразах ZERE.
 * `gemma4.dev` — фанатский хаб: его таблица (E2B Q4 ≈ 1.4 ГБ) расходится с
   карточкой Ollama (4.6–7.5 ГБ). Верить карточке, разницу объясняют энкодеры,
   словарь и старшие кванты.
 * Tev1: английский фокус, контекст ~2K, точность на русском не измерена.
-* BitNet в Ollama не поддержан — не закладывать в продуктовый сценарий.
+* BitNet в Ollama не поддержан; **MXFP4 на CPU в 2026 не подтверждён** (ускорение
+  идёт GPU-стороной); MLX на Windows не работает — не закладывать в продуктовый
+  сценарий.
+* **Опровергнутое по ходу ресерча:** модели «Qwen3.5-0.6B» не существует (минимум
+  0.8B); `--no-mmap` не стал дефолтом — флаги mmap/mlock вообще deprecated в
+  пользу `--load-mode auto`; «IQ4_XS лучше Q4_0» независимо не измерено.
 * Цифры «ток/с» из SEO-обзоров (promptquorum, localaimaster и подобные) не
   воспроизводимы; в отчёте они не используются как основание.
+* Прямых независимых замеров tok/s именно для русских моделей (T-lite, Ruadapt,
+  GigaChat 3.1) на CPU не найдено — только оценки по числу активных параметров.
 
 ---
 
@@ -297,25 +494,45 @@ Raspberry Pi, «Saiga 70B — 40 ГБ VRAM»); как основание для 
 * [gemma4 — Ollama Library](https://ollama.com/library/gemma4) — E2B/E4B/12B/26B-A4B/31B, бенчмарки, thinking-теги, 262K словарь
 * [Gemma 4 — Unsloth Docs](https://unsloth.ai/docs/models/gemma-4) — состав семейства, лицензия
 * [Ollama: Decision](https://docs.ollama.com/capabilities/decision) и [Ollama: Thinking](https://docs.ollama.com/capabilities/thinking) — `/v1/systemone`, `think`, `/api/show`
+* [Ollama FAQ / envconfig](https://github.com/ollama/ollama/blob/main/envconfig/config.go) — дефолты `NUM_PARALLEL`, `MAX_LOADED_MODELS`, `KEEP_ALIVE`, `FLASH_ATTENTION`
 * [nimble](https://ollama.com/library/nimble), [clef-flash](https://ollama.com/library/clef-flash), [tev1](https://ollama.com/library/tev1) — decision-модели, размеры, точность, ограничения
 * [lfm2.5](https://ollama.com/library/lfm2.5) — 8B-A1B, 5.2 ГБ, tool calling
 * [ibm/granite4](https://ollama.com/ibm/granite4) — micro/tiny/small, гибрид Mamba-2; [issue #12692](https://github.com/ollama/ollama/issues/12692) — про неверную оценку памяти у гибридов
-* [T-lite-it-2.1 — HF](https://huggingface.co/t-tech/T-lite-it-2.1) — русский, tool calling, бенчмарки Ru Arena Hard / ruIFeval / BFCL
-* [YandexGPT-5-Lite-8B-pretrain — HF](https://huggingface.co/yandex/YandexGPT-5-Lite-8B-pretrain)
+* [T-lite-it-2.1 — HF](https://huggingface.co/t-tech/T-lite-it-2.1) + [GGUF](https://huggingface.co/t-tech/T-lite-it-2.1-GGUF) — русский, tool calling, Ru Arena Hard / ruIFeval / BFCL
+* [GigaChat3.1-10B-A1.8B-GGUF — HF](https://huggingface.co/ai-sage/GigaChat3.1-10B-A1.8B-GGUF) — MIT, MoE 1.8B активных, ruMMLU 0.680
+* [A-vibe — HF](https://huggingface.co/AvitoTech/avibe), [RuadaptQwen3-8B-Hybrid](https://huggingface.co/RefalMachine/RuadaptQwen3-8B-Hybrid), [meno-lite-0.1](https://huggingface.co/bond005/meno-lite-0.1) — русские Qwen3-базы
+* [Vikhr-Nemo-12B-Instruct-R](https://huggingface.co/Vikhrmodels/Vikhr-Nemo-12B-Instruct-R-21-09-24), [QVikhr-3-4B GGUF](https://huggingface.co/Vikhrmodels/QVikhr-3-4B-Instruction-GGUF)
+* [YandexGPT-5-Lite-8B-pretrain — HF](https://huggingface.co/yandex/YandexGPT-5-Lite-8B-pretrain) и [анонс Яндекса](https://yandex.ru/company/news/31-02-03-2025) — лицензия с лимитом 10 млн токенов/мес
 * [microsoft/bitnet-b1.58-2B-4T — HF](https://huggingface.co/microsoft/bitnet-b1.58-2B-4T) и [BitNet Technical Report](https://arxiv.org/html/2504.12285v1) — 0.4 ГБ, 29 мс/ток; [обсуждение про Ollama](https://huggingface.co/microsoft/bitnet-b1.58-2B-4T-gguf/discussions/15)
 * [Kolibri — Aleph Alpha](https://aleph-alpha.com/en/blog/kolibri-has-landed-a-sovereign-open-weight-model/) — 78B-A3.46B, Apache-2.0, EN-DE
 * [Qwen3.8-27B: running locally](https://linas.substack.com/p/qwen3-8-27b-local-guide) — 14 августа 2026, dense, Apache-2.0, 256K
 * [LiquidAI/d1-3B — HF](https://huggingface.co/LiquidAI/d1-3B) — decision-модель 3B
 
-**Метрики и практика:**
+**Метрики, замеры и практика:**
 * [Что ожидать от чистого CPU-инференса](https://dev.to/multigrid/what-to-expect-from-pure-cpu-only-local-inference-487o) — формула потолка, prefill vs decode
+* [Ollama without GPU](https://ollamalab.com/posts/ollama-without-gpu-cpu-only/) — «½–⅔ от потолка», MoE на CPU, iGPU только prefill
 * [Qwen3-4B Low-RAM Quantization Benchmark](https://huggingface.co/b4ph/qwen3-4b-lowram-bench) — PPL/размер/скорость по квантам, imatrix
+* [arXiv:2601.14277](https://arxiv.org/html/2601.14277v1) — качество квантов на Llama-3.1-8B (Q4_K_S — Pareto-оптимум)
+* [Бенчмарк llama.cpp на старом железе](https://www.mgroeber.de/benchmarking-llamacpp-on-legacy-hardware-2.html) — i7-8550U / i7-2640M, 7B Q4
+* [local-llm-lab](https://github.com/quanhua92/local-llm-lab/blob/main/reports/gemma4-qat-comparison.md) — Gemma 4 E2B/E4B и qwen3.5-4B на i7-10700
+* [CPU-only отчёт (i5-8350U)](https://huggingface.co/ljupco/cpu-only-inference-models/raw/main/README.md) — LFM2.5 1.2B/2.6B/8B-A1B
+* [on-prem-llm-cpu](https://github.com/Netstero/on-prem-llm-cpu) — Xeon E5-2680 v4, MoE, TTFT на длинном контексте
+* [Двухканал vs одноканал](https://insiderllm.com/guides/dual-channel-ram-local-llm-cpu-inference/) — +52…58 % к decode
+* [llama.cpp: KV-кэш и его размер](https://github.com/ggml-org/llama.cpp/discussions/10068) — формула, квантование KV, sliding window
+* [llama.cpp: PR #20834 (`--load-mode`)](https://github.com/ggml-org/llama.cpp/pull/20834), [PR #27402 (IQ-panel)](https://github.com/ggml-org/llama.cpp/pull/27402), [PR #28968 (repack)](https://github.com/ggml-org/llama.cpp/pull/28968) — что дал 2026 год на CPU
 * [Ollama FAQ](https://docs.ollama.com/faq) — контекст по умолчанию 4096, `OLLAMA_CONTEXT_LENGTH`
-* [CPU-only LLM performance (r/LocalLLaMA)](https://www.reddit.com/r/LocalLLaMA/comments/1p90zzi/cpuonly_llm_performance_ts_with_llamacpp/) — сводка замеров
-* [Run a local LLM on 8GB RAM](https://www.agenticwire.news/article/run-local-llm-8gb-ram) — поведение моделей 1.2B–7.2B и свап
+* [Habr: тест Qwen3.5 9B / Gemma 4 12B на GTX 1080 Ti](https://habr.com/ru/articles/1069290/) — thinking vs non-thinking: 44/100 → 96/100
+* [Habr: обзор локальных моделей в Ollama](https://habr.com/ru/articles/946900/) — русский язык у малых моделей, gemma3:4b как быстрый
+* [Habr: GigaChat 3 Lightning](https://habr.com/ru/articles/985976/) — разбор открытой модели Сбера
 * [MERA Leaderboard](https://mera.a-ai.ru/ru/text/leaderboard) — официальный русский лидерборд (данные через выгрузку)
+* [Анонс MERA Text 2.0](https://ict.moscow/news/komanda-mera-predstavila-novuiu-versiiu-benchmarka-mera-text-2-0-dlia-proverki-fundamentalnykh-tekstovykh-iazykovykh-modelei/)
+* [Обзор лицензий Saiga/Vikhr](https://chimitdorzhi.tech/en/ii-modeli/saiga) — наследование базовых лицензий
+
+**Приложение:** `docs/research/RU_SLM_CPU_2025-2026.md` — проверенный по HF/Ollama API
+датасет русских SLM (точные байтовые размеры квантов, теги, лицензии).
 
 ---
 
 *Отчёт подготовлен по открытым источникам 13.10.2026. Числа по скорости на CPU —
-оценки сверху; перед продуктовыми решениями проверять на целевом железе.*
+частично расчётные оценки сверху, частично замеры сторонних авторов на другом
+железе; перед продуктовыми решениями проверять на целевом ПК.*
