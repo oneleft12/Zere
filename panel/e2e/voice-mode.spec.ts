@@ -23,6 +23,8 @@ interface ModeState {
   lastUtterance: string;
   lastAnswer: string;
   lastError: string | null;
+  /** Счётчик обработанных голосовых реплик (поле контракта VoiceModeState). */
+  turn: number;
 }
 
 function modeState(patch: Partial<ModeState> = {}): ModeState {
@@ -35,6 +37,7 @@ function modeState(patch: Partial<ModeState> = {}): ModeState {
     lastUtterance: "",
     lastAnswer: "",
     lastError: null,
+    turn: 0,
     ...patch,
   };
 }
@@ -99,6 +102,39 @@ test("чат: подпись кнопки догоняет фазу цикла",
   // без нажатий — фаза и есть тот смысл, ради которого она в шапке.
   box.current = modeState({ enabled: true, state: "listening" });
   await expect(button).toContainText("слушает команду", { timeout: 15_000 });
+});
+
+test("чат: голосовая реплика режима появляется в диалоге", async ({ page }) => {
+  const box = await mockMode(page, modeState({ enabled: true, state: "sleeping" }));
+  await page.goto("/chat");
+
+  // Первый опрос уже прошёл (кнопка показывает фазу): счётчик реплик панели
+  // виден, и дальше его рост означает новую пару в диалоге.
+  const button = page.locator(BUTTON);
+  await expect(button).toContainText("ждёт «зере»", { timeout: 15_000 });
+
+  const log = page.locator(".chat__log");
+  await expect(log.locator(".msg")).toHaveCount(0);
+
+  // Сервер обработал голосовую реплику: пара «услышано / ответ» + turn+1.
+  box.current = modeState({
+    enabled: true,
+    state: "speaking",
+    turn: 1,
+    lastUtterance: "привет",
+    lastAnswer: "Привет! Чем помочь?",
+  });
+
+  const userBubble = log.locator(".msg--user");
+  await expect(userBubble).toHaveText("привет", { timeout: 15_000 });
+  await expect(log.locator(".msg--assistant")).toHaveText("Привет! Чем помочь?");
+  // Реплику не набирали в композере — она помечена как голосовая (значок микрофона).
+  await expect(userBubble).toHaveClass(/msg--voice/);
+  await expect(userBubble.locator(".msg__voice-icon svg")).toBeVisible();
+
+  // Счётчик не «переигрывает» одну реплику на каждом опросе: пара одна.
+  await page.waitForTimeout(2500);
+  await expect(log.locator(".msg")).toHaveCount(2);
 });
 
 test("чат: без STT кнопка режима выключена и объясняет причину", async ({ page }) => {

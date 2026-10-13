@@ -2353,6 +2353,8 @@ def test_voice_mode_get_matches_spec() -> None:
         assert data["lastUtterance"] == ""
         assert data["lastAnswer"] == ""
         assert data["lastError"] is None
+        # Счётчик голосовых реплик: по нему чат дописывает пару в диалог.
+        assert data["turn"] == 0
 
 
 def test_voice_mode_requires_token() -> None:
@@ -2441,6 +2443,7 @@ def test_voice_mode_cycle_without_wake_word() -> None:
         )
         assert done["lastUtterance"] == "создай папку тест"
         assert done["lastError"] is None
+        assert done["turn"] == 1, "обработанная реплика должна поднять счётчик чата"
         assert "создай папку тест" in panel.engine.processed
         assert "ответ: создай папку тест" in voice.spoken
 
@@ -2473,6 +2476,7 @@ def test_voice_mode_cycle_with_wake_word() -> None:
         )
         assert done["lastUtterance"] == "сколько процессов"
         assert done["lastError"] is None
+        assert done["turn"] == 1, "wake-путь тоже считается репликой для чата"
         assert voice.wake_armed is True  # детектор пережил команду и ждёт снова
 
         status, raw, _ = call(panel, "POST", "/api/voice/mode", body={"enabled": False})
@@ -2509,6 +2513,9 @@ def test_voice_mode_process_error_keeps_listening() -> None:
             assert "ollama упал" in failed["lastError"]
             assert failed["enabled"] is True  # цикл жив, слушает дальше
             assert failed["state"] in ("sleeping", "listening", "processing")
+            # Пара не состоялась — счётчик реплик не растёт, и в чат
+            # дописывать нечего (ошибка видна в самом режиме).
+            assert failed["turn"] == 0
         finally:
             panel.engine.process = original_process  # type: ignore[assignment]
             status, raw, _ = call(panel, "POST", "/api/voice/mode", body={"enabled": False})

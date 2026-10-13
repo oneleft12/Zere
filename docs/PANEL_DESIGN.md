@@ -76,7 +76,7 @@
 
 ```bash
 npm run build                 # tsc + vite → panel/dist (коммитится)
-npx playwright test           # 37 e2e: экраны, чат, голосовое, команды, ИИ, обновления, голос
+npx playwright test           # 38 e2e: экраны, чат, голосовое, команды, ИИ, обновления, голос
 node e2e/audit.cjs            # расширенный аудит: XSS, обрыв связи, 390×844, i18n
 ```
 

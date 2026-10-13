@@ -175,6 +175,7 @@ def test_wake_word_failure_keeps_mode_alive() -> None:
     assert status["state"] == STATE_IDLE, "режим не должен оставаться в error"
     assert status["lastUtterance"] == "команда", "wake-путь должен дойти до команды"
     assert status["lastAnswer"] == "ответ: команда"
+    assert status["turn"] == 1, "обработанная реплика должна попасть в счётчик чата"
     assert voice.wake_armed is False, "детектор освобождён на выходе"
 
 
@@ -193,7 +194,56 @@ def test_speak_failure_keeps_mode_alive() -> None:
     status = runner.status()
     assert status["lastError"] is not None and "озвучки" in status["lastError"]
     assert status["lastAnswer"] == "ответ зере"
+    assert status["turn"] == 1, "сбой озвучки не отменяет обработанную реплику"
     assert status["state"] == STATE_IDLE
+
+
+def test_turn_counts_processed_utterances() -> None:
+    """Счётчик реплик (`turn`) растёт на 1 за каждую обработку.
+
+    Панель по нему понимает, что в диалог чата нужно дописать пару
+    «услышано / ответ»: голосовая реплика идёт мимо /api/chat/stream.
+    """
+    voice = FlakyVoice(["привет", "громкость 30", "выход"])
+    runner = VoiceModeRunner(voice, lambda command: f"ответ: {command}")
+
+    assert runner.status()["turn"] == 0, "до первой реплики счётчик пуст"
+    assert runner.start() is True
+
+    try:
+        assert wait_for(lambda: runner.status()["turn"] >= 2), "счётчик не вырос"
+    finally:
+        runner.stop()
+
+    status = runner.status()
+    assert status["turn"] == 2, f"каждая реплика — +1, «выход» не считается: {status}"
+    assert status["lastUtterance"] == "громкость 30"
+
+
+def test_turn_not_counted_on_process_failure() -> None:
+    """Упавшая обработка пары не создаёт: в чат её дописывать нечем."""
+    voice = FlakyVoice(["раз", "два", "выход"])
+    handled: list[str] = []
+
+    def process(command: str) -> str:
+        handled.append(command)
+        if command == "раз":
+            raise RuntimeError("LLM недоступен")
+        return f"ответ: {command}"
+
+    runner = VoiceModeRunner(voice, process)
+
+    assert runner.start() is True
+
+    try:
+        assert wait_for(lambda: runner.status()["turn"] >= 1 and not runner.enabled)
+    finally:
+        runner.stop()
+
+    status = runner.status()
+    assert handled == ["раз", "два"], f"обработаны не те реплики: {handled}"
+    assert status["turn"] == 1, f"сбой обработки не должен считаться репликой: {status}"
+    assert status["lastUtterance"] == "два"
 
 
 def test_stop_is_clean_without_errors() -> None:

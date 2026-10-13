@@ -41,6 +41,8 @@ export const CHAT_EN: Record<string, string> = {
   "Переключаю режим голоса…": "Switching voice mode…",
   "Состояние режима недоступно: сервер не отдаёт /api/voice/mode":
     "Mode state is unavailable: the server does not expose /api/voice/mode",
+  // ── Голосовая реплика в диалоге (поле turn) ───────────────────
+  "Реплика из голосового режима": "Line from voice mode",
 
   // ── Пустой лог ────────────────────────────────────────────────
   "Начните диалог": "Start a conversation",

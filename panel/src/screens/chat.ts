@@ -67,6 +67,8 @@ interface Message {
   role: "user" | "assistant";
   text: string;
   error?: boolean;
+  /** Реплика пришла из голосового режима, а не из композера. */
+  voice?: boolean;
 }
 
 interface ChatState {
@@ -172,6 +174,53 @@ let voiceModeSeq = 0;
 
 /** Опрос фазы режима, пока экран чата открыт. */
 const MODE_POLL_MS = 2000;
+
+/**
+ * Сколько голосовых реплик уже показано в диалоге (поле `turn` из
+ * `/api/voice/mode`); null — счётчик ещё не виден (первый опрос не прошёл).
+ *
+ * Живёт в модуле, как и диалог: пока вкладка «Чат» закрыта, опрос не идёт,
+ * и по возвращении счётчик догоняет сразу все пропущенные реплики.
+ */
+let voiceTurnsSeen: number | null = null;
+
+/**
+ * Голосовой обмен — в диалог чата.
+ *
+ * Реплики режима голоса обрабатывает сервер (`engine.process`), они идут
+ * мимо `/api/chat/stream` и попадают только в историю разговоров. Счётчик
+ * `turn` — единственный признак, по которому чат узнаёт, что в диалоге
+ * появилась новая пара «услышано / ответ»: `lastUtterance`/`lastAnswer`
+ * сами по себе не говорят, новая это реплика или старая.
+ *
+ * Первый опрос только запоминает счётчик: прошлые реплики не «оживают» в
+ * пустом диалоге после перезагрузки страницы (они есть на экране «История»).
+ * Если реплик накопилось несколько (чат был закрыт), показывается последняя —
+ * остальные никуда не пропадают, они в истории.
+ */
+function appendVoiceTurn(mode: VoiceModeState): void {
+  const turn = typeof mode.turn === "number" ? mode.turn : null;
+
+  // Процесс старше этой сборки панели: счётчика нет — чат как раньше.
+  if (turn === null) return;
+
+  if (voiceTurnsSeen === null || turn <= voiceTurnsSeen) {
+    voiceTurnsSeen = turn;
+    return;
+  }
+
+  voiceTurnsSeen = turn;
+
+  const utterance = mode.lastUtterance.trim();
+  if (!utterance) return; // реплику не распознали — пары нет
+
+  // Ответ мог быть пустым (сбой LLM) — реплику всё равно показываем:
+  // в чате видно, что услышано, а ошибка уже озвучена в lastError.
+  chatState.messages.push({ role: "user", text: utterance, voice: true });
+  chatState.messages.push({ role: "assistant", text: mode.lastAnswer.trim(), voice: true });
+
+  view?.sync();
+}
 
 /** Фаза цикла словами — формулировки те же, что на экране «Голос». */
 function voiceModePhase(mode: VoiceModeState): string {
@@ -283,13 +332,25 @@ function renderLogInto(log: HTMLElement): void {
         "msg",
         message.role === "user" ? "msg--user" : "msg--assistant",
         message.error ? "msg--error" : "",
+        // Реплика из режима голоса — помечена, чтобы её не путали с набранной.
+        message.voice ? "msg--voice" : "",
         // Каретка у последней реплики: видно, что поток ещё пишет.
         streaming && message.text !== "" ? "msg--streaming" : "",
       ]
         .filter(Boolean)
         .join(" "),
       text: message.text,
+      title: message.voice ? t("Реплика из голосового режима") : undefined,
     });
+
+    // Реплика из режима голоса — с иконкой микрофона: пара «услышано / ответ»
+    // пришла не из композера, и это видно без наведения на подсказку.
+    // Иконка декоративная (aria-hidden), смысл несёт title пузыря.
+    if (message.voice && message.role === "user") {
+      bubble.prepend(
+        h("span", { class: "msg__voice-icon" }, icon("voice", { size: 14 })),
+      );
+    }
 
     // Пузырь ответа живёт до конца стрима: пока токенов нет — «Думаю…».
     if (streaming && message.text === "") {
@@ -461,6 +522,9 @@ export const chatScreen: ScreenFactory = (container): Cleanup => {
       // Ответ мог прийти после переключения — тогда он уже не про то состояние.
       if (!mounted || seq !== voiceModeSeq) return;
       voiceMode = next;
+      // Голосовая реплика пришла не из композера: чат узнаёт о ней только
+      // из этого опроса (см. appendVoiceTurn).
+      appendVoiceTurn(next);
     } catch (error) {
       if (!mounted || seq !== voiceModeSeq) return;
 

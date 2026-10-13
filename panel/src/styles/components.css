@@ -1121,6 +1121,15 @@ kbd {
   color: var(--danger);
 }
 
+/* Реплика из режима голоса (см. appendVoiceTurn): пару «услышано / ответ»
+   принёс не композер — у реплики значок микрофона, а не «набрано руками». */
+.msg__voice-icon {
+  display: inline-flex;
+  margin-right: 6px;
+  vertical-align: -0.15em;
+  opacity: 0.75;
+}
+
 /* Пока ответ течёт, у последней реплики мигает каретка: видно, что поток жив. */
 .msg--streaming::after {
   content: "";

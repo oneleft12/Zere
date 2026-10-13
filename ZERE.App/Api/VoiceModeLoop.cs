@@ -15,6 +15,8 @@ namespace ZERE.App.Api;
 ///   слово, потом команду; выключен → слушаем команду сразу;
 /// — «выход»/«стоп»/«exit» голосом → чистый выход из цикла (idle);
 /// — пустое распознавание → пауза 300 мс (без горячего цикла);
+/// — каждая обработанная реплика увеличивает turn в Status(): по нему панель
+///   дописывает голосовой обмен в диалог чата (реплика идёт мимо /api/chat/stream);
 /// — ошибка ProcessAsync/SpeakAsync не убивает цикл: пишем lastError
 ///   и слушаем дальше; неожиданный сбой → состояние error и выход;
 /// — runtime.VoiceMode = true только на время ProcessAsync, чтобы
@@ -59,6 +61,14 @@ public sealed class VoiceModeLoop
     private volatile string _lastAnswer = "";
     private volatile string? _lastError;
 
+    // Счётчик обработанных голосовых реплик за жизнь процесса. Панель
+    // опрашивает /api/voice/mode и по его росту дописывает пару
+    // «услышано / ответ» в диалог чата: сама она о голосовой реплике иначе
+    // не узнаёт (реплика идёт мимо /api/chat/stream). Не сбрасывается в Start():
+    // иначе после повторного включения режима счётчик ушёл бы назад и чат
+    // перестал видеть новые реплики. Пишет только поток цикла.
+    private volatile int _turn;
+
     /// <param name="voice">Голосовой менеджер (STT/TTS, wake word).</param>
     /// <param name="engine">Тот же engine, что и в /api/chat/stream — общая история.</param>
     /// <param name="runtime">RuntimeContext: VoiceMode=true на время ProcessAsync.</param>
@@ -92,6 +102,8 @@ public sealed class VoiceModeLoop
         lastUtterance = _lastUtterance,
         lastAnswer = _lastAnswer,
         lastError = _lastError,
+        // Растёт на 1 после каждой обработанной голосовой реплики.
+        turn = _turn,
     };
 
     // ── Управление ──────────────────────────────────────────────
@@ -249,6 +261,9 @@ public sealed class VoiceModeLoop
                 }
 
                 _lastAnswer = answer ?? string.Empty;
+                // Реплика обработана — счётчик растёт до озвучки: чат должен
+                // увидеть пару сразу, а не после того, как TTS проговорит ответ.
+                _turn++;
                 _state = StateSpeaking;
 
                 try

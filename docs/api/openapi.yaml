@@ -740,8 +740,9 @@ paths:
       operationId: getVoiceMode
       summary: >
         Состояние непрерывного голосового режима (фоновый цикл
-        wake word → команда → ответ → озвучка): enabled/state/available
-        и последняя реплика диалога
+        wake word → команда → ответ → озвучка): enabled/state/available,
+        последняя реплика диалога и счётчик реплик turn (по нему панель
+        добавляет голосовой обмен в диалог чата)
       tags: [voice]
       responses:
         "200":
@@ -1960,7 +1961,9 @@ components:
       description: >
         Состояние непрерывного голосового режима. state — фактическая
         фаза фонового цикла; lastUtterance/lastAnswer — последняя
-        голосовая реплика и ответ на неё ("" — ещё не было)
+        голосовая реплика и ответ на неё ("" — ещё не было);
+        turn — счётчик обработанных реплик: по его росту клиент понимает,
+        что в диалог нужно дописать новую пару
       required:
         - enabled
         - state
@@ -1970,6 +1973,7 @@ components:
         - lastUtterance
         - lastAnswer
         - lastError
+        - turn
       additionalProperties: false
       properties:
         enabled:
@@ -2007,6 +2011,15 @@ components:
           type: string
           nullable: true
           description: Текст последней ошибки цикла, null — ошибок не было
+        turn:
+          type: integer
+          minimum: 0
+          description: >
+            Счётчик обработанных голосовых реплик за жизнь процесса: после
+            каждой реплики +1. По нему панель дописывает пару
+            «услышано / ответ» в диалог чата — голосовая реплика идёт мимо
+            `/api/chat/stream`, и без счётчика её в чате не видно. Никогда
+            не сбрасывается (в том числе при повторном включении режима)
 
     VoiceModeUpdate:
       type: object
