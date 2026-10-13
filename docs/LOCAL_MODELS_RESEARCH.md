@@ -528,8 +528,16 @@ Raspberry Pi, «Saiga 70B — 40 ГБ VRAM»); RussianSuperGLUE для выбо�
 * [Анонс MERA Text 2.0](https://ict.moscow/news/komanda-mera-predstavila-novuiu-versiiu-benchmarka-mera-text-2-0-dlia-proverki-fundamentalnykh-tekstovykh-iazykovykh-modelei/)
 * [Обзор лицензий Saiga/Vikhr](https://chimitdorzhi.tech/en/ii-modeli/saiga) — наследование базовых лицензий
 
-**Приложение:** `docs/research/RU_SLM_CPU_2025-2026.md` — проверенный по HF/Ollama API
-датасет русских SLM (точные байтовые размеры квантов, теги, лицензии).
+**Приложения (сырые доказательства, каждый факт со ссылкой):**
+
+* `docs/research/RU_SLM_CPU_2025-2026.md` — русские SLM: точные байтовые размеры
+  квантов, проверенные теги Ollama/HF, лицензии, что именно не подтверждено.
+* `docs/research/RUSSIAN_SLM_EVIDENCE.md` — русский язык и CPU-замеры: таблица
+  «русский назван в карточке / нет», цифры бенчмарков, tok/s, URL.
+* `docs/research/SLM_CATALOG_CPU_2025-2026.md` — каталог малых моделей ≤4B и 7–9B
+  (январь 2025 – октябрь 2026): размеры Q4, лицензии, tool calling, контекст.
+* `docs/research/SLM_RESEARCH_2026-10.md` — сводная версия каталога с оценкой
+  «как ассистент ПК» и пометками достоверности по каждому полю.
 
 ---
 
