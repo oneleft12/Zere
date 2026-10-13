@@ -108,3 +108,95 @@ RAM = оценка (файл Q4 + 1–1.5 ГБ на KV-кэш/оверхед); �
 - TeleChat: https://huggingface.co/api/models/Tele-AI/TeleChat2-7B-32K · https://huggingface.co/Tele-AI/TeleChat2-7B-32K/raw/main/config.json · https://huggingface.co/Tele-AI/TeleChat2-7B-32K/raw/main/README.md · https://huggingface.co/api/models?search=TeleChat3&limit=40&sort=createdAt&direction=-1 · https://github.com/Tele-AI/TeleChat2
 - Yi: https://huggingface.co/api/models?author=01-ai&limit=100&sort=createdAt&direction=-1 · https://huggingface.co/api/models/01-ai/Yi-1.5-6B-Chat · .../Yi-1.5-9B-Chat-16K · https://huggingface.co/01-ai/Yi-1.5-6B-Chat/raw/main/config.json · https://ollama.com/library/yi:6b · https://ollama.com/library/yi:9b · https://ollama.com/library/yi-coder/tags
 - Kimi: https://huggingface.co/api/models?author=moonshotai&limit=100&sort=createdAt&direction=-1 · https://huggingface.co/moonshotai/Kimi-Linear-48B-A3B-Instruct/raw/main/README.md · /config.json · https://huggingface.co/moonshotai/Kimi-VL-A3B-Instruct/raw/main/README.md · https://huggingface.co/api/models/moonshotai/Kimi-Audio-7B-Instruct · https://ollama.com/library/kimi-k3
+
+---
+
+# Дополнение B: Япония / Корея / Индия / ЮВА (проверено 13.10.2026)
+
+Даты = `createdAt` из HF API. Размеры GGUF = фактические `siblings[].size` (`?blobs=true`). Ollama проверен HTTP-кодом; из всего списка на Ollama есть **только `sailor2`**.
+
+## Япония
+
+| Модель | Ollama | Параметры | Дата | Лицензия | Q4 GB / RAM | Русский | Tools / контекст |
+|---|---|---|---|---|---|---|---|
+| llm-jp-4-8b-instruct | нет | 8.59B | 30.03.2026 | Apache-2.0 | Q4_K_M **5.30** (зеркало mmnga-o) / ~7 | НЕ ПОДТВЕРЖДЕНО (ja/en + 13 языков прогр.) | **ДА** (chat_template: tools, OpenAI Harmony) / **65 536** |
+| llm-jp-4-8b-thinking | нет | 8.59B | 16.03.2026 | Apache-2.0 | Q4_K_M **5.30** (офиц. GGUF) / ~7 | НЕ ПОДТВЕРЖДЕНО | ДА / 65 536 |
+| llm-jp-4.1-8b-thinking | нет | 8.59B | 15.09.2026 (GGUF 24.09) | Apache-2.0 | Q4_K_M **5.50** (офиц.) / ~7–8 | НЕ ПОДТВЕРЖДЕНО | ДА / 65 536 |
+| llm-jp-4-vl-9b | нет | 9.05B | 15.08.2026 | Apache-2.0 | GGUF не найдено | НЕ ПОДТВЕРЖДЕНО | VL / НЕ ПОДТВЕРЖДЕНО |
+| llm-jp-3.1-1.8b-instruct4 | нет | 1.87B | 27.05.2025 | Apache-2.0 | Q4_K_M **1.16** / ~2.5 | НЕ ПОДТВЕРЖДЕНО (ja/en) | не заявлен (есть сторонний FC-GGUF) / **4096** |
+| llm-jp-3-980m / 440m / 150m-instruct3 | нет | 990M / 447M / 152M | 31.01.2025 | Apache-2.0 | офиц. GGUF нет | НЕ ПОДТВЕРЖДЕНО | — |
+| Jagle-VL-2.2B (3 варианта) | нет | 2.16B (Qwen3-1.7B + siglip2) | 30.03.2026 | **НЕ ПОДТВЕРЖДЕНО** (тега лицензии нет) | GGUF нет | НЕ ПОДТВЕРЖДЕНО | VL / **40 960** |
+| sarashina2.2-0.5b-instruct-v0.1 | нет | 0.79B | base 03.03.2025 / instr 26.02.2025 | **MIT** | Q4_K_M **0.53** / ~1.5 | НЕ ПОДТВЕРЖДЕНО | **инструментов в шаблоне НЕТ** / 8192 |
+| sarashina2.2-1b-instruct-v0.1 | нет | 1.41B | 26.02.2025 | **MIT** | Q4_K_M **0.93** / ~2 | НЕ ПОДТВЕРЖДЕНО | нет / 8192 |
+| sarashina2.2-3b-instruct-v0.1 | нет | 3.36B | 26.02.2025 | **MIT** | Q4_K_M **2.07** / ~3.5 | НЕ ПОДТВЕРЖДЕНО | нет / 8192 |
+| sarashina2.2-vision-3b | нет | 3.80B | 19.11.2025 | MIT (репо **gated**) | Q4_K_M **2.07** + mmproj 0.89 / ~4 | НЕ ПОДТВЕРЖДЕНО | VL / НЕ ПОДТВЕРЖДЕНО |
+| sbintuitions/nest-ja-0.1b / 0.6b | нет | 0.11B / 0.61B | 03.02.2026 | MIT | `.nemo` 0.57 / 2.70 | — | **НЕ LLM: речевой SSL-энкодер (FastConformer)** |
+| cyberagent/CAT-Translate-0.8b/1.4b/3.3b | нет | 0.79B / 1.41B / 3.36B | 09.12.2025 / 02.02.2026 / 26.02.2026 | MIT | Q4 1.4b = **0.93** / ~2 | НЕ ПОДТВЕРЖДЕНО | **только перевод** |
+| cyberagent/CAT-Thinking-8B | нет | 8.19B | 28.05.2026 | Apache-2.0 | офиц. GGUF нет | НЕ ПОДТВЕРЖДЕНО | **40 960** |
+| pfnet/plamo-3-610m-fin-instruct | нет | 0.89B | 24.09.2026 | **PLaMo Community License** (некоммерч. свободно) | Q4_K_M **0.57** / ~1.5 | НЕ ПОДТВЕРЖДЕНО | **262 144** |
+| pfnet/plamo-3-nict-2b-base | нет | 2.60B | 24.10.2025 | PLaMo Community License (**gated**) | Q4_K_M **1.65** / ~3 | НЕ ПОДТВЕРЖДЕНО | **это base, не instruct** |
+| pfnet/plamo-2-1b | нет | 1.29B | 05.02.2025 | **Apache-2.0** | GGUF офиц. нет | НЕ ПОДТВЕРЖДЕНО | — |
+| rinna / stockmark / Fujitsu / CALM3 | нет | только 22B–100B | 2025–2026 | — | — | — | вне диапазона / НЕ ПОДТВЕРЖДЕНО |
+
+## Корея
+
+| Модель | Ollama | Параметры | Дата | Лицензия | Q4 GB / RAM | Русский | Tools / контекст |
+|---|---|---|---|---|---|---|---|
+| HyperCLOVAX-SEED-Text-Instruct-0.5B | нет | 0.57B | 22.04.2025 | HyperCLOVA X SEED Model License (royalty-free, revocable) | Q4_K_M **0.37** / ~1.5 | НЕ ПОДТВЕРЖДЕНО (упор на корейский) | роль `tool_list` в примере / 4K по карте (config 8192) |
+| HyperCLOVAX-SEED-Text-Instruct-1.5B | нет | 1.59B | 22.04.2025 | та же (**gated auto**) | Q4_K_M **1.01** / ~2.5 | НЕ ПОДТВЕРЖДЕНО | ctx не подтверждён (401) |
+| HyperCLOVAX-SEED-Vision-Instruct-3B | нет | 3.72B (3.2B LLM + 0.43B vision) | 22.04.2025 | та же | GGUF нет | НЕ ПОДТВЕРЖДЕНО | VL / 16K по карте (config 131072) |
+| HyperCLOVAX-SEED-Omni-8B | нет | **факт. 10.74B** | 23.12.2025 | hyperclovax | — | — | вне диапазона |
+| kakaocorp/kanana-nano-2.1b-instruct | нет | 2.09B | 26.02.2025 | **cc-by-nc-4.0 (НЕкоммерч.)** | Q4_K_M **1.39** / ~3 | НЕ ПОДТВЕРЖДЕНО (ko/en) | не подтверждено / 8192 |
+| kakaocorp/kanana-1.5-2.1b-instruct-2505 | нет | 2.32B | 21.05.2025 | **Apache-2.0** | Q4_K_M **1.52** / ~3 | НЕ ПОДТВЕРЖДЕНО | заявлен function calling / не подтверждён |
+| kakaocorp/kanana-1.5-8b-instruct-2505 | нет | 8.03B | 21.05.2025 | **Apache-2.0** | Q4_K_M **4.92** / ~7 | НЕ ПОДТВЕРЖДЕНО | function calling заявлен / **32 768** |
+| kakaocorp/kanana-1.5-v-3b-instruct | нет | 3.67B | 23.07.2025 | kanana (`other`) | GGUF нет | НЕ ПОДТВЕРЖДЕНО | VL / НЕ ПОДТВЕРЖДЕНО |
+| **kakaocorp/kanana-2-3b-instruct** | нет | 3.51B | 24.07.2026 | Kanana Open License (`other`) | Q4_K_M **2.16** / ~4 | НЕ ПОДТВЕРЖДЕНО (KMMLU 47.92, HAE-RAE 80.66) | **ДА** (vLLM `--tool-call-parser qwen3_coder`) / **32 768** |
+| **kakaocorp/kanana-2-1.3b-instruct** | нет | 1.29B | 24.07.2026 | Kanana Open License | Q4_K_M **0.85** / ~2 | НЕ ПОДТВЕРЖДЕНО | **ДА** / **32 768**, SWA 1024 (−72.7% KV) |
+| trillionlabs/Tri-7B | нет | 7.53B | 22.07.2025 | Apache-2.0 | Q4_K_M **4.63** / ~7 | НЕ ПОДТВЕРЖДЕНО | ko/en/ja / **32 768** |
+| trillionlabs/Trida-7B | нет | 7.53B | 19.01.2026 | Apache-2.0 | GGUF нет | НЕ ПОДТВЕРЖДЕНО | **4096** |
+| trillionlabs/Trida2.0-4B | нет | 4.84B (база Qwen3.5-4B, block-diffusion) | 18.09.2026 | `other` | GGUF нет | НЕ ПОДТВЕРЖДЕНО | — |
+| trillionlabs/Tri-0.5B-Base / Tri-1.9B-Base | нет | 0.47B / 1.81B | 07.04.2025 | Apache-2.0 | — | — | только base, чата нет |
+| Motif-Technologies/Motif-2.6B | нет | 2.60B | 06.06.2025 | Apache-2.0 | GGUF нет | НЕ ПОДТВЕРЖДЕНО | — |
+| KORMo / Beehiiv | нет | — | — | — | — | — | **НЕ ПОДТВЕРЖДЕНО** (офиц. малых LLM нет) |
+
+## Индия / ЮВА
+
+| Модель | Ollama | Параметры | Дата | Лицензия | Q4 GB / RAM | Русский | Tools / контекст |
+|---|---|---|---|---|---|---|---|
+| sarvamai/sarvam-1 | нет | 2.53B | 23.10.2024 (**вне окна**) | Sarvam non-commercial (LICENSE.md) | Q4_K_M **1.55** / ~3 | НЕ ПОДТВЕРЖДЕНО | **text-completion база, не чат** / 8192 |
+| «sarvam-2b» | нет | — | — | — | — | — | **официальной такой модели НЕТ** (sarvam-1 = 2B) |
+| sarvamai/sarvam-m | нет | 23.57B | 20.05.2025 | **Apache-2.0** | Q4_K_M **14.33** | НЕ ПОДТВЕРЖДЕНО | вне 0.5–9B (база Mistral-Small-3.1-24B) |
+| sarvamai/sarvam-translate | нет | 4.30B | 07.06.2025 | **GPL-3.0** | Q4_K_M **2.49** / ~4 | НЕ ПОДТВЕРЖДЕНО | **только перевод** (база gemma-3-4b-it) |
+| sarvamai/sarvam-30b / sarvam-105b | нет | 30B / 105B | 03.03.2026 (GGUF 20–23.03) | — | вне диапазона | — | — |
+| krutrim-ai-labs/Krutrim-1-instruct | нет | 7.35B | 03.02.2025 | Krutrim Community License v1.0 | **GGUF нет** | НЕ ПОДТВЕРЖДЕНО (11 инд. языков) | MPT, алиби вместо RoPE / **4096** |
+| krutrim-ai-labs/Krutrim-2-instruct | нет | **12B** (база Mistral-NeMo 12B) | 02.02.2025 | Krutrim Community License | Q4_K_M **7.48** / ~9–10 | НЕ ПОДТВЕРЖДЕНО | ctx в config 1 024 000 (не проверено) |
+| krutrim-ai-labs/Chitrapathak-1 / -2 / Chitranuvad | нет | 7.69B / 3.75B / ~7.7B | 11.03.2026 | Krutrim Community License | GGUF нет | НЕ ПОДТВЕРЖДЕНО | **OCR/VL и перевод**, не чат |
+| **sail/Sailor2-L-1B-Chat** | **`sailor2:1b`** 1.1 ГБ, `sailor2:1b-chat-q4_K_M` **739 МБ** | 0.99B | Chat 18.02.2025 | Apache-2.0 | 739 МБ / ~1.5–2 | **русского НЕТ** (en/zh + 13 языков ЮВА) | **32 768** |
+| sail/Sailor2-3B-Chat | тега 3B в Ollama НЕТ | 3.58B | янв.2025 | Apache-2.0 | Q4_K_M **3.23** / ~5 | **русского НЕТ** | — |
+| **sail/Sailor2-L-8B-Chat** | **`sailor2:8b`** = `:8b-chat-q4_K_M` **5.2 ГБ**; `:20b-chat-q4_K_M` 12 ГБ | 8.55B | 18.02.2025 | Apache-2.0 | 5.2 / ~7–8 | **русского НЕТ** | 32K |
+| aisingapore/Apertus-SEA-LION-v4-8B-IT | нет | 8.05B | 05.02.2026 | **MIT** | офиц. GGUF-репо есть (размеры не сняты) | НЕ ПОДТВЕРЖДЕНО | **tool calling заявлен** / **65 536** |
+| aisingapore/Gemma-SEA-LION-v4.5-E2B-IT | нет | 5.12B (E2B) | 18.05.2026 | MIT | Q4_K_M **3.43** + mmproj 0.99 / ~5 | НЕ ПОДТВЕРЖДЕНО | any-to-any VL / НЕ ПОДТВЕРЖДЕНО |
+| typhoon-ai/typhoon2.5-qwen3-4b | нет | 4.02B (база Qwen3-4B-2507) | 23.09.2025 | **Apache-2.0** | Q4_K_M **2.50** (офиц. GGUF) / ~4 | НЕ ПОДТВЕРЖДЕНО (тайский + en) | **ДА** (vLLM `hermes`) / **256K** |
+| typhoon-ai/typhoon-ocr1.5-2b / translate1.5-4b | нет | 2.13B / 4.02B | 10.11.2025 / 26.10.2025 | Apache-2.0 | — | — | OCR / перевод |
+| Almawave/Velvet-2B | нет | 2B | 10.02.2025 | — | — | — | **итальянская**, не SEA |
+
+## Выводы по Дополнению B
+- **Ctx 65K + tool calling + Apache-2.0** — уникальное сочетание: `llm-jp-4-8b-instruct` (Q4 5.30 ГБ) и `llm-jp-4.1-8b-thinking` (Q4 5.50 ГБ); реально на 16 ГБ, тесно на 8 ГБ.
+- **Лучший на 8 ГБ с tools и 32K:** `kanana-2-3b-instruct` (Q4 2.16 ГБ) — но лицензия Kanana Open, не Apache.
+- **Лучший на 4 ГБ с tools и 32K:** `kanana-2-1.3b-instruct` (Q4 0.85 ГБ, SWA).
+- **Лучший чисто ja с открытой лицензией, без tools:** `sarashina2.2-3b-instruct-v0.1` (Q4 2.07 ГБ, MIT, ctx 8192).
+- **Единственное из всего списка, реально доступное в Ollama:** `sailor2` (1b/8b/20b) — но **без русского**, только языки ЮВА.
+- **Русский язык:** ни в одной карточке JP/KR/India/SEA-моделей поддержка русского **не заявлена**.
+- **nest-ja-0.1b/0.6b** — НЕ LLM, а речевой SSL-энкодер; в подбор ассистента не годится.
+
+## Источники Дополнения B (ключевые)
+llm-jp: https://huggingface.co/llm-jp/llm-jp-4-8b-instruct · /raw/main/README.md · /config.json · /chat_template.jinja · https://huggingface.co/llm-jp/llm-jp-4-8b-thinking-gguf · https://huggingface.co/llm-jp/llm-jp-4.1-8b-thinking-gguf · https://huggingface.co/llm-jp/llm-jp-3.1-1.8b-instruct4 · https://huggingface.co/llm-jp/Jagle-VL-2.2B-Jagle
+SB Intuitions: https://huggingface.co/sbintuitions/sarashina2.2-0.5b-instruct-v0.1 · /sarashina2.2-1b-instruct-v0.1 · /sarashina2.2-3b-instruct-v0.1 (+ /raw/main/config.json, /README.md) · /sarashina2.2-vision-3b · /nest-ja-0.6b · https://huggingface.co/mradermacher/sarashina2.2-3b-instruct-v0.1-GGUF
+CyberAgent/PFN: https://huggingface.co/cyberagent/CAT-Translate-1.4b · https://huggingface.co/cyberagent/CAT-Thinking-8B/raw/main/config.json · https://huggingface.co/pfnet/plamo-3-610m-fin-instruct/raw/main/config.json · https://huggingface.co/pfnet/plamo-3-nict-2b-base
+NAVER: https://huggingface.co/naver-hyperclovax/HyperCLOVAX-SEED-Text-Instruct-0.5B (+ /raw/main/README.md, /LICENSE) · /HyperCLOVAX-SEED-Text-Instruct-1.5B · /HyperCLOVAX-SEED-Vision-Instruct-3B · /HyperCLOVAX-SEED-Omni-8B · https://huggingface.co/jclees2/HyperCLOVAX-SEED-Text-Instruct-0.5B-Q4_K_M-GGUF
+Kakao: https://huggingface.co/kakaocorp/kanana-nano-2.1b-instruct · /kanana-1.5-2.1b-instruct-2505 · /kanana-1.5-8b-instruct-2505 · /kanana-2-3b-instruct (+ /raw/main/README.md, /config.json) · /kanana-2-1.3b-instruct (+ /raw/main/README.md, /config.json) · https://huggingface.co/mradermacher/Kanana-2-3b-instruct-GGUF · https://huggingface.co/winwinplatform/Kanana-2-1.3b-instruct-GGUF
+Trillion/Motif: https://huggingface.co/trillionlabs/Tri-7B · /Trida-7B · /Trida2.0-4B · /Tri-0.5B-Base · /Tri-1.9B-Base · https://huggingface.co/Motif-Technologies/Motif-2.6B
+Sarvam: https://huggingface.co/sarvamai/sarvam-1 · /sarvam-m · /sarvam-translate · https://huggingface.co/api/models?author=sarvamai&limit=100&sort=createdAt&direction=-1
+Krutrim: https://huggingface.co/krutrim-ai-labs/Krutrim-1-instruct (+ /raw/main/config.json) · /Krutrim-2-instruct · /Chitrapathak-1 · /Chitrapathak-2 · /Chitranuvad
+Sailor2: https://ollama.com/library/sailor2/tags · https://huggingface.co/sail/Sailor2-L-1B-Chat · /Sailor2-3B · /Sailor2-L-8B-Chat
+SEA-LION/Typhoon: https://huggingface.co/aisingapore/Apertus-SEA-LION-v4-8B-IT · /Gemma-SEA-LION-v4.5-E2B-IT · https://huggingface.co/typhoon-ai/typhoon2.5-qwen3-4b (+ /raw/main/README.md, -gguf) · /typhoon-ocr1.5-2b · /typhoon-translate1.5-4b
