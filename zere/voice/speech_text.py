@@ -15,7 +15,14 @@ import re
 
 __all__ = ["split_sentences", "strip_emotions"]
 
-_RE_SENTENCE = re.compile(r'[^.!?…]+[.!?…]+[»""\']*\s*|[^.!?…]+$')
+#: Конец предложения: «.», «!», «?», «…» — но НЕ точка между цифрами.
+#: Раньше «Цена 3.5 рублей.» резалась на «Цена 3.» и «5 рублей.»: точка в
+#: числе считалась концом фразы, и синтез читал «цена три» + «пять рублей»
+#: (для Silero это ещё и попадало в раскрытие чисел посреди числа).
+_RE_SENTENCE_END = re.compile(r"[.!?…]+(?!\d)")
+
+#: Закрывающие кавычки/скобки сразу после знака — часть предложения.
+_CLOSERS = "»”\"')]"
 
 
 def strip_emotions(text: str) -> str:
@@ -58,12 +65,36 @@ def strip_emotions(text: str) -> str:
 
 
 def split_sentences(text: str) -> list[str]:
-    """Разбивает текст на предложения (порт SpeechText.SplitSentences)."""
-    parts = [m.group(0).strip() for m in _RE_SENTENCE.finditer(text or "")]
-    parts = [p for p in parts if p]
+    """Разбивает текст на предложения (порт SpeechText.SplitSentences).
 
-    if parts:
-        return parts
+    Точка внутри числа предложением не считается: «3.5», «12.05.2026» и
+    «1.2.3» остаются целыми (иначе число рвётся на две реплики и читается
+    как «три» + «пять»).
+    """
+    source = (text or "").strip()
 
-    stripped = (text or "").strip()
-    return [stripped] if stripped else []
+    if not source:
+        return []
+
+    parts: list[str] = []
+    start = 0
+
+    for match in _RE_SENTENCE_END.finditer(source):
+        end = match.end()
+
+        while end < len(source) and source[end] in _CLOSERS:
+            end += 1
+
+        chunk = source[start:end].strip()
+
+        if chunk:
+            parts.append(chunk)
+
+        start = end
+
+    tail = source[start:].strip()
+
+    if tail:
+        parts.append(tail)
+
+    return parts

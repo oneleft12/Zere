@@ -53,14 +53,41 @@ public static class SpeechText
     /// <summary>
     /// Разбивает текст на предложения — каждое уходит в синтез отдельной порцией
     /// и воспроизводится, пока следующее ещё готовится.
+    /// Точка между цифрами предложением не считается: «3.5», «12.05.2026» и
+    /// «1.2.3» остаются целыми — иначе число рвётся на две реплики и звучит
+    /// как «три» + «пять» (паритет с Python-редакцией, speech_text.py).
     /// </summary>
     public static List<string> SplitSentences(string text)
     {
-        var parts = Regex.Matches(text, @"[^.!?…]+[.!?…]+[»""']*\s*|[^.!?…]+$")
-            .Select(m => m.Value.Trim())
-            .Where(s => !string.IsNullOrWhiteSpace(s))
-            .ToList();
+        var source = (text ?? string.Empty).Trim();
 
-        return parts.Count > 0 ? parts : new List<string> { text.Trim() };
+        if (source.Length == 0)
+            return new List<string>();
+
+        var parts = new List<string>();
+        var start = 0;
+
+        foreach (Match match in Regex.Matches(source, @"[.!?…]+(?!\d)"))
+        {
+            var end = match.Index + match.Length;
+
+            // Закрывающие кавычки/скобки сразу после знака — часть предложения.
+            while (end < source.Length && "»”\"')]".IndexOf(source[end]) >= 0)
+                end++;
+
+            var chunk = source.Substring(start, end - start).Trim();
+
+            if (chunk.Length > 0)
+                parts.Add(chunk);
+
+            start = end;
+        }
+
+        var tail = source.Substring(start).Trim();
+
+        if (tail.Length > 0)
+            parts.Add(tail);
+
+        return parts;
     }
 }

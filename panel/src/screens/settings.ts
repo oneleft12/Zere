@@ -236,7 +236,7 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
             options: [
               { value: "pocket", label: t("pocket — клонирование голоса") },
               { value: "chattts", label: t("chattts — реалистичный голос, без клонирования") },
-              { value: "silero", label: t("silero — русский голос, с ударениями") },
+              { value: "silero", label: t("silero — русский голос: ударения, цифры и английские слова") },
             ],
             onChange: (v) => {
               d.ttsEngine = v as Config["ttsEngine"];

@@ -305,8 +305,10 @@ public sealed class SileroTtsService : IDisposable
         var uvExe = Path.Combine(_root, "tools", "uv.exe");
         var script = Path.Combine(_root, "tools", "zere_silero_server.py");
 
-        // torch приходит в том же кэше, что и для ChatTTS-стека; num2words не
-        // нужен: Silero v5_ru сам читает числа по-русски.
+        // torch приходит в том же кэше, что и для ChatTTS-стека. num2words не
+        // нужен: у v5_5_ru в наборе символов нет ни цифр, ни латиницы, поэтому
+        // текст раскрывает сам сайдкар — `zere/voice/silero/silero_text.py`
+        // (числа по-русски, латиница практической транскрипцией).
         var args = new StringBuilder();
         args.Append("run --python 3.12");
         args.Append(" --with torch");

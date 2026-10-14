@@ -10,7 +10,13 @@
 - разбивка на предложения и тишина `sentenceSilence` между ними;
 - частота 24 кГц (как у ChatTTS, поэтому DSP и сайдкар не меняются);
 - маршрутизация VoiceManager по ключу `ttsEngine` (chattts | silero) и честная
-  возможность «темп речи» (у Silero v5 его нет).
+  возможность «темп речи» (у Silero v5 его нет);
+- нормализация текста под русскую модель: цифры/дроби/даты/годы/единицы
+  прописью, латиница практической транскрипцией, символы, которых нет в наборе
+  символов модели, и гарантия «на выходе нет латиницы и цифр» (именно их
+  `apply_tts` выбрасывал молча: «В 2026 году» звучало как «В году»);
+- регрессия разбивки: точка между цифрами («3.5», «12.05.2026») не считается
+  концом предложения.
 
 torch, numpy и soundfile в тестах НЕ нужны: тяжёлые зависимости подменяются
 фейками через `sys.modules` (это ещё и проверяет, что импорт ленивый —
@@ -42,6 +48,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from zere.voice.silero.russian_numbers import (  # noqa: E402
+    agree,
+    decimal_to_words,
+    integer_to_words,
+    ordinal_to_words,
+)
 from zere.voice.silero.silero_manager import (  # noqa: E402
     BUILTIN_VOICES,
     DEFAULT_VOICE,
@@ -49,8 +61,10 @@ from zere.voice.silero.silero_manager import (  # noqa: E402
     SAMPLE_RATE,
     SileroManager,
     SileroUnavailable,
+    split_sentences,
 )
 from zere.voice.silero.silero_service import SileroTtsService  # noqa: E402
+from zere.voice.silero.silero_text import normalize  # noqa: E402
 
 
 # ── Фейковые зависимости ────────────────────────────────────────────
@@ -682,6 +696,211 @@ def test_sidecar_rejects_unknown_command() -> None:
     )
 
     assert result.returncode == 2, result.stderr
+
+
+# ── Текст: цифры и латиница (silero_text / russian_numbers) ─────────
+#
+# У русской модели v5_5_ru в наборе символов НЕТ ни цифр, ни латиницы, и
+# `apply_tts` молча выбрасывает незнакомые символы: «В 2026 году» звучит как
+# «В году», «GitHub» исчезает, а реплика целиком из латиницы падает с
+# ValueError. Поэтому текст раскрывается в кириллицу ДО синтеза — этот
+# контракт («на выходе нормализации нет латиницы и цифр») и проверяется.
+
+
+def test_numbers_are_spelled_out_in_russian() -> None:
+    """Кардиналы: род, разряды, «минус» (числа модель не читает вообще)."""
+    assert integer_to_words(0) == "ноль"
+    assert integer_to_words(7) == "семь"
+    assert integer_to_words(21) == "двадцать один"
+    assert integer_to_words(100) == "сто"
+    assert integer_to_words(1001) == "тысяча один"
+    assert integer_to_words(1500) == "тысяча пятьсот"
+    assert integer_to_words(2026) == "две тысячи двадцать шесть"
+    assert integer_to_words(1_000_000) == "миллион"
+    assert integer_to_words(-7) == "минус семь"
+
+    # Род: «одна минута», «две минуты» — иначе получилось бы «один минута».
+    assert integer_to_words(1, feminine=True) == "одна"
+    assert integer_to_words(2, feminine=True) == "две"
+
+
+def test_agreement_picks_noun_form() -> None:
+    """Согласование существительного с числом (1 / 2..4 / 5+)."""
+    forms = ("процент", "процента", "процентов")
+
+    assert [agree(n, forms) for n in (1, 2, 5)] == ["процент", "процента", "процентов"]
+    assert agree(11, forms) == "процентов", "11..14 — всегда «процентов»"
+    assert agree(21, forms) == "процент"
+    assert agree(102, forms) == "процента"
+
+
+def test_ordinal_years_decline_by_case() -> None:
+    """Годы — порядковые: «в две тысячи двадцать шестом году»."""
+    assert ordinal_to_words(2026) == "две тысячи двадцать шестой"
+    assert ordinal_to_words(2026, "m", "pre") == "две тысячи двадцать шестом"
+    assert ordinal_to_words(2026, "m", "gen") == "две тысячи двадцать шестого"
+
+    # Круглые разряды — слитная форма («двухтысячный»), а не «две тысячи ноль».
+    assert ordinal_to_words(2000) == "двухтысячный"
+    assert ordinal_to_words(1000) == "тысячный"
+    assert ordinal_to_words(100_000) == "стотысячный"
+
+    # Составное числительное склоняет только последнее слово.
+    assert ordinal_to_words(125) == "сто двадцать пятый"
+    assert ordinal_to_words(125, "m", "gen") == "сто двадцать пятого"
+
+    # Мягкое склонение («третий») и средний род для дат.
+    assert ordinal_to_words(3, "f") == "третья"
+    assert ordinal_to_words(3, "n") == "третье"
+    assert ordinal_to_words(12, "n") == "двенадцатое"
+
+
+def test_decimals_are_spelled_as_fractions() -> None:
+    """«3,5» — «три целых пять десятых» (модель не читает ни цифр, ни точку)."""
+    assert decimal_to_words("3,5") == "три целых пять десятых"
+    assert decimal_to_words("0.5") == "ноль целых пять десятых"
+    assert decimal_to_words("1.5") == "одна целая пять десятых"
+    assert decimal_to_words("3.0") == "три", "нулевая дробь — просто целое"
+    assert decimal_to_words("3.50") == "три целых пять десятых"
+
+
+def test_normalize_expands_numbers_dates_and_units() -> None:
+    """Даты, время, годы, проценты, единицы и порядковые — словами."""
+    assert normalize("В 2026 году вышел Python") == "В две тысячи двадцать шестом году вышел Питон"
+    assert normalize("С 2020 по 2024 год") == "с две тысячи двадцатого по две тысячи двадцать четвёртый год"
+    assert normalize("5% и 1500 рублей") == "пять процентов и тысяча пятьсот рублей"
+    assert normalize("3,5 ГБ") == "три целых пять десятых гигабайта"
+    assert normalize("5 мс") == "пять миллисекунд"
+    assert normalize("5-й пункт") == "пятый пункт"
+    assert normalize("65 °C") == "шестьдесят пять градусов цельсия"
+    assert normalize("минус 7 градусов") == "минус семь градусов"
+    assert normalize("-7 °C") == "минус семь градусов цельсия"
+    assert normalize("1 500 000 человек") == "миллион пятьсот тысяч человек"
+
+
+def test_normalize_dates_and_times() -> None:
+    """«12.05.2026» — дата, «13:45» — часы и минуты."""
+    assert normalize("12.05.2026") == "двенадцатое мая две тысячи двадцать шестого года"
+    assert normalize("13:45") == "тринадцать сорок пять"
+    assert normalize("13:05") == "тринадцать ноль пять"
+
+    # Две точки — не дата, а версия/техническое значение: «Python 3.12».
+    assert normalize("Python 3.12") == "Питон три точка двенадцать"
+    assert normalize("1.2.3") == "один точка два точка три"
+
+
+def test_normalize_transliterates_english_words() -> None:
+    """Латиница не выпадает из речи: словарь + правила транскрипции."""
+    assert normalize("GitHub") == "Гитхаб"
+    assert normalize("Открой Discord и Chrome") == "Открой Дискорд и Хром"
+    assert normalize("ZERE слушает") == "Зере слушает"
+    assert normalize("Hello, world!") == "хеллоу, уорлд!"
+
+    # Сокращения читаются по буквам, а «mp3» — буквы плюс число.
+    assert normalize("NASA и AI") == "Наса и эй-ай"
+    assert normalize("CS2") == "си эс два"
+    assert normalize("mp3") == "эм пи три"
+    assert normalize("v5") == "ви пять"
+
+
+def test_normalize_replaces_symbols_model_cannot_read() -> None:
+    """«%», «№», «&», «@», «=» и валюты в наборе символов модели отсутствуют."""
+    assert normalize("№ 5") == "номер пять"
+    assert normalize("скидка 5%") == "скидка пять процентов"
+    assert normalize("120000 ₽") == "сто двадцать тысяч рублей"
+    assert normalize("2×3") == "два на три"
+    assert normalize("1/2") == "одна вторая"
+    assert normalize("user@mail.ru") == "юзер собака мейл.ру"
+
+    # Длинного тире в наборе символов модели тоже нет: на его месте пауза,
+    # иначе «привет—пока» склеилось бы в одно слово.
+    assert normalize("Москва — столица") == "Москва, столица"
+
+
+def test_normalize_leaves_no_latin_or_digits() -> None:
+    """Гарантия контракта: модели не остаётся ничего непроизносимого.
+
+    Это ровно та проверка, которой не хватало: раньше «В 2026 году» и
+    «GitHub» проходили синтез БЕЗ ошибки, просто молча выпадали из речи.
+    """
+    corpus = [
+        "Привет! Как дела?",
+        "В 2026 году вышел Python 3.12 на 5 ГБ",
+        "Открой GitHub и Discord, скачай Windows 11",
+        "Цена 1500 рублей, скидка 5%, осталось 3,5 ГБ",
+        "Встреча 12.05.2026 в 13:45, температура -7 °C",
+        "iPhone 15 Pro Max и RTX 4090 стоят 120000 ₽",
+        "ЗЕРЕ, включи музыку на 50%",
+        "24/7 поддержка, 100% готово, версия 1.2.3",
+    ]
+
+    for text in corpus:
+        normalized = normalize(text)
+
+        assert normalized.strip(), f"нормализация не должна опустошать текст: {text!r}"
+
+        leftover = [char for char in normalized if char.isascii() and char.isalnum()]
+
+        assert leftover == [], (
+            f"{text!r} → {normalized!r}: остались непроизносимые символы {leftover} "
+            "(модель их молча выбросит)"
+        )
+
+
+def test_normalize_is_idempotent_and_keeps_russian() -> None:
+    """Русский текст не портится, повторная нормализация ничего не меняет."""
+    assert normalize("Привет, как дела?") == "Привет, как дела?"
+
+    for text in ("В 2026 году вышел Python 3.12", "GitHub и 5%", "5-й пункт"):
+        once = normalize(text)
+
+        assert normalize(once) == once, f"нормализация не идемпотентна: {text!r}"
+
+
+def test_manager_normalizes_text_before_synthesis() -> None:
+    """Менеджер отдаёт модели уже кириллицу — иначе текст молча выпадет."""
+    reset_fakes()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        with fake_dependencies() as model:
+            manager = SileroManager(model_path=Path(tmp) / "v5_5_ru.pt")
+            manager.waveform("В 2026 году вышел GitHub 3.5")
+
+    spoken = model.calls[0][0]
+
+    assert "Гитхаб" in spoken
+    assert "две тысячи двадцать шестом" in spoken
+    assert [char for char in spoken if char.isascii() and char.isalnum()] == [], spoken
+
+
+def test_normalization_does_not_break_empty_text() -> None:
+    """Пустой/пробельный текст по-прежнему до модели не доходит."""
+    assert normalize("") == ""
+    assert normalize("   ") == ""
+    assert normalize("🎵") == "", "эмодзи модель не читает — вырезаем"
+    assert normalize("«Привет»") == "Привет", "кавычки модель не читает"
+
+
+# ── Разбивка на предложения (регрессия: число рвалось по точке) ──────
+
+
+def test_split_sentences_keeps_numbers_intact() -> None:
+    """Точка между цифрами — не конец предложения.
+
+    Раньше «Цена 3.5 рублей.» резалась на «Цена 3.» и «5 рублей.»: синтез
+    читал «цена три» отдельной репликой, а число раскрывалось по частям.
+    """
+    assert split_sentences("Цена 3.5 рублей. Спасибо.") == [
+        "Цена 3.5 рублей.",
+        "Спасибо.",
+    ]
+    assert split_sentences("Встреча 12.05.2026 в 13:45. Не опаздывай!") == [
+        "Встреча 12.05.2026 в 13:45.",
+        "Не опаздывай!",
+    ]
+    assert split_sentences("Версия 1.2.3 вышла") == ["Версия 1.2.3 вышла"]
+    assert split_sentences("Раз. Два.") == ["Раз.", "Два."]
+    assert split_sentences("") == []
 
 
 def main() -> None:

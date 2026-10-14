@@ -21,6 +21,7 @@ from zere.voice.silero.silero_manager import (
     strip_emotions,
 )
 from zere.voice.silero.silero_service import SileroTtsService
+from zere.voice.silero.silero_text import normalize
 
 __all__ = [
     "BUILTIN_VOICES",
@@ -32,6 +33,7 @@ __all__ = [
     "SileroManager",
     "SileroTtsService",
     "SileroUnavailable",
+    "normalize",
     "split_sentences",
     "strip_emotions",
 ]

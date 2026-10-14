@@ -159,7 +159,7 @@ const CORE_EN: Record<string, string> = {
   "Голосовой вывод включён": "Voice output enabled",
   "pocket — клонирование голоса": "pocket — voice cloning",
   "chattts — реалистичный голос, без клонирования": "chattts — realistic voice, no cloning",
-  "silero — русский голос, с ударениями": "silero — Russian voice, with stress marks",
+  "silero — русский голос: ударения, цифры и английские слова": "silero — Russian voice: stress marks, numbers and English words",
   "Референс голоса (WAV)": "Voice reference (WAV)",
   "путь к WAV-референсу, пусто = встроенный голос":
     "path to the WAV reference, empty = built-in voice",

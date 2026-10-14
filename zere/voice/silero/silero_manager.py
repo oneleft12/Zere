@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from zere import paths
+from zere.voice.silero.silero_text import normalize
 from zere.voice.speech_text import split_sentences, strip_emotions
 
 # 24 кГц: столько же, сколько отдаёт ChatTTS, поэтому DSP/ресемплинг под
@@ -254,8 +255,14 @@ class SileroManager:
     # ─── Синтез ─────────────────────────────────────────────
 
     def waveform(self, text: str) -> Any:
-        """Синтезирует текст и возвращает float32-сигнал (моно, 24 кГц)."""
-        prepared = (text or "").strip()
+        """Синтезирует текст и возвращает float32-сигнал (моно, 24 кГц).
+
+        Текст перед синтезом проходит `silero_text.normalize`: у русской
+        модели в наборе символов нет ни цифр, ни латиницы, поэтому без
+        нормализации «В 2026 году» звучит как «В году», а «GitHub» просто
+        исчезает из речи (разбор и замер — docs/TTS_SILERO.md, §5).
+        """
+        prepared = normalize((text or "").strip())
 
         if not prepared:
             raise ValueError("пустой текст для синтеза")
@@ -360,6 +367,7 @@ __all__ = [
     "SAMPLE_RATE",
     "SileroManager",
     "SileroUnavailable",
+    "normalize",
     "split_sentences",
     "strip_emotions",
 ]

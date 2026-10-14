@@ -90,6 +90,7 @@
 - **ChatTtsService (Python, `zere/voice/chattts/`)** — адаптер под прежний контракт PiperService (сам Piper заменён на ChatTTS): `is_loaded`/`initialize`/`speak`/`set_voice`/`set_inference_params`/`get_available_voices`/`close` + `ChatTTSManager` с ленивой загрузкой модели; профиль голоса — детерминированное зерно (crc32 имени)
 - **SileroTtsService (C#, `ZERE.Voice/Silero/`)** — русский синтез Silero v5_5_ru через сайдкар `tools/zere_silero_server.py` (uv: torch + soundfile, порт 8473, PCM s16le 24 кГц): тот же контракт, что у ChatTtsService; темп речи не поддерживается. Подробности: `docs/TTS_SILERO.md`
 - **SileroTtsService (Python, `zere/voice/silero/`)** — тот же контракт: `SileroManager` (ленивая загрузка `v5_5_ru.pt` из `ZERE.Voice/Silero`, голоса `baya`/`xenia`/`kseniya`/`aidar`/`eugene`, чужой профиль голоса → дефолт) + `SileroTtsService`; движок выбирается ключом `ttsEngine: chattts | silero`
+- **SileroText (`zere/voice/silero/silero_text.py`, `russian_numbers.py`)** — нормализация текста под русскую модель: у `v5_5_ru` в наборе символов НЕТ ни цифр, ни латиницы, и `apply_tts` молча выбрасывает незнакомое («В 2026 году» звучало как «В году», «GitHub» исчезал). Раскрывает числа/дроби/даты/годы/единицы словами и латиницу практической транскрипцией (словарь + правила, сокращения по буквам); вызывается в `SileroManager.waveform()` — то есть и в Python-редакции, и в C#-редакции через сайдкар. Паритет разбивки на предложения: точка между цифрами (`3.5`, `12.05.2026`) не конец фразы (`zere/voice/speech_text.py` ↔ `ZERE.Voice/Text/SpeechText.cs`). Подробности: `docs/TTS_SILERO.md`, §5
 - **PocketTtsService** — клиент к серверу xVibePocketTTS: клонирование голоса, PCM-поток, первый звук через ~150–700 мс
 - **SpeechText** — чистка текста от TTS-мусора + разбивка на предложения
 - **VoiceConfig** — конфигурация голоса (`sttEngine` и др.)
@@ -469,7 +470,7 @@ Zere/
 │   ├── test_wake_word.py         # Тесты слова-триггера «зере» (варианты имени, ложные срабатывания)
 │   ├── test_wake_word_kws.py     # Тесты KWS-детектора (кольцевой буфер, сглаживание, отсечка, cooldown, выбор движка)
 │   ├── test_chattts.py           # Тесты ChatTTS (ленивая загрузка, профили голоса, [speed_N], контракт сайдкара)
-│   ├── test_silero.py            # Тесты Silero v5 (русский голос: ленивая загрузка модели, голоса, маршрутизация, сайдкар)
+│   ├── test_silero.py            # Тесты Silero v5 (38: ленивая загрузка, голоса, маршрутизация, нормализация текста/чисел, сайдкар)
 │   ├── test_db_compat.py         # Тесты совместимости базы (старая колонка JarvisResponse, переименование jarvis.db)
 │   ├── test_csharp_speaker.py    # Тесты C#-озвучки (протокол хелпера, stop, откат на Python; без устройств)
 │   ├── fake_speaker.py           # Фейковый C#-хелпер для тестов озвучки (звук не играет)
