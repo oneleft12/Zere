@@ -379,7 +379,10 @@ $RequiredModules = @(
 # Необязательные: без них ZERE стартует (текстовый режим / откат движка).
 # Их отсутствие попадает в отчёт предупреждением, но установку не срывает.
 $OptionalModules = @(
-    @{ Package = 'ChatTTS'; Module = 'ChatTTS' }
+    @{ Package = 'ChatTTS'; Module = 'ChatTTS' },
+    # pypdf нужен только конспектору и только для PDF; без него конспект
+    # просит .md/.txt (zere/core/conspect/text.py).
+    @{ Package = 'pypdf';   Module = 'pypdf' }
 )
 
 function Get-PythonCandidates {

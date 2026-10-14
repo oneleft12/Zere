@@ -64,6 +64,18 @@ def mcp_config_path() -> Path:
     return config_path().parent / "mcp.json"
 
 
+def conspect_config_path() -> Path:
+    """Настройки конспектора: config/conspect.json (gitignored).
+
+    Путь вычисляется от config_path().parent — как у ai_config_path(): тесты
+    подменяют config_path() на временный каталог, поэтому конспектор в тестах
+    не пишет в настоящее хранилище Obsidian. Файл локальный (путь к хранилищу
+    и потолки объёма), поэтому в git его нет; образец —
+    config/conspect.example.json.
+    """
+    return config_path().parent / "conspect.json"
+
+
 def db_path() -> Path:
     """Путь к базе истории и памяти.
 

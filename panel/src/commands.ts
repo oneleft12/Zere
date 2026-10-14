@@ -230,6 +230,36 @@ export const COMMAND_GROUPS: CommandGroup[] = [
     ],
   },
   {
+    title: "Конспектор",
+    note: "конспект пишется в хранилище Obsidian; длинные материалы — командой в консоли (docs/CONSPECT.md)",
+    items: [
+      {
+        command: "законспектируй C:\\Лекции\\лекция.md",
+        hint: "Конспект локального файла (.md, .txt, .pdf)",
+      },
+      {
+        command: "законспектируй https://example.com/article",
+        hint: "Конспект статьи по ссылке",
+      },
+      {
+        command: "сделай конспект из лекция.md",
+        hint: "Та же команда другими словами",
+      },
+      {
+        command: "конспекты",
+        hint: "Последние сохранённые конспекты",
+      },
+      {
+        command: "python -m zere.core.conspect лекция.md",
+        hint: "Длинный материал: CLI с прогрессом по частям (в консоли)",
+      },
+      {
+        command: "python -m zere.core.conspect --list",
+        hint: "Список конспектов из консоли (в консоли)",
+      },
+    ],
+  },
+  {
     title: "Вопросы к ИИ",
     items: [
       {

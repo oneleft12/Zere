@@ -1,0 +1,18 @@
+{
+  "enabled": true,
+  "vault": "",
+  "folder": "Конспекты",
+  "tags": ["конспект"],
+  "subfolderByMonth": true,
+  "writePaths": [],
+  "chunkChars": 2400,
+  "chunkOverlap": 200,
+  "maxChunks": 40,
+  "interactiveMaxChars": 20000,
+  "maxSourceChars": 400000,
+  "maxDownloadChars": 2000000,
+  "timeoutSeconds": 60,
+  "temperature": 0.3,
+  "maxTokensPerChunk": 400,
+  "maxTokensSummary": 900
+}

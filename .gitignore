@@ -200,6 +200,10 @@ config/router.json
 # Настройки MCP-серверов (локальные пути, например хранилище Obsidian;
 # см. docs/MCP_PLUGINS.md). Образец — config/mcp.example.json.
 config/mcp.json
+# Настройки конспектора: путь к хранилищу Obsidian и потолки объёма
+# (локальные значения). Образец — config/conspect.example.json;
+# см. docs/CONSPECT.md.
+config/conspect.json
 
 # Артефакты установщика (генерируются)
 /ZereInstaller.exe

@@ -115,15 +115,17 @@ Pipeline обработки команд (порядок важен):
 4. **ProcessHandler** — «процессы», «найди процесс», «закрой процесс»
 5. **WindowsHandler** — Windows-команды
 6. **FileHandler** — «создай папку/файл», «найди файл», «удали файл»
-7. **GameHandler** — игровые команды
-8. **VolumeHandler** — «громкость», «сделай громче/тише», «выключи звук»
-9. **DrawingHandler** — рисование в Krita/Paint: «нарисуй круг», «напиши на холсте привет», «рисуй в крите» *(только Python-редакция)*
-10. **JevRoutingHandler** — роутер интентов: свободная фраза → каноническая команда
+7. **ConspectHandler** — конспектор: «законспектируй <файл|ссылка|текст>» →
+    заметка в хранилище Obsidian *(только Python-редакция, `docs/CONSPECT.md`)*
+8. **GameHandler** — игровые команды
+9. **VolumeHandler** — «громкость», «сделай громче/тише», «выключи звук»
+10. **DrawingHandler** — рисование в Krita/Paint: «нарисуй круг», «напиши на холсте привет», «рисуй в крите» *(только Python-редакция)*
+11. **JevRoutingHandler** — роутер интентов: свободная фраза → каноническая команда
     *(только Python-редакция; регистрируется лишь при настроенном ключе Jev,
     `docs/JEV_ROUTER.md`)*
-11. **PluginCommandHandler** — плагины-обработчики (`ICommandHandlerPlugin`):
+12. **PluginCommandHandler** — плагины-обработчики (`ICommandHandlerPlugin`):
     браузер и заметки через MCP *(только Python-редакция, `docs/MCP_PLUGINS.md`)*
-12. **AIHandler** — fallback → генерация ответа через провайдера ИИ
+13. **AIHandler** — fallback → генерация ответа через провайдера ИИ
     (облачный ключ пользователя или локальная Ollama — выбор в
     `zere/ai/ai_service.py` и `ZERE.AI/AiService.cs` через `IAiClient`)
 
@@ -198,6 +200,46 @@ Pipeline обработки команд (порядок важен):
   `docs/PLUGINS_RESEARCH.md`; тесты — `tests/test_mcp_client.py`,
   `tests/test_mcp_plugins.py`, `tests/test_plugin_pipeline.py`
   (фейковый сервер — `tests/fake_mcp_server.py`).
+
+### Конспектор: материал → конспект в Obsidian (только Python-редакция)
+
+Обработчик **ConspectHandler** (`zere/core/conspect/`) превращает материал в
+заметку хранилища: «законспектируй лекция.md», «законспектируй https://…» или
+текст прямо в сообщении. Стоит среди локальных обработчиков, сразу после
+файловых команд: конспект делает код, а не модель.
+
+- **Почему не «отправить текст в чат».** `num_ctx = 2048` в `OllamaClient` —
+  окно всей генерации. Часовая лекция (~40 000 символов) туда не входит, и
+  Ollama молча отбрасывает начало. Поэтому конвейер:
+  **источник → текст → части (map) → сводка (reduce) → заметка**; часть — до
+  2400 символов (≈960 токенов), ответ по части — до 400 токенов.
+- **Источники:** локальный файл (`.md`, `.txt`, `.pdf` через необязательный
+  `pypdf`, HTML), страница по URL (`requests` + `HTMLParser`, приватные адреса
+  запрещены), текст в сообщении (от 300 символов). YouTube/Telegram/созвоны —
+  не подключены (`docs/CONSPECT.md`, §9).
+- **Заметка пишется напрямую в файлы хранилища**, без MCP-сервера: сторонний
+  процесс не нужен в критическом пути, а путь проверяется на абсолютность,
+  `..`, запрещённые символы Windows и зарезервированные имена; запись —
+  атомарная (временный файл + `os.replace`), существующая заметка не
+  перезаписывается (`-2`, `-3`). Поиск и чтение заметок остаются за
+  MCP-плагином заметок.
+- **Честные сноски:** сбой части или сводки не теряет работу (в заметке видно
+  «частей без ответа модели: N», «материал был обрезан по потолку частей»);
+  ответ-ошибка `AiService` («Введите API-ключ…») распознаётся и **не**
+  попадает в заметку как конспект.
+- **Потолок чата** `interactiveMaxChars` (20 000 символов): конвейер
+  синхронный, панель ждёт ответ; больший материал возвращает подсказку с
+  командой CLI. Для длинных материалов — `python -m zere.core.conspect
+  <источник> [--folder] [--tags] [--max-chunks] [--dry-run] [--list] [--json]`.
+- Настройки: `config/conspect.example.json` → `config/conspect.json`
+  (gitignored, путь к хранилищу локальный). Файла нет — работают умолчания, а
+  хранилище берётся из `config/mcp.json` (`env.SEEKSTONE_VAULT`). Читаются
+  snake_case и camelCase ключи.
+- Команды видны в справочнике чата панели (`panel/src/commands.ts`, группа
+  «Конспектор»).
+- Подробности: `docs/CONSPECT.md`; тесты — `tests/test_conspect.py`,
+  `tests/test_conspect_handler.py` (без сети и без живой модели: HTTP —
+  `tests/fake_http.py`, модель — фейк, хранилище — временный каталог).
 
 ### Встроенный плагин личности
 | Стиль | Температура | Описание |
@@ -347,6 +389,7 @@ Zere/
 ├── ZERE.slnx                     # Решение (.NET 10)
 ├── config/
 │   ├── config.json               # Конфигурация (модель, язык, голос)
+│   ├── conspect.json             # Настройки конспектора (gitignored; образец conspect.example.json)
 │   └── ai.json                   # Настройки ИИ + ключ облачной модели (gitignored, 0600)
 ├── zere.db                       # SQLite база данных
 ├── ZERE.App/                     # Точка входа
@@ -504,11 +547,13 @@ Zere/
 │   ├── test_mcp_client.py        # Тесты MCP-клиента (handshake, tools, сбои, cmd /c для npx.cmd)
 │   ├── test_mcp_plugins.py       # Тесты MCP-плагинов (фразы, инертность, JSON-лазейка, подсказки)
 │   ├── test_plugin_pipeline.py   # Тесты моста плагинов и загрузчика (регрессия P1-3)
+│   ├── test_conspect.py          # Тесты конспектора (чанкование, файл/URL/PDF, запись в хранилище, map-reduce)
+│   ├── test_conspect_handler.py  # Тесты «законспектируй …» (фразы, потолок чата, сбои модели)
 │   ├── fake_mcp_server.py        # Фейковый MCP-сервер для тестов (без сети и npx)
 │   ├── fake_http.py              # Фейковый requests.Session для тестов ИИ (без сети)
 │   ├── check_ai_contract_external.py  # /api/ai* против запущенной панели (C# и Python)
 │   └── e2e_server.py             # Раннер панели с фейками для E2E
-├── docs/                         # Планы, отчёты, openapi.yaml (PANEL_DESIGN.md, UPDATE.md, AI_PROVIDERS.md, TTS_SILERO.md, WAKE_WORD.md, PLUGINS_RESEARCH.md, MCP_PLUGINS.md)
+├── docs/                         # Планы, отчёты, openapi.yaml (PANEL_DESIGN.md, UPDATE.md, AI_PROVIDERS.md, TTS_SILERO.md, WAKE_WORD.md, PLUGINS_RESEARCH.md, MCP_PLUGINS.md, CONSPECT.md)
 ├── logs/                         # Логи
 └── backups/                      # Бэкапы версий
 ```

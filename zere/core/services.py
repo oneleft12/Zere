@@ -19,6 +19,7 @@ from zere.core.dependencies.dependency_checker import DependencyChecker
 from zere.core.engine import ZereEngine
 from zere.core.handlers.ai_handler import AIHandler
 from zere.core.handlers.conversation_handler import ConversationHandler
+from zere.core.handlers.conspect_handler import ConspectHandler
 from zere.core.handlers.drawing_handler import DrawingHandler
 from zere.core.handlers.file_handler import FileHandler
 from zere.core.handlers.game_handler import GameHandler
@@ -285,6 +286,13 @@ def create_services(config: ZereConfig) -> ServiceContainer:
         lambda sp: GameHandler(sp.get(GameGuardian), sp.get(GameTracker)), GameHandler
     )
 
+    # Конспектор (docs/CONSPECT.md): «законспектируй …» → заметка в Obsidian.
+    # Стоит сразу после файловых команд: конспект делает код, а не LLM, но у
+    # привычных команд он ничего не отбирает (триггеры — отдельные слова).
+    services.add_singleton_factory(
+        lambda sp: ConspectHandler(sp.get(AiService)), ConspectHandler
+    )
+
     # services.AddSingleton<VolumeHandler>();
     services.add_singleton_factory(
         lambda sp: VolumeHandler(sp.get(VolumeService)), VolumeHandler
@@ -328,6 +336,9 @@ def create_services(config: ZereConfig) -> ServiceContainer:
             sp.get(ProcessHandler),
             sp.get(WindowsHandler),
             sp.get(FileHandler),
+            # Конспектор: до игр, громкости и AIHandler — «законспектируй …»
+            # должен попасть в код, а не в модель.
+            sp.get(ConspectHandler),
             sp.get(GameHandler),
             sp.get(VolumeHandler),
             # Рисование — перед AIHandler: «нарисуй круг» не должно уходить в LLM.
