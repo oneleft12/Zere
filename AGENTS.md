@@ -443,7 +443,7 @@ Zere/
 │   ├── fake_http.py              # Фейковый requests.Session для тестов ИИ (без сети)
 │   ├── check_ai_contract_external.py  # /api/ai* против запущенной панели (C# и Python)
 │   └── e2e_server.py             # Раннер панели с фейками для E2E
-├── docs/                         # Планы, отчёты, openapi.yaml (PANEL_DESIGN.md, UPDATE.md, AI_PROVIDERS.md, TTS_SILERO.md, WAKE_WORD.md)
+├── docs/                         # Планы, отчёты, openapi.yaml (PANEL_DESIGN.md, UPDATE.md, AI_PROVIDERS.md, TTS_SILERO.md, WAKE_WORD.md, PLUGINS_RESEARCH.md)
 ├── logs/                         # Логи
 └── backups/                      # Бэкапы версий
 ```
