@@ -12,6 +12,15 @@ class HandlerPipeline:
     def __init__(self, handlers: Iterable[IZereHandler]) -> None:
         self._handlers: List[IZereHandler] = list(handlers)
 
+    @property
+    def handlers(self) -> List[IZereHandler]:
+        """Копия списка обработчиков (для панели и тестов)."""
+        return list(self._handlers)
+
+    def contains(self, handler_type: type) -> bool:
+        """Есть ли в конвейере обработчик указанного типа."""
+        return any(isinstance(handler, handler_type) for handler in self._handlers)
+
     def handle(self, message: str) -> Optional[str]:
         for handler in self._handlers:
             try:

@@ -1,7 +1,9 @@
 /**
  * Экран «Плагины» (этап 4, §6): read-only список загруженных плагинов
- * и честные флаги P1-3 — handlersConnected=false до починки PluginManager,
- * поэтому никаких выключателей: панель не соврёт про управление.
+ * и честный флаг P1-3 — `handlersConnected` показывает, подключены ли
+ * плагины-обработчики к конвейеру именно этой сборки (в Python-редакции
+ * подключены, во внешней — нет). Выключателей нет: панель не соврёт
+ * про управление, которого пока не существует.
  */
 
 import { ApiError, apiGet, type PluginList } from "../api";
@@ -89,6 +91,19 @@ export const pluginsScreen: ScreenFactory = (container): Cleanup => {
       ? `${data.activePersonality.id} · ${data.activePersonality.style}`
       : "—";
 
+    // Подсказка зависит от флага: при подключённых обработчиках объяснять
+    // «почему не работает» нечего, а молчать про неработающие — нельзя.
+    const handlersNote = data.handlersConnected
+      ? h("p", { class: "panel-note", text: t(
+        "Плагины-обработчики подключены к конвейеру: их команды работают. "
+        + "Внешние плагины кладутся в ./plugins/*.py и загружаются при старте.",
+      ) })
+      : h("p", { class: "panel-note", text: t(
+        "handlersConnected=false — плагины-обработчики этой сборки не подключены "
+        + "к конвейеру: они видны в списке, но команд не получают. "
+        + "Переключатели появятся после P1-3.",
+      ) });
+
     const summary = card(
       t("Состояние"),
       h(
@@ -101,11 +116,7 @@ export const pluginsScreen: ScreenFactory = (container): Cleanup => {
         badge(t("командных обработчиков: {count}", { count: data.commandHandlersCount }), "plain"),
         badge(t("личность: {value}", { value: personality }), "accent"),
       ),
-      h("p", { class: "panel-note", text: t(
-        "handlersConnected=false — честный флаг этапа 4: пайплайн состоит из 9 "
-        + "фиксированных обработчиков, PluginManager подключает только личности. "
-        + "Переключатели появятся после P1-3.",
-      ) }),
+      handlersNote,
     );
 
     const grid = h("div", { class: "grid-12 fade-in" });

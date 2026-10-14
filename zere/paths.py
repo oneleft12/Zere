@@ -53,6 +53,17 @@ def router_config_path() -> Path:
     return config_path().parent / "router.json"
 
 
+def mcp_config_path() -> Path:
+    """Настройки MCP-серверов: config/mcp.json (gitignored).
+
+    Путь вычисляется от config_path().parent — как у ai_config_path():
+    тесты подменяют config_path() на временный каталог. Файл локальный:
+    в нём путь к хранилищу заметок Obsidian и другие машинные значения.
+    Образец для копирования — config/mcp.example.json.
+    """
+    return config_path().parent / "mcp.json"
+
+
 def db_path() -> Path:
     """Путь к базе истории и памяти.
 

@@ -120,7 +120,9 @@ Pipeline обработки команд (порядок важен):
 10. **JevRoutingHandler** — роутер интентов: свободная фраза → каноническая команда
     *(только Python-редакция; регистрируется лишь при настроенном ключе Jev,
     `docs/JEV_ROUTER.md`)*
-11. **AIHandler** — fallback → генерация ответа через провайдера ИИ
+11. **PluginCommandHandler** — плагины-обработчики (`ICommandHandlerPlugin`):
+    браузер и заметки через MCP *(только Python-редакция, `docs/MCP_PLUGINS.md`)*
+12. **AIHandler** — fallback → генерация ответа через провайдера ИИ
     (облачный ключ пользователя или локальная Ollama — выбор в
     `zere/ai/ai_service.py` и `ZERE.AI/AiService.cs` через `IAiClient`)
 
@@ -135,8 +137,46 @@ Pipeline обработки команд (порядок важен):
 
 ### Менеджер плагинов (`PluginManager`)
 - Загружает встроенные плагины из сборки
-- Загружает внешние плагины из `./plugins/*.dll`
+- Загружает внешние плагины из `./plugins/*.dll` (C#) и `./plugins/*.py` (Python)
 - Управляет активной личностью
+
+### Плагины-обработчики подключены к конвейеру (был P1-3)
+- **PluginCommandHandler** (`zere/core/handlers/plugin_handler.py`) стоит
+  последним среди локальных обработчиков, перед `AIHandler`: плагин не
+  перехватывает привычные команды, но успевает до LLM. Сбой одного плагина
+  не заслоняет остальные и не роняет конвейер.
+- Загрузчик внешних Python-плагинов починен: сравнивалась строка с объектом
+  модуля (`obj.__module__ == module`), поэтому они не грузились никогда.
+- `GET /api/plugins` → `handlersConnected` проверяет сам конвейер
+  (`pipeline.contains(PluginCommandHandler)`), а не факт загрузки плагинов.
+
+### MCP-плагины: браузер и заметки (только Python-редакция)
+- **MCP-клиент** (`zere/core/mcp/`) — минимальный stdio + JSON-RPC 2.0:
+  `initialize` → `notifications/initialized` → `tools/list` → `tools/call`.
+  Свой, а не официальный SDK: не тянет anyio/httpx/pydantic. Работает с
+  handshake-поколением протокола (`2025-11-25`); ревизия `2026-07-28`
+  (без handshake, `server/discover`) не реализована — при несовместимости
+  выдаётся понятная ошибка с версиями сервера.
+- **PlaywrightMcpPlugin** — браузер через `@playwright/mcp` (25 инструментов):
+  переход, снимок, поиск на странице, клик/ввод по ссылке из снимка, скриншот.
+- **ObsidianMcpPlugin** — заметки через `seekstone` (25 инструментов):
+  файловый доступ к хранилищу, без плагина Obsidian и без запущенного
+  приложения. Выдача сервера (JSON) переводится в читаемый текст — ответ
+  читает пользователь и озвучивает TTS.
+- **Без tool calling**: плагин сам разбирает русскую фразу (как роутер Jev —
+  интент определяет код, а не модель) и вызывает нужный инструмент. Полный
+  набор доступен формой `<триггер>: <инструмент> {json}`.
+- **Сервер запускается лениво** (при первой подходящей команде) и **только
+  если включён** в `config/mcp.json` — установка плагина ничего не запускает.
+- Настройки: `config/mcp.example.json` → рабочий `config/mcp.json`
+  (gitignored), ключи `enabled`, `command`, `args`, `env`, `cwd`,
+  `requestTimeoutSeconds`, `startupTimeoutSeconds`, `allowedTools`.
+- Безопасность: подпроцесс с правами пользователя (не песочница), поэтому
+  allowlist, пиннинг версий и показ точной команды запуска (SEP-1024).
+- Подробности и команды: `docs/MCP_PLUGINS.md`; разбор выбора —
+  `docs/PLUGINS_RESEARCH.md`; тесты — `tests/test_mcp_client.py`,
+  `tests/test_mcp_plugins.py`, `tests/test_plugin_pipeline.py`
+  (фейковый сервер — `tests/fake_mcp_server.py`).
 
 ### Встроенный плагин личности
 | Стиль | Температура | Описание |
@@ -440,10 +480,14 @@ Zere/
 │   ├── test_updater.py           # Тесты обновления из GitHub (git в temp: fetch/pull, отказы, зависимости)
 │   ├── test_ai_providers.py      # Тесты ИИ (приоритет облако/локально, проверка ключа, Ollama, маскирование)
 │   ├── test_jev_router.py        # Тесты роутера интентов Jev (72: реестр, пороги, слоты, встраивание, CLI)
+│   ├── test_mcp_client.py        # Тесты MCP-клиента (handshake, tools, сбои, cmd /c для npx.cmd)
+│   ├── test_mcp_plugins.py       # Тесты MCP-плагинов (фразы, инертность, JSON-лазейка, подсказки)
+│   ├── test_plugin_pipeline.py   # Тесты моста плагинов и загрузчика (регрессия P1-3)
+│   ├── fake_mcp_server.py        # Фейковый MCP-сервер для тестов (без сети и npx)
 │   ├── fake_http.py              # Фейковый requests.Session для тестов ИИ (без сети)
 │   ├── check_ai_contract_external.py  # /api/ai* против запущенной панели (C# и Python)
 │   └── e2e_server.py             # Раннер панели с фейками для E2E
-├── docs/                         # Планы, отчёты, openapi.yaml (PANEL_DESIGN.md, UPDATE.md, AI_PROVIDERS.md, TTS_SILERO.md, WAKE_WORD.md, PLUGINS_RESEARCH.md)
+├── docs/                         # Планы, отчёты, openapi.yaml (PANEL_DESIGN.md, UPDATE.md, AI_PROVIDERS.md, TTS_SILERO.md, WAKE_WORD.md, PLUGINS_RESEARCH.md, MCP_PLUGINS.md)
 ├── logs/                         # Логи
 └── backups/                      # Бэкапы версий
 ```

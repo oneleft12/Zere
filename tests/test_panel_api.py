@@ -2090,7 +2090,9 @@ def test_plugins_get_matches_spec() -> None:
         for item in payload["items"]:
             assert_schema(schema("Plugin"), item)
 
-        # Честный false: пайплайн — 9 фиксированных обработчиков
+        # Подмена движка конвейера не имеет — значит моста плагинов нет,
+        # и флаг обязан быть false (у реального движка он true, см.
+        # test_plugin_handlers_connected_reflects_pipeline).
         assert payload["handlersConnected"] is False
         assert isinstance(payload["commandHandlersCount"], int)
         assert payload["commandHandlersCount"] >= 0

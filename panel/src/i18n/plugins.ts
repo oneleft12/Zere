@@ -21,8 +21,10 @@ export const PLUGINS_EN: Record<string, string> = {
   "обработчики подключены: нет": "handlers connected: no",
   "командных обработчиков: {count}": "command handlers: {count}",
   "личность: {value}": "personality: {value}",
-  "handlersConnected=false — честный флаг этапа 4: пайплайн состоит из 9 фиксированных обработчиков, PluginManager подключает только личности. Переключатели появятся после P1-3.":
-    "handlersConnected=false — the honest stage 4 flag: the pipeline consists of 9 fixed handlers, PluginManager only attaches personalities. Toggles will appear after P1-3.",
+  "handlersConnected=false — плагины-обработчики этой сборки не подключены к конвейеру: они видны в списке, но команд не получают. Переключатели появятся после P1-3.":
+    "handlersConnected=false — this build's plugin handlers are not wired into the pipeline: they appear in the list but receive no commands. Toggles will appear after P1-3.",
+  "Плагины-обработчики подключены к конвейеру: их команды работают. Внешние плагины кладутся в ./plugins/*.py и загружаются при старте.":
+    "Plugin handlers are wired into the pipeline: their commands work. External plugins go into ./plugins/*.py and are loaded at startup.",
 
   // ── Список плагинов ───────────────────────────────────────────
   "Плагины не найдены": "No plugins found",

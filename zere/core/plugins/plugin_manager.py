@@ -25,6 +25,31 @@ def _enum_name(value: object) -> str:
     return value.name if isinstance(value, enum.Enum) else str(value)
 
 
+def _built_in_modules() -> List[object]:
+    """Модули, из которых собираются встроенные плагины.
+
+    Раньше список был жёстко привязан к модулю личности
+    (`PersonalityPlugin.__module__`), поэтому новый встроенный плагин
+    не подхватывался, пока его не допишут сюда. Теперь модули перечислены
+    явно: личность + MCP-плагины (браузер и заметки).
+
+    Импорты внутри функции — чтобы не создавать цикл на импорте пакета
+    плагинов и не тянуть MCP-модуль при простом `import plugin_manager`.
+    """
+    from zere.core.plugins.builtin.mcp.obsidian_plugin import ObsidianMcpPlugin
+    from zere.core.plugins.builtin.mcp.playwright_plugin import PlaywrightMcpPlugin
+
+    classes = (PersonalityPlugin, PlaywrightMcpPlugin, ObsidianMcpPlugin)
+    modules: List[object] = []
+
+    for plugin_class in classes:
+        module_obj = sys.modules.get(plugin_class.__module__)
+        if module_obj is not None and module_obj not in modules:
+            modules.append(module_obj)
+
+    return modules
+
+
 class PluginManager:
     def __init__(self, plugins_path: Optional[str] = None) -> None:
         self._plugins_path: str = plugins_path if plugins_path is not None else str(paths.plugins_dir())
@@ -71,8 +96,8 @@ class PluginManager:
     def _load_built_in_plugins(self) -> None:
         # C#: Assembly.GetExecutingAssembly().GetTypes() — встроенные плагины текущей
         # сборки (ZERE.Core). На Python — классы IPlugin, объявленные во встроенных
-        # модулях плагинов (PersonalityPlugin и т.п.), без абстрактных и интерфейсов.
-        built_in_modules = [sys.modules.get(PersonalityPlugin.__module__)]
+        # модулях плагинов, без абстрактных и интерфейсов.
+        built_in_modules = _built_in_modules()
 
         plugin_types: list[type] = []
         for module_obj in built_in_modules:
@@ -131,7 +156,10 @@ class PluginManager:
         plugin_types = [
             obj
             for _, obj in inspect.getmembers(module, inspect.isclass)
-            if obj.__module__ == module
+            # obj.__module__ — СТРОКА, module — объект модуля: сравнение
+            # «строка == объект» всегда ложно, поэтому внешние Python-плагины
+            # не загружались вообще (P1-3). Нужно имя модуля.
+            if obj.__module__ == module.__name__
             and issubclass(obj, IPlugin)
             and not inspect.isabstract(obj)
         ]

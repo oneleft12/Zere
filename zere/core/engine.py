@@ -26,6 +26,16 @@ class ZereEngine:
     def plugin_manager(self) -> PluginManager:
         return self._plugin_manager
 
+    @property
+    def pipeline(self) -> HandlerPipeline:
+        """Конвейер обработчиков.
+
+        Нужен панели: `GET /api/plugins` проверяет по нему, подключены ли
+        плагины-обработчики (`handlersConnected`), вместо прежнего жёсткого
+        `false`.
+        """
+        return self._pipeline
+
     def process(self, message: str) -> str:
         try:
             self._extractor.try_extract(message)

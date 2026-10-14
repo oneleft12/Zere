@@ -31,6 +31,7 @@ from zere.ai.cloud_client import AiError
 from zere.api.token import load_or_create_token
 from zere.ai.ollama_url_resolver import OllamaUrlResolver
 from zere.core.configuration.zere_config import ZereConfig
+from zere.core.handlers.plugin_handler import PluginCommandHandler
 from zere.core.logging.log_service import log_error, redact_secrets
 from zere.core.plugins.plugin_config import PluginConfig
 from zere.core.update.updater import UpdateBusyError, UpdateService
@@ -984,9 +985,10 @@ class _PanelHandler(BaseHTTPRequestHandler):
             None,
             {
                 "items": items,
-                # Честное false: пайплайн — 9 фиксированных обработчиков,
-                # плагины-обработчики в него не встраиваются.
-                "handlersConnected": False,
+                # Флаг честный: проверяем сам конвейер, а не факт загрузки
+                # плагинов. Раньше стояло жёсткое false (P1-3) — плагины
+                # грузились, но команд не получали.
+                "handlersConnected": _plugin_handlers_connected(self.panel.engine),
                 "commandHandlersCount": len(plugin_manager.command_handlers),
                 "activePersonality": active_payload,
             },
@@ -1889,6 +1891,26 @@ def _app_payload(info: Any) -> dict[str, Any]:
 def _enum_name(value: Any) -> str:
     """Enum (PluginType/PersonalityStyle) → имя члена; иначе строка как есть."""
     return value.name if isinstance(value, enum.Enum) else str(value)
+
+def _plugin_handlers_connected(engine: Any) -> bool:
+    """Подключены ли плагины-обработчики к конвейеру (пункт P1-3).
+
+    Смотрим сам конвейер, а не список загруженных плагинов: плагин может быть
+    загружен и при этом не получать сообщений — именно это и было раньше.
+    Движок без конвейера (подмена в тестах) честно даёт `false`.
+    """
+    pipeline = getattr(engine, "pipeline", None)
+
+    if pipeline is None:
+        return False
+
+    contains = getattr(pipeline, "contains", None)
+
+    if not callable(contains):
+        return False
+
+    return bool(contains(PluginCommandHandler))
+
 
 # Журнал: строка сессии `[ts] [LEVEL] msg` vs errors.log `[ts] [LEVEL] [src] msg`.
 # Источник определяется по ИМЕНИ файла, а не по разбору строки: сообщение

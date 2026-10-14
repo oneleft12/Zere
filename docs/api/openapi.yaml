@@ -639,8 +639,9 @@ paths:
       operationId: listPlugins
       summary: >
         Инвентарь загруженных плагинов и активная личность. Флага enabled
-        нет (его не хранит PluginManager); handlersConnected всегда false —
-        пайплайн состоит из 9 фиксированных обработчиков
+        нет (его не хранит PluginManager); handlersConnected отражает
+        фактическое состояние конвейера — подключён ли в него мост к
+        плагинам-обработчикам
       tags: [plugins]
       responses:
         "200":
@@ -1831,7 +1832,10 @@ components:
             $ref: "#/components/schemas/Plugin"
         handlersConnected:
           type: boolean
-          description: Всегда false — пайплайн не подключает плагины-обработчики
+          description: >
+            Подключён ли к конвейеру мост к плагинам-обработчикам. Раньше
+            было всегда false (плагины грузились, но команд не получали);
+            теперь отражает фактическое состояние сборки
         commandHandlersCount:
           type: integer
         activePersonality:

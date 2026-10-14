@@ -1,0 +1,23 @@
+{
+  "servers": {
+    "playwright": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@0.0.83"],
+      "requestTimeoutSeconds": 60,
+      "startupTimeoutSeconds": 120,
+      "allowedTools": []
+    },
+    "obsidian": {
+      "enabled": false,
+      "command": "npx",
+      "args": ["-y", "seekstone@0.22.1"],
+      "env": {
+        "SEEKSTONE_VAULT": "C:\\Users\\Пользователь\\Documents\\Obsidian"
+      },
+      "requestTimeoutSeconds": 60,
+      "startupTimeoutSeconds": 120,
+      "allowedTools": []
+    }
+  }
+}

@@ -197,6 +197,10 @@ config/ai.json.tmp
 # см. docs/JEV_ROUTER.md)
 config/router.json
 
+# Настройки MCP-серверов (локальные пути, например хранилище Obsidian;
+# см. docs/MCP_PLUGINS.md). Образец — config/mcp.example.json.
+config/mcp.json
+
 # Артефакты установщика (генерируются)
 /ZereInstaller.exe
 /ZERE.bat

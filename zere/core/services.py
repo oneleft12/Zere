@@ -28,6 +28,7 @@ from zere.core.handlers.memory_extractor import MemoryExtractor
 from zere.core.handlers.memory_handler import MemoryHandler
 from zere.core.handlers.memory_query_handler import MemoryQueryHandler
 from zere.core.handlers.process_handler import ProcessHandler
+from zere.core.handlers.plugin_handler import PluginCommandHandler
 from zere.core.handlers.volume_handler import VolumeHandler
 from zere.core.handlers.windows_handler import WindowsHandler
 from zere.core.logging.log_service import LogService
@@ -294,6 +295,12 @@ def create_services(config: ZereConfig) -> ServiceContainer:
         lambda sp: DrawingHandler(sp.get(DrawingService)), DrawingHandler
     )
 
+    # Мост к плагинам-обработчикам: без него ICommandHandlerPlugin грузился,
+    # но не получал ни одного сообщения (P1-3).
+    services.add_singleton_factory(
+        lambda sp: PluginCommandHandler(sp.get(PluginManager)), PluginCommandHandler
+    )
+
     # services.AddSingleton<AIHandler>();
     # Первый аргумент — прокси выбора провайдера (облачный ключ или локальная
     # модель): интерфейс generate/warmup/close тот же, что у OllamaClient,
@@ -325,6 +332,9 @@ def create_services(config: ZereConfig) -> ServiceContainer:
             sp.get(VolumeHandler),
             # Рисование — перед AIHandler: «нарисуй круг» не должно уходить в LLM.
             sp.get(DrawingHandler),
+            # Плагины-обработчики — последними среди локальных: они не должны
+            # перехватывать привычные команды, но обязаны успеть до LLM.
+            sp.get(PluginCommandHandler),
         ]
 
         jev_handler = _create_jev_handler(sp, local_handlers)
