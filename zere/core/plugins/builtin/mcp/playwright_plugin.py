@@ -76,6 +76,141 @@ _TRANSIENT_NAVIGATION_ERRORS = ("ERR_ABORTED",)
 #: Пауза перед повтором: браузеру нужно досоздать свои стартовые вкладки.
 _NAVIGATION_RETRY_DELAY_SECONDS = 1.0
 
+# ── Оформление ответов ─────────────────────────────────────────────
+# Playwright MCP отвечает текстом «для модели»: служебный JS-код, список
+# открытых вкладок, английские заголовки вида `### Page`. Пользователю это не
+# нужно, а озвучка читала бы «решётка решётка Ran Playwright code». Поэтому
+# ответы приводятся к человеческому виду, а ошибки — к русским подсказкам.
+#
+# Разбор применяется только к инструментам `browser_*`: лазейка
+# «браузер: <инструмент> {json}» отдаёт ответ сервера как есть.
+
+_CODE_BLOCK_RE = re.compile(r"### Ran Playwright code\s*```[a-zA-Z]*\s*.*?```\s*", re.DOTALL)
+_OPEN_TABS_RE = re.compile(r"### Open tabs\s*(?:-\s.*\n?)*")
+_PAGE_SECTION_RE = re.compile(r"### Page\s*(?:-\s.*\n?)*")
+_SNAPSHOT_FILE_RE = re.compile(r"### Snapshot\s*-\s*\[Snapshot\]\([^)]*\)\s*")
+_RESULT_HEADER_RE = re.compile(r"^### Result\s*\n", re.MULTILINE)
+_SNAPSHOT_HEADER_RE = re.compile(r"^### Snapshot\s*\n", re.MULTILINE)
+_BLANK_LINES_RE = re.compile(r"\n{3,}")
+
+_PAGE_URL_RE = re.compile(r"^- Page URL:\s*(.+?)\s*$", re.MULTILINE)
+_PAGE_TITLE_RE = re.compile(r"^- Page Title:\s*(.+?)\s*$", re.MULTILINE)
+
+#: Команды-действия: важен факт выполнения, а не простыня со снимком.
+_QUIET_TOOLS = frozenset(
+    {
+        "browser_click",
+        "browser_type",
+        "browser_press_key",
+        "browser_select_option",
+        "browser_hover",
+        "browser_drag",
+        "browser_file_upload",
+        "browser_handle_dialog",
+        "browser_resize",
+        "browser_emulate_media",
+        "browser_run_code_unsafe",
+    }
+)
+
+
+def _strip_service_blocks(text: str) -> str:
+    """Убирает служебные блоки Playwright, оставляя содержательную часть."""
+    result = _CODE_BLOCK_RE.sub("", text)
+    result = _OPEN_TABS_RE.sub("", result)
+    result = _PAGE_SECTION_RE.sub("", result)
+    result = _SNAPSHOT_FILE_RE.sub("", result)
+    result = _RESULT_HEADER_RE.sub("", result)
+    result = _SNAPSHOT_HEADER_RE.sub("", result)
+
+    return _BLANK_LINES_RE.sub("\n\n", result).strip()
+
+
+def _page_summary(text: str) -> str:
+    """«Заголовок — адрес» из служебного блока `### Page`."""
+    title_match = _PAGE_TITLE_RE.search(text)
+    url_match = _PAGE_URL_RE.search(text)
+
+    title = title_match.group(1).strip() if title_match else ""
+    url = url_match.group(1).strip() if url_match else ""
+
+    if title and url:
+        return f"{title} — {url}"
+
+    return title or url
+
+
+def _human_error(text: str, profile: BrowserProfile) -> str:
+    """Переводит ошибку сервера в русскую подсказку."""
+    cleaned = re.sub(r"^###\s*Error\s*\n", "", text.strip())
+    cleaned = re.sub(r"^Error:\s*", "", cleaned).strip()
+
+    # Браузер не установлен — частая причина на новой машине.
+    if any(marker in text for marker in _BROWSER_MISSING_MARKERS):
+        return (
+            f"Браузер «{profile.label}» для Playwright MCP не найден. "
+            f"{profile.install_hint or 'Установите браузер.'}\n"
+            "Выбрать другой: «браузер список», затем «браузер выбери edge»."
+        )
+
+    # Ссылка на элемент устарела или её не было: это не поломка, а порядок
+    # работы — сервер адресует элементы ссылками из снимка.
+    ref_match = re.search(r"Ref\s+(\S+)\s+not found", cleaned, re.IGNORECASE)
+
+    if ref_match:
+        return (
+            f"Ссылка «{ref_match.group(1)}» не найдена на странице.\n"
+            "Ссылки на элементы живут только внутри снимка: сначала "
+            "«браузер снимок» или «браузер найди <текст>», затем "
+            "«браузер клик <ссылка>» (например «браузер клик e5»)."
+        )
+
+    if "No open tabs" in text or "no open pages" in text.lower():
+        return "Страница не открыта. Сначала «браузер открой <адрес>»."
+
+    if "ERR_ABORTED" in cleaned:
+        return (
+            "Переход прерван страницей. Повторите команду или сделайте "
+            "«браузер снимок», чтобы увидеть, где оказался браузер."
+        )
+
+    if "Timeout" in cleaned:
+        return f"Страница не ответила вовремя: {cleaned}"
+
+    if "has been closed" in cleaned:
+        return "Браузер закрылся во время выполнения. Повторите команду."
+
+    return f"Браузер не выполнил команду: {cleaned}"
+
+
+def _human_success(text: str, tool: str) -> str:
+    """Приводит успешный ответ сервера к человеческому виду."""
+    where = _page_summary(text)
+
+    if tool == "browser_navigate":
+        return f"Открыл: {where}" if where else "Страница открыта."
+
+    if tool == "browser_navigate_back":
+        return f"Вернулся назад: {where}" if where else "Вернулся назад."
+
+    if tool == "browser_close":
+        if "No open tabs" in text:
+            return "Страница не была открыта — закрывать нечего."
+        return "Браузер закрыт."
+
+    if tool == "browser_take_screenshot":
+        return "Скриншот сохранён."
+
+    if tool in _QUIET_TOOLS:
+        return f"Готово: {where}" if where else "Готово."
+
+    body = _strip_service_blocks(text)
+
+    if tool == "browser_snapshot" and where:
+        return f"Страница: {where}\n{body}".rstrip() if body else f"Страница: {where}"
+
+    return body or (f"Готово: {where}" if where else "Готово.")
+
 
 def _looks_like_url(value: str) -> bool:
     """Похоже ли на адрес, а не на произвольный текст.
@@ -433,20 +568,15 @@ class PlaywrightMcpPlugin(McpPluginBase):
     # ── Ответ ───────────────────────────────────────────────────────
 
     def _format(self, result: McpToolResult, command: McpCommand) -> str:
-        text = result.text or "(сервер вернул пустой ответ)"
+        # Лазейка «браузер: <инструмент> {json}» отдаёт ответ сервера как есть:
+        # там может быть любой инструмент, и угадывать его смысл нечем.
+        if not command.tool.startswith("browser_"):
+            return super()._format(result, command)
 
-        if result.is_error and any(
-            marker in text for marker in _BROWSER_MISSING_MARKERS
-        ):
-            profile = self.browser_profile()
+        if result.is_error:
+            return self._truncate(_human_error(result.text, self.browser_profile()))
 
-            return (
-                f"Браузер «{profile.label}» для Playwright MCP не найден. "
-                f"{profile.install_hint or 'Установите браузер.'}\n"
-                "Выбрать другой: «браузер список», затем «браузер выбери edge»."
-            )
-
-        return super()._format(result, command)
+        return self._truncate(_human_success(result.text, command.tool))
 
 
 __all__ = ["PlaywrightMcpPlugin"]

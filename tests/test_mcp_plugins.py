@@ -758,6 +758,140 @@ def test_other_tool_errors_are_not_retried() -> None:
     assert result.is_error is True
 
 
+# ── Оформление ответов (образцы сняты с живого сервера) ────────────
+
+NAVIGATE_SAMPLE = """### Ran Playwright code
+```js
+await page.goto('https://example.com');
+```
+### Open tabs
+- 0: (current) [Example Domain](https://example.com/)
+- 1: [](about:blank)
+### Page
+- Page URL: https://example.com/
+- Page Title: Example Domain
+### Snapshot
+- [Snapshot](.playwright-mcp\\page-2026-10-14T07-14-50-698Z.yml)
+"""
+
+CLOSE_NO_TABS_SAMPLE = """### Result
+No open tabs. Navigate to a URL to create one.
+
+### Ran Playwright code
+```js
+await page.close()
+```
+
+### Page
+- Page URL: about:blank
+"""
+
+BAD_REF_SAMPLE = """### Error
+Error: Ref e99 not found in the current page snapshot. Try capturing new snapshot.
+"""
+
+FIND_SAMPLE = """### Result
+Found 2 matches for "Example":
+
+- generic [active] [ref=e1]:
+  - paragraph [ref=e7]: This domain is for use in documentation examples.
+"""
+
+
+def _format_browser(
+    text: str, *, is_error: bool = False, phrase: str = "браузер снимок"
+) -> str:
+    """Прогоняет ответ сервера через оформление плагина."""
+    import tempfile
+
+    from zere.core.mcp.client import McpToolResult
+
+    with tempfile.TemporaryDirectory() as td:
+        plugin = playwright_plugin(Path(td))
+
+    command = plugin._parse(phrase)
+    assert command is not None, phrase
+
+    return plugin._format(McpToolResult(text=text, is_error=is_error), command)
+
+
+def test_navigation_answer_is_human_readable() -> None:
+    """Ответ на переход — «Открыл: …», без служебного JS и списка вкладок."""
+    answer = _format_browser(
+        NAVIGATE_SAMPLE, phrase="браузер открой example.com"
+    )
+
+    assert answer == "Открыл: Example Domain — https://example.com/"
+    assert "###" not in answer
+    assert "```" not in answer
+    assert "await page.goto" not in answer
+    assert "Open tabs" not in answer
+
+
+def test_close_answer_is_short() -> None:
+    """«браузер закрой» без открытой страницы — короткая фраза, не простыня."""
+    answer = _format_browser(CLOSE_NO_TABS_SAMPLE, phrase="браузер закрой")
+
+    assert answer == "Страница не была открыта — закрывать нечего."
+    assert "###" not in answer and "```" not in answer
+
+
+def test_bad_ref_error_explains_two_step_flow() -> None:
+    """Реальная ошибка из сессии: «Ref e99 not found» → понятное объяснение."""
+    answer = _format_browser(
+        BAD_REF_SAMPLE, is_error=True, phrase="браузер введи e99: привет"
+    )
+
+    assert "e99" in answer
+    assert "браузер снимок" in answer, "подсказываем, откуда берутся ссылки"
+    assert "### Error" not in answer
+    assert "Try capturing new snapshot" not in answer, "английский текст не показываем"
+
+
+def test_find_keeps_result_without_service_header() -> None:
+    answer = _format_browser(FIND_SAMPLE, phrase="браузер найди Example")
+
+    assert "Found 2 matches" in answer
+    assert "ref=e7" in answer, "содержательное нужно: по нему берут ссылку для клика"
+    assert "### Result" not in answer
+
+
+def test_snapshot_is_prefixed_with_page_and_has_no_tab_list() -> None:
+    sample = NAVIGATE_SAMPLE + "\n### Snapshot\n```yaml\n- generic [ref=e1]:\n```\n"
+    answer = _format_browser(sample)
+
+    assert answer.startswith("Страница: Example Domain — https://example.com/")
+    assert "ref=e1" in answer
+    assert "Open tabs" not in answer
+
+
+def test_generic_escape_hatch_keeps_foreign_tool_output() -> None:
+    """Лазейка для чужого инструмента отдаёт ответ сервера как есть.
+
+    Чистим только `browser_*`: у произвольного инструмента смысл блоков
+    неизвестен, и вырезать из него куски было бы самонадеянно.
+    """
+    import tempfile
+
+    from zere.core.mcp.client import McpToolResult
+
+    with tempfile.TemporaryDirectory() as td:
+        plugin = playwright_plugin(Path(td))
+
+    command = plugin._parse('браузер: echo {"text": "привет"}')
+    answer = plugin._format(McpToolResult(text="### Result\nсырой ответ"), command)
+
+    assert answer == "### Result\nсырой ответ"
+
+
+def test_escape_hatch_for_browser_tool_still_cleans_boilerplate() -> None:
+    """А вот `browser_*` чистится и через лазейку: служебные блоки те же."""
+    answer = _format_browser(FIND_SAMPLE, phrase='браузер: browser_find {"text": "Example"}')
+
+    assert "### Result" not in answer
+    assert "Found 2 matches" in answer
+
+
 def main() -> None:
     tests = [
         value
