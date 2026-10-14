@@ -45,7 +45,7 @@ public sealed class AiSettings
     public const string SourceUser = "user";
     public const string SourceOwner = "owner";
 
-    public const string DefaultLocalModel = "qwen3.5:2b";
+    public const string DefaultLocalModel = "t-tech/T-lite-it-2.1:q4_K_M";
     public const string DefaultLocalBaseUrl = "http://127.0.0.1:11434/v1";
 
     /// <summary>Переменные окружения владельца сервера.</summary>
@@ -79,15 +79,18 @@ public sealed class AiSettings
     public static readonly string[] ProviderIds = Presets.Select(p => p.Id).ToArray();
 
     /// <summary>
-    /// Лёгкие модели для слабых ПК: по умолчанию ничего тяжёлого
-    /// (0.5B–1.5B для очень слабых, 3B для средних).
+    /// Локальные модели: порядок — от «русский важнее всего» к «лишь бы влезло».
+    /// У малых моделей русского почти нет (docs/LOCAL_MODELS_RESEARCH.md, §7),
+    /// поэтому Qwen2.5 (2024) заменена на Qwen3.5 и русско-ориентированный T-lite.
     /// </summary>
     public static readonly LocalModelOption[] LocalModelSuggestions =
     [
-        new("qwen3.5:2b", "qwen3.5:2b — по умолчанию ZERE", "light", "~1.5 ГБ"),
-        new("qwen2.5:0.5b", "qwen2.5:0.5b — очень слабый ПК", "tiny", "~0.4 ГБ"),
-        new("qwen2.5:1.5b", "qwen2.5:1.5b — слабый ПК", "light", "~1 ГБ"),
-        new("qwen2.5:3b", "qwen2.5:3b — средний ПК", "tiny", "~2 ГБ"),
+        new("t-tech/T-lite-it-2.1:q4_K_M", "T-lite 2.1 (8B) — лучший русский, 16 ГБ", "medium", "~5 ГБ"),
+        new("qwen3.5:4b-q4_K_M", "qwen3.5:4b — быстрый, русский нормальный, 8–16 ГБ", "medium", "~3.3 ГБ"),
+        new("qwen3.5:2b-q4_K_M", "qwen3.5:2b — слабый ПК, 8 ГБ", "light", "~1.9 ГБ"),
+        new("qwen3.5:0.8b", "qwen3.5:0.8b — очень слабый ПК, 4 ГБ", "tiny", "~1.2 ГБ"),
+        new("qwen3.5:9b-q4_K_M", "qwen3.5:9b — максимум качества Qwen, 16 ГБ", "medium", "~6.6 ГБ"),
+        new("qwen2.5:0.5b", "qwen2.5:0.5b — последний резерв, 4 ГБ (русский слабый)", "tiny", "~0.4 ГБ"),
     ];
 
     [JsonPropertyName("mode")]
@@ -268,19 +271,15 @@ public sealed class AiSettings
         var tmp = path + ".tmp";
         File.WriteAllText(tmp, JsonSerializer.Serialize(this, WriteOptions));
 
-        if (!OperatingSystem.IsWindows())
-        {
-            try
-            {
-                File.SetUnixFileMode(tmp, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            }
-            catch (Exception)
-            {
-                // Чужая ФС: права не критичны, файл всё равно вне git
-            }
-        }
+        // Секрет: сужаем права до владельца ещё до публикации файла на месте.
+        // Раньше на Windows блок пропускался, и ключ наследовал права папки
+        // (BUILTIN\Пользователи: Read, Authenticated Users: Modify) — см.
+        // SecretFileAccess и паритет zere/core/security/file_access.py.
+        SecretFileAccess.RestrictToOwner(tmp);
 
         File.Move(tmp, path, overwrite: true);
+
+        SecretFileAccess.RestrictToOwner(path);
     }
 
     /// <summary>Маска ключа для интерфейса: «sk-...abcd».</summary>

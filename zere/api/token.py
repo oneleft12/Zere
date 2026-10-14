@@ -10,6 +10,7 @@ import secrets
 from pathlib import Path
 
 from zere import paths
+from zere.core.security.file_access import restrict_to_owner
 
 TOKEN_FILE_NAME = "panel.token"
 _TOKEN_LENGTH = 64  # 32 байта в hex
@@ -32,9 +33,8 @@ def load_or_create_token() -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(token, encoding="utf-8")
 
-    try:
-        path.chmod(0o600)
-    except OSError:
-        pass  # Windows не поддерживает POSIX-права — не критично
+    # Токен — секрет: только владелец. На Windows chmod ACL не меняет,
+    # поэтому помощник использует icacls (zere/core/security/file_access.py).
+    restrict_to_owner(path)
 
     return token

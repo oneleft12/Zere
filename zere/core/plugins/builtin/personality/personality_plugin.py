@@ -48,7 +48,7 @@ class PersonalityPlugin(BasePlugin, IPersonalityPlugin):
         self._prompts: dict[PersonalityStyle, str] = {
             PersonalityStyle.Friendly: (
                 "Ты — ZERE, дружелюбный AI-ассистент.\n"
-                "Общайся тепло, используй смайлики occasionally.\n"
+                "Общайся тепло, изредка используй смайлики.\n"
                 "Будь как друг — помогай с радостью.\n"
                 "Говори просто и понятно."
             ),

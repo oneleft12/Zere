@@ -224,7 +224,13 @@ One, `~typesafe/jev-latest` через OpenRouter) за 70–500 мс выбир
   тот же), поэтому выбор провайдера работает на лету, без перезапуска.
 - Ключ пользователя: `config/ai.json` (gitignored, права 0600). Наружу —
   только маска `sk-...abcd`; в логах секреты вычищает `redact_secrets`
-  (`zere/core/logging/log_service.py`).
+  (`zere/core/logging/log_service.py`) — включая ключ шлюза `oc_sk_...`,
+  который прежний шаблон `sk-` пропускал (в `oc_sk_` подчёркивание).
+- Права «только владелец»: на Windows `chmod` ACL не меняет (только флаг
+  «только чтение»), поэтому `config/ai.json` и `config/panel.token`
+  сужает `icacls` — `zere/core/security/file_access.py` (паритет —
+  `ZERE.AI/SecretFileAccess.cs`). Раньше оба файла наследовали права
+  папки (`BUILTIN\Пользователи: Read`, `Authenticated Users: Modify`).
 - Формат `config/ai.json` общий для двух редакций: ключи snake_case
   (`cloud_provider`, `cloud_model`, `cloud_api_key`), читается и camelCase
   (старые сборки C#) — иначе редакции молча сбрасывали чужие настройки
@@ -249,8 +255,13 @@ One, `~typesafe/jev-latest` через OpenRouter) за 70–500 мс выбир
   `/api/ai` скрывает пункт меню и показывает `ИИ: только локально` вместо
   «Маршрут не найден».
 - Локальная модель: Ollama (`http://127.0.0.1:11434/v1`) или другой
-  OpenAI-совместимый сервер; по умолчанию предлагаются лёгкие модели
-  (`qwen3.5:2b`, 0.5B–3B) — тяжёлые для слабых ПК не предлагаются.
+  OpenAI-совместимый сервер; по умолчанию — русско-ориентированная
+  `t-tech/T-lite-it-2.1:q4_K_M` (8B, Apache-2.0, tool calling), для слабых ПК
+  предлагаются `qwen3.5:4b/2b/0.8b` Q4-тегами; тяжёлые (12B+) не предлагаются.
+- Русский язык обязателен: правило «ЯЗЫК ОТВЕТА» добавляется к промпту ЛЮБОЙ
+  личности (`AIHandler._LANGUAGE_RULE` в обеих редакциях) — промпты личностей
+  про язык не говорят ничего; `think: false` гасит reasoning-трейс на английском.
+  Разбор — `docs/LOCAL_MODELS_RESEARCH.md`, §7.
 - Если настроен облачный ключ, Ollama перестаёт быть критической
   зависимостью (`zere/core/dependencies/dependency_checker.py`,
   `cloud_available=True`) — ZERE стартует и отвечает через облако.
@@ -408,6 +419,7 @@ Zere/
 │   ├── Zere.iss                  # Inno Setup: готовый Setup.exe (код возврата install.ps1 проверяется)
 │   └── build-setup.ps1           # Сборка Setup.exe (git archive + ISCC)
 ├── tests/
+│   ├── conftest.py               # Изоляция: журнал ZERE уводится в tmp (logs/ не засоряется)
 │   ├── test_panel_api.py         # Контрактные тесты панели (123, по OpenAPI)
 │   ├── test_installer.py         # Тесты установщика (BOM, CRLF, SHA-256, связность,
 │   │                             #   покрытие зависимостей, лог, код возврата Setup)

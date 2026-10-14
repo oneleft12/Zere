@@ -46,12 +46,15 @@ FAKE_SPEAKER = ROOT / "tests" / "fake_speaker.py"
 
 
 def _windows_path(path: Path) -> str:
-    """Путь, который сможет открыть Windows-хелпер.
+    r"""Путь, который сможет открыть Windows-хелпер.
 
     Под WSL хелпер — это Windows-процесс (.exe). Пути /tmp/... и UNC
     (\\wsl.localhost\...) ему недоступны: NAudio не откроет файл, DSP молча
     вернёт исходный WAV. Поэтому путь переводится в C:\... через wslpath;
     на Windows строка остаётся как есть.
+
+    Строка raw: иначе Python 3.14 ругается SyntaxWarning на «\.» и «\w»
+    в примерах путей.
     """
     if not sys.platform.startswith("linux") or not str(path).startswith("/"):
         return str(path)

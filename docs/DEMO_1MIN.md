@@ -169,7 +169,7 @@ python scripts/demo_preflight.py --seed
 
 ### 6.3 Ollama и локальная модель
 
-- `ollama serve` запущен, модель из `config/config.json` (`qwen3.5:2b`) загружена.
+- `ollama serve` запущен, модель из `config/config.json` (`t-tech/T-lite-it-2.1:q4_K_M`) загружена.
 - **Прогреть** перед записью: один запрос в чат, чтобы первый ответ не ждал
   загрузку модели. В конфиге `llmKeepAlive: -1` — модель не выгружается.
 

@@ -21,7 +21,7 @@ public class OllamaClient : IAiClient, IDisposable
     public string? ResolvedUrl => _resolvedUrl;
 
     public OllamaClient(
-        string model = "qwen3.5:2b",
+        string model = "t-tech/T-lite-it-2.1:q4_K_M",
         int timeoutMinutes = 10,
         int keepAlive = -1,
         int timeoutSeconds = 60)
@@ -80,6 +80,10 @@ public class OllamaClient : IAiClient, IDisposable
                     prompt,
                     stream = true,
                     keep_alive = _keepAlive,
+                    // Русский язык и слабый ПК: thinking-трейс у reasoning-моделей
+                    // (Qwen3.5, Gemma 4) уходит в рассуждения на английском и
+                    // тратит сотни токенов — на CPU это десятки секунд на ответ.
+                    think = false,
                     options
                 };
 
@@ -168,6 +172,7 @@ public class OllamaClient : IAiClient, IDisposable
                 prompt = "Готово.",
                 stream = false,
                 keep_alive = _keepAlive,
+                think = false,
                 options = new { num_predict = 1, num_ctx = NumContext }
             };
 

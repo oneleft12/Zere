@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 
+using ZERE.AI;
+
 namespace ZERE.App.Api;
 
 /// <summary>
@@ -31,6 +33,10 @@ public static class PanelToken
 
         var token = Convert.ToHexString(bytes).ToLowerInvariant();
         File.WriteAllText(path, token);
+
+        // Токен — секрет: только владелец (на Windows chmod ACL не меняет,
+        // нужен icacls — см. ZERE.AI.SecretFileAccess).
+        SecretFileAccess.RestrictToOwner(path);
 
         return token;
     }

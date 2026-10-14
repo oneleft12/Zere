@@ -182,7 +182,10 @@ def ink_count(image: Image.Image, threshold: int = 8) -> int:
     """Сколько пикселей нарисовано (в рамке и рядом с ней)."""
     alpha = image.convert("RGBA").getchannel("A")
 
-    return sum(1 for value in alpha.getdata() if value > threshold)
+    # tobytes(), а не getdata(): у «L» это те же значения по пикселю, но
+    # getdata() объявлен устаревшим (удаление в Pillow 14), а bytes ещё и
+    # быстрее — обход без создания кортежей.
+    return sum(1 for value in alpha.tobytes() if value > threshold)
 
 
 # ── Буфер обмена: DIB и PNG ───────────────────────────────────────

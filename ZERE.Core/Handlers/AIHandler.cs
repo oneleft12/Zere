@@ -16,6 +16,19 @@ public class AIHandler : IZereHandler
 
     private const string AssistantName = "ZERE";
 
+    // Язык ответа добавляется к ЛЮБОМУ системному промпту (в том числе к
+    // промпту активной личности): раньше правило было только в SystemPrompt.Zere,
+    // а при включённой личности (по умолчанию Friendly) оно вообще не попадало
+    // в запрос — малые модели уходили в английский/китайский.
+    private const string LanguageRule = """
+
+
+        ЯЗЫК ОТВЕТА (главное правило):
+        — отвечай только на русском языке;
+        — не переключайся на английский или любой другой язык, даже если вопрос задан не по-русски или содержит иноязычные слова;
+        — иноязычные слова допустимы только в именах программ, командах, путях и коде.
+        """;
+
     public AIHandler(
         IAiClient ai,
         ContextBuilder context,
@@ -82,14 +95,14 @@ public class AIHandler : IZereHandler
 
                 Параметры генерации:
                 - Температура: {personality.Temperature}
-                - Стиль: {personality.Style}
+                - Стиль: {personality.Style}{LanguageRule}
                 """;
         }
 
         return $"""
             Ты — {AssistantName}.
             Ты персональный AI-ассистент для Windows.
-            Отвечай кратко и понятно на русском языке.
+            Отвечай кратко и понятно на русском языке.{LanguageRule}
             """;
     }
 }

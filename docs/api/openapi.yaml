@@ -1385,7 +1385,7 @@ components:
           enum: [ru, en]
         model:
           type: string
-          description: Имя модели Ollama (например qwen3.5:2b)
+          description: Имя модели Ollama (например t-tech/T-lite-it-2.1:q4_K_M)
         voiceEnabled:
           type: boolean
         voiceVolume:
@@ -2253,7 +2253,10 @@ components:
     AiLocalModelOption:
       type: object
       additionalProperties: false
-      description: Лёгкая локальная модель для слабых ПК (тяжёлые не предлагаются)
+      description: >
+        Локальная модель для слабых ПК. Первым идёт русско-ориентированный
+        вариант (русский — обязательное требование ZERE), дальше — по объёму
+        памяти; тяжёлые модели не предлагаются
       required: [id, label, tier, sizeHint]
       properties:
         id:
@@ -2283,7 +2286,7 @@ components:
             type: string
         command:
           type: string
-          description: Команда загрузки, например ollama pull qwen3.5:2b
+          description: Команда загрузки, например ollama pull t-tech/T-lite-it-2.1:q4_K_M
         downloadUrl:
           type: string
         model:
@@ -2346,7 +2349,7 @@ components:
           description: Base URL из настроек
         model:
           type: string
-          description: Нужная модель (по умолчанию qwen3.5:2b)
+          description: Нужная модель (по умолчанию русская t-tech/T-lite-it-2.1:q4_K_M)
         suggestions:
           type: array
           items:

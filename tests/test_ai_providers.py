@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+import subprocess
 import sys
 import tempfile
 from contextlib import contextmanager
@@ -33,8 +34,10 @@ from zere.ai.ai_service import (
     AiService,
 )
 from zere.ai.ai_settings import (
+    DEFAULT_LOCAL_MODEL,
     KEY_INVALID,
     KEY_OK,
+    LOCAL_MODEL_SUGGESTIONS,
     MODE_CLOUD,
     MODE_LOCAL,
     PROVIDER_PRESETS,
@@ -62,6 +65,7 @@ from zere.ai.local_model import (
     native_root,
 )
 from zere.core.logging.log_service import redact_secrets
+from zere.api.token import load_or_create_token
 
 from tests.fake_http import (
     FakeSession,
@@ -189,6 +193,90 @@ def test_settings_persist_and_hide_key() -> None:
         assert GOOD_KEY not in json.dumps(loaded.to_camel_dict())
 
 
+def _windows_acl_ace_count(path: Path) -> Optional[int]:
+    """Число записей ACL файла на Windows (через PowerShell) или None.
+
+    Считаем записи, а не разбираем имена: вывод icacls/Get-Acl локализован,
+    а количество ACE от языка не зависит.
+    """
+    system_root = os.environ.get("SystemRoot", r"C:\Windows")
+    powershell = (
+        Path(system_root)
+        / "System32"
+        / "WindowsPowerShell"
+        / "v1.0"
+        / "powershell.exe"
+    )
+
+    if not powershell.is_file():
+        return None
+
+    try:
+        result = subprocess.run(
+            [
+                str(powershell),
+                "-NoProfile",
+                "-Command",
+                f"(Get-Acl -LiteralPath '{path}').Access.Count",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    if result.returncode != 0:
+        return None
+
+    try:
+        return int(result.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return None
+
+
+def test_key_file_is_owner_only_on_windows() -> None:
+    """На Windows 0600 достигается ACL, а не chmod: чужих записей быть не должно.
+
+    Регрессия: `os.chmod` на Windows ACL не меняет, поэтому файл с ключом
+    наследовал права папки (`BUILTIN\\Пользователи: Read`,
+    `Authenticated Users: Modify`) — ключ мог прочитать любой локальный
+    пользователь, хотя docs/AI_PROVIDERS.md и AGENTS.md обещают 0600.
+    Проверка на боевом файле 14.10.2026 показывала ровно эти четыре ACE.
+    """
+    if os.name != "nt":
+        return  # POSIX-права проверяет test_settings_persist_and_hide_key
+
+    with temp_config() as tmp:
+        settings = AiSettings.load()
+        settings.cloud_api_key = GOOD_KEY
+        settings.mode = MODE_CLOUD
+        settings.save()
+
+        count = _windows_acl_ace_count(tmp / "ai.json")
+        assert count is not None, "не удалось прочитать ACL (нужен PowerShell)"
+        assert count == 1, (
+            f"в ACL файла с ключом {count} записей — доступ остался у чужих"
+        )
+
+
+def test_panel_token_is_owner_only_on_windows() -> None:
+    """Токен панели — такой же секрет, как ключ: только владелец."""
+    if os.name != "nt":
+        return
+
+    with temp_config() as tmp:
+        token = load_or_create_token()
+        token_file = tmp / "panel.token"
+
+        assert token_file.read_text(encoding="utf-8").strip() == token
+
+        count = _windows_acl_ace_count(token_file)
+        assert count is not None, "не удалось прочитать ACL (нужен PowerShell)"
+        assert count == 1, f"в ACL panel.token {count} записей — доступ у чужих"
+
+
 def test_settings_owner_key_from_env_has_priority_rules() -> None:
     with temp_config() as tmp:
         os.environ["ZERE_CLOUD_API_KEY"] = "sk-owner-111111111111"
@@ -287,7 +375,35 @@ def test_settings_broken_file_falls_back_to_defaults() -> None:
         settings = AiSettings.load()
         assert settings.mode == "auto"
         assert settings.cloud_api_key == ""
-        assert settings.local_model == "qwen3.5:2b"
+        assert settings.local_model == DEFAULT_LOCAL_MODEL
+
+
+def test_default_local_model_speaks_russian() -> None:
+    """Русский — обязательное требование ZERE: дефолт обязан быть русской моделью.
+
+    Универсальные малые модели держат русский заметно хуже русско-ориентированных
+    (docs/LOCAL_MODELS_RESEARCH.md, §7), поэтому по умолчанию берётся T-lite 2.1,
+    а не самая маленькая модель.
+    """
+    russian_capable = {
+        "t-tech/T-lite-it-2.1:q4_K_M",
+        "qwen3.5:4b-q4_K_M",
+        "qwen3.5:9b-q4_K_M",
+    }
+    assert DEFAULT_LOCAL_MODEL in russian_capable
+
+    ids = [item["id"] for item in LOCAL_MODEL_SUGGESTIONS]
+    # Русский вариант — первым: панель показывает подсказки в этом порядке.
+    assert ids[0] == DEFAULT_LOCAL_MODEL
+    assert DEFAULT_LOCAL_MODEL in ids
+
+    # Тег без суффикса кванта тянет Q8-блоб (qwen3.5:2b = 2.7 ГБ против 1.9 ГБ
+    # у qwen3.5:2b-q4_K_M) — на слабом ПК это лишняя память и диск.
+    assert "qwen3.5:2b" not in ids
+
+    for item in LOCAL_MODEL_SUGGESTIONS:
+        assert item["tier"] in {"tiny", "light", "medium"}
+        assert item["label"] and item["sizeHint"]
 
 
 def test_redact_secrets_masks_keys_in_logs() -> None:
@@ -298,6 +414,36 @@ def test_redact_secrets_masks_keys_in_logs() -> None:
     assert GOOD_KEY not in redact_secrets(f'{{"apiKey": "{GOOD_KEY}"}}')
     # Обычный текст не портится.
     assert redact_secrets("Модель qwen3.5:2b готова") == "Модель qwen3.5:2b готова"
+
+
+def test_redact_secrets_masks_opencode_go_keys() -> None:
+    """Ключ шлюза OpenCode Go (`oc_sk_...`) тоже не должен попадать в лог.
+
+    Регрессия: шаблон `\\bsk-` его не ловил (в `oc_sk_` подчёркивание, а не
+    дефис), а именно этот провайдер выбран в config/ai.json — реальный ключ
+    уходил в logs/errors.log открытым текстом. Ключ содержит дефис, поэтому
+    проверяем и «хвост»: маскироваться обязан весь ключ, а не только голова.
+    """
+    gateway_key = "oc_sk_a1B2c3D4e5F6g7H8i9J0-k1L2m3N4o5P6q7R8s9T0u1V2w3X4"
+
+    for text in (
+        f"проверка ключа ({gateway_key}) не прошла",
+        f"Authorization: Bearer {gateway_key}",
+        f'{{"cloud_api_key": "{gateway_key}"}}',
+        f"POST https://opencode.ai/zen/go/v1?key={gateway_key}",
+    ):
+        masked = redact_secrets(text)
+        assert gateway_key not in masked, text
+        assert "***" in masked, text
+        # Ни одного фрагмента секрета: иначе утечёт «хвост» после дефиса.
+        assert "k1L2m3N4o5P6q7R8s9T0u1V2w3X4" not in masked, text
+
+    # Соседний формат не сломан: обычный `sk-` ключ по-прежнему скрыт целиком.
+    assert redact_secrets("sk-test-abcdefghijklmnop") == "***"
+    # Упоминание префикса без ключа — не секрет, текст не портим.
+    assert redact_secrets("обычный текст про oc_sk_ нет ключа") == (
+        "обычный текст про oc_sk_ нет ключа"
+    )
 
 
 # ── 2. Проверка облачного ключа ────────────────────────────────────
@@ -588,7 +734,7 @@ def test_status_without_key_and_without_local_model() -> None:
         assert status["ready"] is False
         assert status["summary"] == "Подключите API-ключ или используйте локальную модель"
         assert status["local"]["status"] == "server-down"
-        assert status["local"]["installHint"]["command"] == "ollama pull qwen3.5:2b"
+        assert status["local"]["installHint"]["command"] == f"ollama pull {DEFAULT_LOCAL_MODEL}"
         assert service.generate("привет") == MESSAGE_NOT_CONFIGURED
 
 
@@ -611,14 +757,14 @@ def test_status_reports_cloud_connection() -> None:
 
 def test_status_reports_local_connection() -> None:
     with temp_config():
-        service = AiService(session=ollama_session(["qwen3.5:2b"]))
+        service = AiService(session=ollama_session([DEFAULT_LOCAL_MODEL]))
         status = service.status()
 
         assert status["activeProvider"] == "local"
         assert status["local"]["status"] == "available"
         assert status["local"]["statusText"] == "Локальная модель доступна"
         assert status["local"]["canPull"] is True
-        assert status["summary"] == "Подключено: локальная модель · qwen3.5:2b"
+        assert status["summary"] == f"Подключено: локальная модель · {DEFAULT_LOCAL_MODEL}"
 
 
 def test_local_model_missing_shows_instruction() -> None:
@@ -650,8 +796,8 @@ def test_auto_prefers_cloud_over_local() -> None:
 
 def test_auto_uses_local_when_no_key() -> None:
     with temp_config():
-        client = FakeLocalClient("qwen3.5:2b", "локально")
-        session = FakeSession().route("GET", "/api/tags", ollama_tags_response(["qwen3.5:2b"]))
+        client = FakeLocalClient(DEFAULT_LOCAL_MODEL, "локально")
+        session = FakeSession().route("GET", "/api/tags", ollama_tags_response([DEFAULT_LOCAL_MODEL]))
 
         service = AiService(session=session, local_client_factory=lambda m: client)
         status = service.status()
@@ -669,8 +815,8 @@ def test_auto_falls_back_to_local_when_cloud_key_fails() -> None:
         settings.cloud_key_status = KEY_OK
         settings.save()
 
-        client = FakeLocalClient("qwen3.5:2b", "локальный запасной ответ")
-        session = FakeSession().route("GET", "/api/tags", ollama_tags_response(["qwen3.5:2b"]))
+        client = FakeLocalClient(DEFAULT_LOCAL_MODEL, "локальный запасной ответ")
+        session = FakeSession().route("GET", "/api/tags", ollama_tags_response([DEFAULT_LOCAL_MODEL]))
         session.route("POST", "/chat/completions", error_response(401, "invalid api key"))
 
         service = AiService(session=session, local_client_factory=lambda m: client)
@@ -788,7 +934,7 @@ def test_settings_update_and_validation() -> None:
 def test_local_test_and_pull_through_service() -> None:
     with temp_config():
         session = ollama_session(
-            ["qwen3.5:2b"], pulls=['{"status":"downloading","total":10,"completed":10}']
+            [DEFAULT_LOCAL_MODEL], pulls=['{"status":"downloading","total":10,"completed":10}']
         )
         service = AiService(session=session)
 

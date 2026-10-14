@@ -92,7 +92,7 @@ curl -s -X DELETE "$BASE/api/ai/key" -H "X-ZERE-Token: $TOKEN"
    показывает прогресс) или вручную:
 
 ```bash
-ollama pull qwen3.5:2b
+ollama pull t-tech/T-lite-it-2.1:q4_K_M
 ```
 
 Адрес по умолчанию — `http://127.0.0.1:11434/v1` (OpenAI-совместимый
@@ -100,17 +100,26 @@ ollama pull qwen3.5:2b
 URL: если он отвечает на `GET /models` и `POST /chat/completions`, ZERE
 работает с ним так же.
 
-Рекомендации по моделям (тяжёлые по умолчанию не предлагаются):
+Рекомендации по моделям. Русский — обязательное требование ZERE, поэтому
+первой идёт русско-ориентированная модель, а не самая маленькая: у малых
+универсальных моделей русского почти нет
+(разбор — `docs/LOCAL_MODELS_RESEARCH.md`, §7).
 
 | Класс ПК | Модели |
 |---|---|
-| очень слабый | `qwen2.5:0.5b`, `qwen2.5:1.5b` |
-| средний | `qwen2.5:3b` |
-| по умолчанию в ZERE | `qwen3.5:2b` |
+| 16 ГБ, лучший русский | `t-tech/T-lite-it-2.1:q4_K_M` (8B, Apache-2.0, tool calling) |
+| 8–16 ГБ, быстрее | `qwen3.5:4b-q4_K_M`, `qwen3.5:9b-q4_K_M` |
+| 8 ГБ | `qwen3.5:2b-q4_K_M` |
+| 4 ГБ | `qwen3.5:0.8b`, `qwen2.5:0.5b` (русский слабый) |
+| по умолчанию в ZERE | `t-tech/T-lite-it-2.1:q4_K_M` |
+
+Важно про теги: `qwen3.5:2b` без суффикса кванта тянет Q8-блоб 2.7 ГБ
+против 1.9 ГБ у `qwen3.5:2b-q4_K_M` — на слабом ПК это лишняя память и диск.
 
 Если локальная модель не найдена, панель показывает блок
 «Локальная модель не найдена» с шагами установки, кнопкой «Скачать
-Ollama» и командой `ollama pull qwen3.5:2b` (копируется одной кнопкой).
+Ollama» и командой `ollama pull t-tech/T-lite-it-2.1:q4_K_M`
+(копируется одной кнопкой).
 
 Проверки локального сервера (`GET /api/ai/local`,
 `POST /api/ai/local/test`):
@@ -129,7 +138,7 @@ curl -s -X POST "$BASE/api/ai/local/test" -H "X-ZERE-Token: $TOKEN" \
   -H "Content-Type: application/json" -d '{}'
 
 # Загрузка модели с прогрессом (SSE: progress / done / error)
-curl -sN "$BASE/api/ai/local/pull?model=qwen3.5:2b" -H "X-ZERE-Token: $TOKEN"
+curl -sN "$BASE/api/ai/local/pull?model=t-tech/T-lite-it-2.1:q4_K_M" -H "X-ZERE-Token: $TOKEN"
 ```
 
 ## 4. Примеры запросов к чату
@@ -165,7 +174,7 @@ curl -sN "$BASE/api/chat/stream?text=$(python3 -c 'import urllib.parse;print(url
 | `ZERE_CLOUD_MODEL` | модель | `deepseek-chat` |
 | `ZERE_CLOUD_API_KEY` | ключ владельца | `sk-...` |
 | `ZERE_LOCAL_BASE_URL` | адрес локального сервера | `http://127.0.0.1:11434/v1` |
-| `ZERE_LOCAL_MODEL` | локальная модель | `qwen3.5:2b` |
+| `ZERE_LOCAL_MODEL` | локальная модель | `t-tech/T-lite-it-2.1:q4_K_M` |
 
 Пример файла — `.env.example` в корне репозитория.
 
@@ -184,7 +193,7 @@ curl -sN "$BASE/api/chat/stream?text=$(python3 -c 'import urllib.parse;print(url
   "cloud_key_status": "ok",
   "cloud_key_checked_at": "2026-10-08T15:54:56+00:00",
   "local_base_url": "http://127.0.0.1:11434/v1",
-  "local_model": "qwen3.5:2b"
+  "local_model": "t-tech/T-lite-it-2.1:q4_K_M"
 }
 ```
 
@@ -200,11 +209,17 @@ C#-редакции. Раньше редакции использовали ра
   он не попадает, в интерфейсе — маска `sk-...abcd` (поле ввода всегда
   пустое);
 - файл `config/ai.json` создаётся с правами `0600` и внесён в
-  `.gitignore` (вместе с `config/ai.json.tmp`);
+  `.gitignore` (вместе с `config/ai.json.tmp`); на Windows `chmod` ACL не
+  меняет (это только флаг «только чтение»), поэтому права сужает `icacls` —
+  «только владелец»
+  (`zere/core/security/file_access.py`, паритет `ZERE.AI/SecretFileAccess.cs`).
+  Без этого ключ наследовал права папки (`BUILTIN\Пользователи: Read`,
+  `Authenticated Users: Modify`) и читался любым локальным пользователем;
 - логи маскируются: `redact_secrets` в `zere/core/logging/log_service.py`
-  вычищает `sk-...`, `Bearer ...`, `"apiKey": "..."` из сообщений
+  вычищает `sk-...`, `oc_sk_...` (шлюз OpenCode Go), `gsk_...`, `AIza...`,
+  `xai-...`, `Bearer ...`, `"apiKey": "..."` из сообщений
   `log_error`/`LogService`, поэтому ключ не попадёт даже в текст
-  исключения HTTP-клиента;
+  исключения HTTP-клиента (паритет — `SecretRedactor` в `ZERE.AI/AiError.cs`);
 - ключ каждого пользователя используется только для его запросов
   (файл настроек локальный); ключ владельца подставляется только когда у
   пользователя своего ключа нет.

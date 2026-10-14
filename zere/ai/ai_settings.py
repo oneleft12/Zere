@@ -20,12 +20,12 @@ from __future__ import annotations
 
 import json
 import os
-import stat
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any, Optional
 
 from zere import paths
+from zere.core.security.file_access import restrict_to_owner
 
 # ── Режимы выбора провайдера ────────────────────────────────────────
 MODE_AUTO = "auto"
@@ -87,37 +87,54 @@ PROVIDER_PRESETS: tuple[dict[str, str], ...] = (
 PROVIDER_IDS = tuple(preset["id"] for preset in PROVIDER_PRESETS)
 
 # ── Локальные модели для слабых ПК ──────────────────────────────────
-# По умолчанию ничего тяжёлого: 0.5B–1.5B для очень слабых машин,
-# 3B–4B для средних. Тяжёлые модели (7B+) в подсказках не предлагаются.
+# Порядок — от «русский важнее всего» к «лишь бы влезло»: у малых моделей
+# русского почти нет (см. docs/LOCAL_MODELS_RESEARCH.md, §7), поэтому
+# Qwen2.5-линейка (2024) заменена на Qwen3.5 и русско-ориентированный T-lite.
+# sizeHint — размер загрузки в Q4: тег без суффикса кванта тянет Q8-блоб
+# вдвое больше (qwen3.5:2b = 2.7 ГБ против qwen3.5:2b-q4_K_M = 1.9 ГБ).
 LOCAL_MODEL_SUGGESTIONS: tuple[dict[str, str], ...] = (
     {
-        "id": "qwen3.5:2b",
-        "label": "qwen3.5:2b — по умолчанию ZERE",
+        "id": "t-tech/T-lite-it-2.1:q4_K_M",
+        "label": "T-lite 2.1 (8B) — лучший русский, 16 ГБ",
+        "tier": "medium",
+        "sizeHint": "~5 ГБ",
+    },
+    {
+        "id": "qwen3.5:4b-q4_K_M",
+        "label": "qwen3.5:4b — быстрый, русский нормальный, 8–16 ГБ",
+        "tier": "medium",
+        "sizeHint": "~3.3 ГБ",
+    },
+    {
+        "id": "qwen3.5:2b-q4_K_M",
+        "label": "qwen3.5:2b — слабый ПК, 8 ГБ",
         "tier": "light",
-        "sizeHint": "~1.5 ГБ",
+        "sizeHint": "~1.9 ГБ",
+    },
+    {
+        "id": "qwen3.5:0.8b",
+        "label": "qwen3.5:0.8b — очень слабый ПК, 4 ГБ",
+        "tier": "tiny",
+        "sizeHint": "~1.2 ГБ",
+    },
+    {
+        "id": "qwen3.5:9b-q4_K_M",
+        "label": "qwen3.5:9b — максимум качества Qwen, 16 ГБ",
+        "tier": "medium",
+        "sizeHint": "~6.6 ГБ",
     },
     {
         "id": "qwen2.5:0.5b",
-        "label": "qwen2.5:0.5b — очень слабый ПК",
+        "label": "qwen2.5:0.5b — последний резерв, 4 ГБ (русский слабый)",
         "tier": "tiny",
         "sizeHint": "~0.4 ГБ",
-    },
-    {
-        "id": "qwen2.5:1.5b",
-        "label": "qwen2.5:1.5b — слабый ПК",
-        "tier": "light",
-        "sizeHint": "~1 ГБ",
-    },
-    {
-        "id": "qwen2.5:3b",
-        "label": "qwen2.5:3b — средний ПК",
-        "tier": "medium",
-        "sizeHint": "~2 ГБ",
     },
 )
 
 # Модель, которую панель предлагает скачать одной кнопкой.
-DEFAULT_LOCAL_MODEL = "qwen3.5:2b"
+# Русский — обязательное требование ZERE, поэтому по умолчанию берётся
+# русско-ориентированная модель, а не самая маленькая.
+DEFAULT_LOCAL_MODEL = "t-tech/T-lite-it-2.1:q4_K_M"
 DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:11434/v1"
 
 # ── Статусы ключа ───────────────────────────────────────────────────
@@ -257,18 +274,15 @@ class AiSettings:
             json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
         )
 
-        try:
-            os.chmod(tmp_path, stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:
-            # Windows/чужой FS: права не критичны, файл всё равно вне git
-            pass
+        # Секрет: сужаем права до владельца ещё до публикации файла на месте.
+        # На Windows os.chmod ACL не меняет — нужен icacls, см.
+        # zere/core/security/file_access.py (раньше ключ наследовал права
+        # папки и читался любым локальным пользователем).
+        restrict_to_owner(tmp_path)
 
         tmp_path.replace(path)
 
-        try:
-            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:
-            pass
+        restrict_to_owner(path)
 
     # ── Ключ: источники и маски ─────────────────────────────────────
 

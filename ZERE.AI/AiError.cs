@@ -63,6 +63,12 @@ public static class SecretRedactor
     private static readonly (Regex Pattern, string Replacement)[] Patterns =
     [
         (new Regex(@"\bsk-[A-Za-z0-9_\-]{6,}", RegexOptions.Compiled), "***"),
+        // Шлюз OpenCode Go: `oc_sk_...` (провайдер `opencode-go`). Отдельный
+        // шаблон обязателен: `\bsk-` его не ловит — в `oc_sk_` подчёркивание,
+        // а не дефис, поэтому ключ уходил в logs/errors.log открытым текстом.
+        // Класс символов с дефисом: реальные ключи его содержат, иначе
+        // замаскировалась бы только голова, а хвост остался бы в логе.
+        (new Regex(@"\boc_sk_[A-Za-z0-9_\-]{6,}", RegexOptions.Compiled), "***"),
         (new Regex(@"\bgsk_[A-Za-z0-9]{6,}", RegexOptions.Compiled), "***"),
         (new Regex(@"\bAIza[A-Za-z0-9_\-]{10,}", RegexOptions.Compiled), "***"),
         (new Regex(@"\bxai-[A-Za-z0-9]{6,}", RegexOptions.Compiled), "***"),

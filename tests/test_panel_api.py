@@ -37,7 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from zere import paths as paths_module
 from zere.ai.ai_service import AiService, MESSAGE_NOT_CONFIGURED
-from zere.ai.ai_settings import AiSettings
+from zere.ai.ai_settings import DEFAULT_LOCAL_MODEL, AiSettings
 from zere.ai.ollama_url_resolver import OllamaUrlResolver
 from zere.api.server import PanelServer
 from zere.core.update.updater import UpdateBusyError
@@ -1934,8 +1934,13 @@ def seeded_logs(
 
     Сид-файл называется «в будущем» (2099): засеянные строки всегда первые
     в выдаче, поэтому реальные логи среды не мешают проверке порядка.
+
+    Каталог берётся из `paths.LOGS_DIR`, а не из `REPO_ROOT / "logs"`:
+    иначе фикстура писала бы в боевой журнал и восстанавливала его из
+    снимка, затирая настоящие записи во время теста (изоляцию задаёт
+    tests/conftest.py; во внешнем режиме путь остаётся настоящим).
     """
-    folder = REPO_ROOT / "logs"
+    folder = paths_module.LOGS_DIR
     folder.mkdir(parents=True, exist_ok=True)
 
     session_file = folder / "zere_2099-01-01_00-00-00.log"
@@ -2824,7 +2829,7 @@ def _ai_session_with_key() -> FakeSession:
     )
 
 
-def _ai_session_with_local(model: str = "qwen3.5:2b") -> FakeSession:
+def _ai_session_with_local(model: str = DEFAULT_LOCAL_MODEL) -> FakeSession:
     """HTTP-фейк: запущена Ollama с моделью (native /api/tags + чат)."""
     return (
         FakeSession()
@@ -2862,7 +2867,7 @@ def test_ai_status_without_key_or_model() -> None:
         assert payload["local"]["status"] == "server-down"
         # Требование 8: понятная инструкция по установке.
         assert_schema(schema("AiInstallHint"), payload["local"]["installHint"])
-        assert payload["local"]["installHint"]["command"] == "ollama pull qwen3.5:2b"
+        assert payload["local"]["installHint"]["command"] == f"ollama pull {DEFAULT_LOCAL_MODEL}"
 
 
 def test_ai_status_reports_local_model_available() -> None:
@@ -3029,7 +3034,7 @@ def test_ai_local_status_and_test() -> None:
         assert_schema(schema("AiLocalStatus"), local)
         assert local["server"] == "up"
         assert local["api"] == "ollama"
-        assert local["models"] == ["qwen3.5:2b"]
+        assert local["models"] == [DEFAULT_LOCAL_MODEL]
 
         status, raw, _ = call(panel, "POST", "/api/ai/local/test", body={})
         assert status == 200
@@ -3057,7 +3062,7 @@ def test_ai_local_errors_are_friendly() -> None:
         assert status == 400
         error = error_payload(raw)
         assert error["code"] == "AI_LOCAL_MODEL_MISSING"
-        assert "ollama pull qwen3.5:2b" in error["message"]
+        assert f"ollama pull {DEFAULT_LOCAL_MODEL}" in error["message"]
 
 
 def test_ai_local_pull_streams_progress() -> None:

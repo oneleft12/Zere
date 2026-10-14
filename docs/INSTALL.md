@@ -64,7 +64,7 @@ ProductVersion 1.8.0
 | Python 3.12+ | winget (`Python.Python.3.14` → `3.13` → `3.12`) | запуск интерпретатора |
 | Виртуальное окружение `.venv` | `requirements.txt` (pip) | весь список пакетов одним запуском Python (`importlib.util.find_spec`) |
 | Ollama | winget (`Ollama.Ollama`), сервер на `127.0.0.1:11434` | `ollama list` |
-| Модель LLM | из `config/config.json` (по умолчанию `qwen3.5:2b`) | `ollama pull` |
+| Модель LLM | из `config/config.json` (по умолчанию русская `t-tech/T-lite-it-2.1:q4_K_M`) | `ollama pull` |
 | Модель GigaAM-v3 (~163 МБ, основной STT) | GitHub `k2-fsa/sherpa-onnx` release `asr-models` | SHA-256 + размер, распаковка `tar -xjf` |
 | Whisper `ggml-base.bin` (~141 МБ, откат STT) | HuggingFace `ggerganov/whisper.cpp` | SHA-256 + размер |
 | Менеджер Python `uv` (~18 МБ) | GitHub `astral-sh/uv` release 0.12.23 | SHA-256 + размер |

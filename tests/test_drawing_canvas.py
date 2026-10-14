@@ -132,7 +132,8 @@ def test_flatten_makes_image_opaque() -> None:
     flat = canvas_module.flatten(canvas_module.render_strokes(geometry.circle(), 100, 100))
     alpha = flat.convert("RGBA").getchannel("A")
 
-    assert min(alpha.getdata()) == 255
+    # tobytes() вместо устаревшего getdata() (удаление в Pillow 14)
+    assert min(alpha.tobytes()) == 255
     assert flat.convert("RGBA").getpixel((1, 1))[:3] == canvas_module.WHITE
 
 

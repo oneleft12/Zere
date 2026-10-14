@@ -35,7 +35,9 @@ class ZereConfig:
     version: str = "1.8.0"
     assistant_name: str = "ZERE"
     language: str = "ru"
-    model: str = "qwen3.5:2b"
+    # Русский — обязательное требование: по умолчанию берём русско-ориентированную
+    # модель (T-lite 2.1), а не самую маленькую (см. docs/LOCAL_MODELS_RESEARCH.md).
+    model: str = "t-tech/T-lite-it-2.1:q4_K_M"
 
     voice_enabled: bool = False
     # Громкость голосового вывода 0.0–1.0 (паритет с C# ZereConfig.VoiceVolume;

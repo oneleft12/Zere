@@ -104,6 +104,39 @@ def test_handler_does_not_embed_system_into_prompt() -> None:
     assert temperature is None
 
 
+class _FakePersonality:
+    system_prompt = "Ты — ZERE, дружелюбный AI-ассистент."
+    temperature = 0.7
+    style = "Friendly"
+
+
+class _FakePluginManagerWithPersonality:
+    active_personality = _FakePersonality()
+
+
+def test_personality_prompt_keeps_russian_rule() -> None:
+    """Правило «отвечай только по-русски» обязано быть и при активной личности.
+
+    Промпты личностей (Friendly и др.) про язык не говорят ничего, а раньше
+    правило жило только в SystemPrompt.Zere — то есть в обычном режиме
+    (личность включена по умолчанию) модель его вообще не получала и уходила
+    в английский/китайский.
+    """
+    fake_ai = _FakeAI()
+    handler = AIHandler(  # type: ignore[arg-type]
+        fake_ai, _FakeContext(), _FakePluginManagerWithPersonality()
+    )
+
+    handler.handle(USER_MESSAGE)
+    _, system_prompt, _ = fake_ai.calls[0]
+
+    assert system_prompt is not None
+    assert _FakePersonality.system_prompt in system_prompt, "промпт личности потерялся"
+    assert "ЯЗЫК ОТВЕТА" in system_prompt
+    assert "только на русском языке" in system_prompt
+    assert "не переключайся на английский" in system_prompt
+
+
 def test_client_sends_system_field_not_prompt_prefix() -> None:
     _CaptureHandler.captured.clear()
     server, url = _start_stub()
@@ -134,6 +167,9 @@ def test_client_sends_system_field_not_prompt_prefix() -> None:
     assert body["options"] == {"num_ctx": 2048, "temperature": 0.7}
     # keep_alive из конфига: -1 — модель не выгружается из Ollama (S5)
     assert body["keep_alive"] == -1
+    # think=false: reasoning-трейс на английском съедает сотни токенов,
+    # на слабом CPU это десятки секунд на ответ (и русский «уплывает»)
+    assert body["think"] is False
 
 
 def test_client_falls_back_to_builtin_system_prompt() -> None:

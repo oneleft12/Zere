@@ -27,7 +27,7 @@
 
 | Область | Статус | Детали |
 |---|---|---|
-| Функционал | ✅ | LLM (Ollama + qwen3.5:2b), голос (GigaAM/Whisper + ChatTTS/PocketTTS), память (SQLite), плагины, 5 личностей, управление ПК |
+| Функционал | ✅ | LLM (Ollama + русская T-lite-it-2.1, на слабом ПК — qwen3.5 Q4), голос (GigaAM/Whisper + ChatTTS/PocketTTS), память (SQLite), плагины, 5 личностей, управление ПК |
 | Реализации | ⚠️ две | C# (.NET 10) и Python-порт — дрейф конфигурации между ними уже зафиксирован аудитом |
 | CI | ✅ | `.github/workflows/ci.yml`: сборка панели, Playwright E2E (5 смоуков), compileall + `check_port.py` + контрактные тесты, C# build + контрактные тесты против C#-панели |
 | Тесты | ⚠️ 103 | 91 панель + 9 установщик + 3 system-prompt; **unit-тестов обработчиков/роутеров/FileManager по-прежнему 0** |
@@ -82,7 +82,8 @@
 | xVibePocketTTS | MIT (GenVoice, 2026, `tools/xVibePocketTTS/LICENSE`) | ✅ |
 | ChatTTS (движок, 2Noise/ChatTTS) | код — уточнить в апстриме | ⚠️ проверить |
 | **Веса ChatTTS** | **CC BY-NC 4.0 — только некоммерческое использование** | ❌ **блокер коммерческого релиза**: для продажи нужна юридическая проверка или замена движка |
-| qwen3.5:2b | лицензия модели Qwen (многие — Apache 2.0, проверить конкретную) | ⚠️ проверить перед включением в дистрибутив |
+| t-tech/T-lite-it-2.1 (модель по умолчанию) | Apache-2.0 | ✅ можно включать в дистрибутив |
+| qwen3.5 (0.8B/2B/4B/9B) | Apache-2.0 | ✅ |
 | NAudio, WebView2, Microsoft.Data.Sqlite | MIT / MIT-like / Apache-2.0 | ✅ |
 | pythonnet-стек (pycaw, comtypes, psutil, mss…) | MIT/BSD | ✅ |
 

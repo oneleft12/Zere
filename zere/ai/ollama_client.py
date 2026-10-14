@@ -40,7 +40,7 @@ class OllamaClient:
 
     def __init__(
         self,
-        model: str = "qwen3.5:2b",
+        model: str = "t-tech/T-lite-it-2.1:q4_K_M",
         timeout_minutes: int = 10,
         keep_alive: int = -1,
         timeout_seconds: int = 60,
@@ -116,6 +116,10 @@ class OllamaClient:
                     "prompt": prompt,
                     "stream": True,
                     "keep_alive": self._keep_alive,
+                    # Русский язык и слабый ПК: thinking-трейс у reasoning-моделей
+                    # (Qwen3.5, Gemma 4) уходит в рассуждения на английском и
+                    # тратит сотни токенов — на CPU это десятки секунд на ответ.
+                    "think": False,
                     "options": options,
                 }
 
@@ -285,6 +289,7 @@ class OllamaClient:
                 "prompt": "Готово.",
                 "stream": False,
                 "keep_alive": self._keep_alive,
+                "think": False,
                 "options": {"num_predict": 1, "num_ctx": _NUM_CONTEXT},
             }
             body = json.dumps(request, separators=(",", ":"))

@@ -100,8 +100,13 @@ def main() -> None:
         tmp = Path(td)
         original_config_path = paths_module.config_path
         original_plugins_config_path = paths_module.plugins_config_path
+        original_logs_dir = paths_module.LOGS_DIR
         paths_module.config_path = lambda: tmp / "config.json"
         paths_module.plugins_config_path = lambda: tmp / "plugins.json"
+        # Журнал — тоже в песочницу: иначе E2E-прогон писал бы ошибки в
+        # боевой logs/errors.log и плодил файлы сессий zere_*.log
+        # (та же изоляция, что у pytest — tests/conftest.py).
+        paths_module.LOGS_DIR = tmp / "logs"
         panel: PanelServer | None = None
 
         try:
@@ -136,6 +141,7 @@ def main() -> None:
                 panel.stop()
             paths_module.config_path = original_config_path
             paths_module.plugins_config_path = original_plugins_config_path
+            paths_module.LOGS_DIR = original_logs_dir
 
 
 if __name__ == "__main__":

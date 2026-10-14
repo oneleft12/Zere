@@ -690,7 +690,7 @@ export const aiScreen: ScreenFactory = (container): Cleanup => {
           textInput({
             value: draft.localModel,
             mono: true,
-            placeholder: "qwen3.5:2b",
+            placeholder: "t-tech/T-lite-it-2.1:q4_K_M",
             onInput: (value) => {
               draft.localModel = value;
               markEdited("localModel");

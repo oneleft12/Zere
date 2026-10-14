@@ -7,7 +7,7 @@
     Выполняет полный цикл установки:
       1. Проверка/установка Python 3.12+ (winget) и создание виртуального окружения .venv
       2. Установка зависимостей из requirements.txt
-      3. Установка/запуск Ollama и загрузка модели из config/config.json (по умолчанию qwen3.5:2b)
+      3. Установка/запуск Ollama и загрузка модели из config/config.json (по умолчанию русская T-lite-it-2.1)
       4. Загрузка голосовых артефактов: GigaAM-v3 (основной STT), Whisper ggml-base.bin,
          uv (менеджер Python для ChatTTS и клонирования голоса)
          (все скачивания проверяются по SHA-256)
@@ -94,7 +94,7 @@ $DefaultConfigJson = @'
   "version": "1.8.0",
   "assistantName": "ZERE",
   "language": "ru",
-  "model": "qwen3.5:2b",
+  "model": "t-tech/T-lite-it-2.1:q4_K_M",
   "voiceEnabled": true,
   "voiceVolume": 0.5,
   "autoMemory": true,
@@ -980,7 +980,7 @@ if ($Model -eq '' -and (Test-Path $cfgPath)) {
         Write-Warn2 ('config/config.json не разбирается: ' + $_.Exception.Message)
     }
 }
-if ($Model -eq '') { $Model = 'qwen3.5:2b' }
+if ($Model -eq '') { $Model = 't-tech/T-lite-it-2.1:q4_K_M' }
 
 Write-Host ''
 Write-Host '=================================================' -ForegroundColor Cyan

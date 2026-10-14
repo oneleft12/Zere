@@ -20,6 +20,12 @@ _ERRORS_LOCK = threading.Lock()
 _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     # Провайдерские форматы ключей: OpenAI, OpenRouter, Groq, Google, xAI
     (re.compile(r"\bsk-[A-Za-z0-9_\-]{6,}"), "***"),
+    # Шлюз OpenCode Go: `oc_sk_...` (провайдер `opencode-go`). Отдельный
+    # шаблон обязателен: `\bsk-` его не ловит — в `oc_sk_` подчёркивание,
+    # а не дефис, поэтому ключ уходил в logs/errors.log открытым текстом.
+    # Класс символов с дефисом: реальные ключи его содержат, иначе
+    # замаскировалась бы только голова, а хвост остался бы в логе.
+    (re.compile(r"\boc_sk_[A-Za-z0-9_\-]{6,}"), "***"),
     (re.compile(r"\bgsk_[A-Za-z0-9]{6,}"), "***"),
     (re.compile(r"\bAIza[A-Za-z0-9_\-]{10,}"), "***"),
     (re.compile(r"\bxai-[A-Za-z0-9]{6,}"), "***"),

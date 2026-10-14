@@ -179,7 +179,7 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
           textInput({
             value: d.model,
             mono: true,
-            placeholder: "qwen3.5:2b",
+            placeholder: "t-tech/T-lite-it-2.1:q4_K_M",
             onInput: (v) => {
               d.model = v;
               updateDirty();
