@@ -341,6 +341,53 @@ export interface PluginList {
   activePersonality: { id: string; style: string } | null;
 }
 
+/** Браузер, которым может управлять Playwright MCP (GET /api/plugins/mcp). */
+export interface McpBrowserOption {
+  id: string;
+  label: string;
+  /**
+   * Найден ли браузер по стандартным путям. Отметка приблизительная —
+   * выбор не блокируем, а предупреждаем (`hint`).
+   */
+  available: boolean;
+  hint: string;
+}
+
+export interface McpBrowserState {
+  current: string;
+  currentLabel: string;
+  /** Канал Playwright (msedge, chrome, chromium); пусто у Opera GX — он идёт по пути. */
+  channel: string;
+  /** Явный путь из browserPath (пусто, если не задан). */
+  path: string;
+  options: McpBrowserOption[];
+}
+
+/** Состояние MCP-плагина: сервер браузера или заметок. */
+export interface McpPluginState {
+  id: string;
+  serverId: string;
+  enabled: boolean;
+  running: boolean;
+  /** Команда запуска — показывается пользователю для согласия. */
+  command: string;
+  server: Record<string, unknown>;
+  lastError: string;
+  /** Есть только у плагина браузера: у заметок выбора нет. */
+  browser?: McpBrowserState;
+}
+
+export interface McpPluginList {
+  items: McpPluginState[];
+}
+
+/** Ответ выбора браузера: текст для пользователя и состояние после выбора. */
+export interface McpBrowserSelected {
+  message: string;
+  browser: McpBrowserState | null;
+  items: McpPluginState[];
+}
+
 export interface VoiceCapabilities {
   recordReference: boolean;
   pocketCloning: boolean;

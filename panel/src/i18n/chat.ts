@@ -149,6 +149,46 @@ export const CHAT_EN: Record<string, string> = {
     "Change the default target (also: “рисуй в пейнте”)",
   "Стереть нарисованное": "Erase what was drawn",
 
+  // Браузер: Playwright MCP
+  "Браузер: Playwright MCP": "Browser: Playwright MCP",
+  "плагин MCP; нужен Python-бэкенд и включение в config/mcp.json":
+    "an MCP plugin; needs the Python backend and enabling in config/mcp.json",
+  "Перейти по адресу (ещё: «перейди на …», «открой сайт …»)":
+    "Navigate to an address (also: “перейди на …”, “открой сайт …”)",
+  "Что сейчас на странице (снимок для модели)":
+    "What is on the page now (a snapshot for the model)",
+  "Найти текст на странице; в ответе ссылки вида e5":
+    "Find text on the page; the answer lists refs like e5",
+  "Клик по ссылке из снимка (ещё: «нажми на …»)":
+    "Click a ref from the snapshot (also: “нажми на …”)",
+  "Ввести текст в поле: ссылка, двоеточие, текст":
+    "Type into a field: ref, colon, text",
+  "Снимок экрана страницы": "Screenshot of the page",
+  "Вернуться на предыдущую страницу": "Go back to the previous page",
+  "Закрыть браузер": "Close the browser",
+  "Какой браузер выбран сейчас": "Which browser is selected now",
+  "Какие браузеры доступны на этой машине":
+    "Which browsers are available on this machine",
+  "Сменить браузер: edge, chrome, opera gx, chromium (выбор сохраняется)":
+    "Switch the browser: edge, chrome, opera gx, chromium (the choice is saved)",
+  "Все инструменты Playwright MCP (25)": "All Playwright MCP tools (25)",
+  "Любой инструмент напрямую: <инструмент> {json}":
+    "Any tool directly: <tool> {json}",
+
+  // Заметки Obsidian: MCP
+  "Заметки Obsidian: MCP": "Obsidian notes: MCP",
+  "плагин MCP; нужен Python-бэкенд и хранилище в config/mcp.json":
+    "an MCP plugin; needs the Python backend and a vault in config/mcp.json",
+  "Поиск по заметкам (ещё: «найди в заметках …»)":
+    "Search the notes (also: “найди в заметках …”)",
+  "Список заметок хранилища": "List the vault notes",
+  "Список тегов": "List the tags",
+  "Прочитать заметку по пути": "Read a note by path",
+  "Создать заметку; текст после двоеточия — содержимое":
+    "Create a note; the text after the colon is the body",
+  "Дописать в конец заметки": "Append to the end of a note",
+  "Все инструменты сервера заметок (25)": "All note-server tools (25)",
+
   // Вопросы к ИИ
   "Всё, что не команда, уходит подключённой модели (облако или Ollama)":
     "Anything that is not a command goes to the connected model (cloud or Ollama)",

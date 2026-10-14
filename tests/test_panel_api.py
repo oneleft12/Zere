@@ -119,6 +119,93 @@ class FakePlugin:
         self.type = PluginType.Personality
 
 
+#: Браузеры для подмены плагина: (id, подпись, есть на машине, подсказка).
+_MCP_BROWSERS = (
+    ("edge", "Microsoft Edge", True, ""),
+    ("chrome", "Google Chrome", False, "Chrome не найден."),
+    ("opera-gx", "Opera GX", False, "Opera GX не найден."),
+    ("chromium", "Chromium (от Playwright)", False, "Chromium не установлен."),
+)
+
+_MCP_CHANNELS = {"edge": "msedge", "chrome": "chrome", "chromium": "chromium"}
+
+
+class FakeMcpPlugin:
+    """Подмена MCP-плагина (браузер): состояние и выбор без процессов.
+
+    Реальный плагин поднимает `npx @playwright/mcp` — в контрактных тестах
+    это недопустимо, поэтому проверяется только контракт: состояние для
+    панели, выбор браузера и тексты отказа.
+    """
+
+    def __init__(
+        self,
+        server_id: str = "playwright",
+        *,
+        browser: str = "edge",
+        accept: tuple[str, ...] = ("edge", "opera-gx"),
+        can_select: bool = True,
+    ) -> None:
+        self.server_id = server_id
+        self._browser = browser
+        self._accept = accept
+        self.selected: list[str] = []
+
+        if not can_select:
+            # Сборка плагина без выбора браузера: маршрут обязан ответить 404,
+            # а не упасть на отсутствующем методе.
+            self.select_browser = None  # type: ignore[assignment]
+
+    def panel_status(self) -> dict[str, Any]:
+        state = {
+            "id": "obsidian-mcp" if self.server_id == "obsidian" else "playwright-mcp",
+            "serverId": self.server_id,
+            "enabled": True,
+            "running": False,
+            "command": "npx -y @playwright/mcp@0.0.83",
+            "server": {},
+            "lastError": "",
+        }
+
+        if self.server_id == "playwright":
+            state["browser"] = self.browser_state()
+
+        return state
+
+    def browser_state(self) -> dict[str, Any]:
+        labels = {browser_id: label for browser_id, label, _, _ in _MCP_BROWSERS}
+
+        return {
+            "current": self._browser,
+            "currentLabel": labels[self._browser],
+            "channel": _MCP_CHANNELS.get(self._browser, ""),
+            "path": "",
+            "options": [
+                {"id": browser_id, "label": label, "available": available, "hint": hint}
+                for browser_id, label, available, hint in _MCP_BROWSERS
+            ],
+        }
+
+    def select_browser(self, name: str) -> tuple[bool, str]:
+        self.selected.append(name)
+
+        for browser_id, label, _available, hint in _MCP_BROWSERS:
+            if browser_id != name:
+                continue
+
+            if name in self._accept:
+                self._browser = name
+                return True, f"Браузер переключён на {label}."
+
+            # Отказ формулирует сам плагин — панель показывает текст как есть.
+            return False, hint or f"Браузер «{label}» недоступен."
+
+        return (
+            False,
+            f"Не знаю браузер «{name}». Доступны: edge, chrome, opera-gx, chromium.",
+        )
+
+
 class FakePluginManager:
     def __init__(self) -> None:
         self.active_personality = FakePersonality()
@@ -624,7 +711,10 @@ class FakeUpdater:
 
 
 @contextmanager
-def running_panel(ai_session: Optional[Any] = None) -> Iterator[tuple[Any, Path]]:
+def running_panel(
+    ai_session: Optional[Any] = None,
+    mcp_plugins: Optional[list[Any]] = None,
+) -> Iterator[tuple[Any, Path]]:
     """Панель на эфемерном порту, config.json — во временной папке.
 
     В режиме ZERE_PANEL_EXTERNAL — уже запущенная панель в отдельном
@@ -633,6 +723,9 @@ def running_panel(ai_session: Optional[Any] = None) -> Iterator[tuple[Any, Path]
     ai_session — подмена HTTP-слоя сервиса ИИ: проверка облачного ключа и
     локальной модели не должна ходить в сеть (по умолчанию — «нет ключа,
     локальный сервер не запущен»).
+
+    mcp_plugins — подмена MCP-плагинов (браузер/заметки) в списке плагинов
+    движка: реальные поднимают `npx`, чего контрактные тесты не делают.
     """
     if EXTERNAL:
         yield _wait_external_panel(), REPO_ROOT / "config"
@@ -653,8 +746,13 @@ def running_panel(ai_session: Optional[Any] = None) -> Iterator[tuple[Any, Path]
             paths_module.config_path = lambda: tmp / "config.json"
             paths_module.plugins_config_path = lambda: tmp / "plugins.json"
             try:
+                engine = FakeEngine()
+
+                if mcp_plugins:
+                    engine.plugin_manager.plugins.extend(mcp_plugins)
+
                 panel = PanelServer(
-                    engine=FakeEngine(),
+                    engine=engine,
                     config=ZereConfig(),
                     memory=FakeMemory(),
                     conversation=FakeConversationRepository(),
@@ -2123,6 +2221,149 @@ def test_plugins_wrong_method_is_405() -> None:
         status, raw, _ = call(panel, "DELETE", "/api/plugins")
         assert status == 405
         assert error_payload(raw)["code"] == "METHOD_NOT_ALLOWED"
+
+
+# ── /api/plugins/mcp: состояние MCP-плагинов и выбор браузера ──────
+#
+# Маршруты есть только в Python-редакции (в C# MCP-плагинов нет), поэтому во
+# внешнем режиме они не проверяются — панель по 404 прячет блок выбора.
+
+
+def test_plugins_mcp_paths_are_in_spec() -> None:
+    """Контракт: маршруты MCP-плагинов описаны в docs/api/openapi.yaml."""
+    for path in ("/api/plugins/mcp", "/api/plugins/mcp/browser"):
+        assert path in SPEC["paths"], path
+
+
+def test_plugins_mcp_without_plugins_is_empty() -> None:
+    """Нет MCP-плагинов — честный пустой список, а не ошибка."""
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/plugins/mcp")
+        assert status == 200
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("McpPluginList"), payload)
+        assert payload["items"] == []
+
+
+def test_plugins_mcp_get_matches_spec() -> None:
+    if EXTERNAL:
+        return
+
+    browser = FakeMcpPlugin()
+    notes = FakeMcpPlugin("obsidian")
+
+    with running_panel(mcp_plugins=[browser, notes]) as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/plugins/mcp")
+        assert status == 200
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("McpPluginList"), payload)
+
+        items = {item["serverId"]: item for item in payload["items"]}
+        assert set(items) == {"playwright", "obsidian"}
+
+        for item in payload["items"]:
+            assert_schema(schema("McpPluginState"), item)
+
+        # Браузер: только у плагина браузера, со списком и текущим выбором.
+        assert_schema(schema("McpBrowserState"), items["playwright"]["browser"])
+        assert items["playwright"]["browser"]["current"] == "edge"
+        assert [option["id"] for option in items["playwright"]["browser"]["options"]] == [
+            "edge",
+            "chrome",
+            "opera-gx",
+            "chromium",
+        ]
+        assert "browser" not in items["obsidian"], "у плагина заметок выбора браузера нет"
+
+
+def test_plugins_mcp_browser_select_persists_and_returns_state() -> None:
+    if EXTERNAL:
+        return
+
+    browser = FakeMcpPlugin()
+
+    with running_panel(mcp_plugins=[browser]) as (panel, _):
+        status, raw, _ = call(
+            panel, "POST", "/api/plugins/mcp/browser", body={"browser": "opera-gx"}
+        )
+        assert status == 200, raw
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("McpBrowserSelected"), payload)
+        assert_schema(schema("McpBrowserState"), payload["browser"])
+
+        assert browser.selected == ["opera-gx"], "выбор доходит до плагина"
+        assert payload["browser"]["current"] == "opera-gx"
+        assert "Opera GX" in payload["message"]
+
+        # Состояние после выбора отдаётся сразу — панели не нужен второй запрос.
+        assert payload["items"][0]["browser"]["current"] == "opera-gx"
+
+
+def test_plugins_mcp_browser_rejects_unknown_name() -> None:
+    """Неизвестный браузер — 400 с русским объяснением от плагина."""
+    if EXTERNAL:
+        return
+
+    browser = FakeMcpPlugin()
+
+    with running_panel(mcp_plugins=[browser]) as (panel, _):
+        status, raw, _ = call(
+            panel, "POST", "/api/plugins/mcp/browser", body={"browser": "файрфокс"}
+        )
+        assert status == 400
+
+        payload = error_payload(raw)
+        assert payload["code"] == "BROWSER_UNAVAILABLE"
+        assert "файрфокс" in payload["message"]
+        assert "opera-gx" in payload["message"], "в отказе перечислены доступные браузеры"
+        assert browser.selected == ["файрфокс"], "попытка доходит до плагина"
+
+
+def test_plugins_mcp_browser_validates_body() -> None:
+    if EXTERNAL:
+        return
+
+    with running_panel(mcp_plugins=[FakeMcpPlugin()]) as (panel, _):
+        for body in ({}, {"browser": ""}, {"browser": 5}, {"browser": "edge", "x": 1}):
+            status, raw, _ = call(panel, "POST", "/api/plugins/mcp/browser", body=body)
+            assert status == 400, (body, raw)
+            assert error_payload(raw)["code"] == "VALIDATION_ERROR"
+
+
+def test_plugins_mcp_browser_without_plugin_is_404() -> None:
+    """Плагин браузера не загружен (или сборка без выбора) — 404, не 500."""
+    with running_panel() as (panel, _):
+        status, raw, _ = call(
+            panel, "POST", "/api/plugins/mcp/browser", body={"browser": "edge"}
+        )
+        assert status == 404
+        assert error_payload(raw)["code"] == "NOT_FOUND"
+
+    with running_panel(mcp_plugins=[FakeMcpPlugin(can_select=False)]) as (panel, _):
+        status, raw, _ = call(
+            panel, "POST", "/api/plugins/mcp/browser", body={"browser": "edge"}
+        )
+        assert status == 404
+        assert error_payload(raw)["code"] == "NOT_FOUND"
+
+
+def test_plugins_mcp_routes_require_token_and_reject_methods() -> None:
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/plugins/mcp", token=None)
+        assert status == 401
+        assert error_payload(raw)["code"] == "UNAUTHORIZED"
+
+        status, _, _ = call(panel, "POST", "/api/plugins/mcp")
+        assert status == 405
+
+        status, _, _ = call(panel, "GET", "/api/plugins/mcp/browser")
+        assert status == 405
+
+        status, _, _ = call(panel, "GET", "/api/plugins/mcp/browser", token=None)
+        assert status == 401
 
 
 # ── Голос (этап 4, §6 плана) ──────────────────────────────────────

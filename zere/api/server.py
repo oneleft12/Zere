@@ -69,6 +69,10 @@ _ROUTES = {
     "/api/apps/reindex": frozenset({"POST"}),
     "/api/logs": frozenset({"GET"}),
     "/api/plugins": frozenset({"GET"}),
+    # MCP-плагины: состояние серверов (браузер, заметки) и выбор браузера
+    # из вкладки «Плагины» — то же, что делает команда «браузер выбери …».
+    "/api/plugins/mcp": frozenset({"GET"}),
+    "/api/plugins/mcp/browser": frozenset({"POST"}),
     "/api/voice": frozenset({"GET", "POST"}),
     "/api/voice/mode": frozenset({"GET", "POST"}),
     "/api/voice/reference": frozenset({"POST"}),
@@ -501,6 +505,10 @@ class _PanelHandler(BaseHTTPRequestHandler):
                 self._handle_logs_get()
             elif path == "/api/plugins":
                 self._handle_plugins_get()
+            elif path == "/api/plugins/mcp":
+                self._handle_plugins_mcp_get()
+            elif path == "/api/plugins/mcp/browser":
+                self._handle_plugins_mcp_browser_post()
             elif path == "/api/voice":
                 if method == "GET":
                     self._handle_voice_get()
@@ -991,6 +999,83 @@ class _PanelHandler(BaseHTTPRequestHandler):
                 "handlersConnected": _plugin_handlers_connected(self.panel.engine),
                 "commandHandlersCount": len(plugin_manager.command_handlers),
                 "activePersonality": active_payload,
+            },
+        )
+
+    # ── MCP-плагины (браузер и заметки) ───────────────────────────
+
+    def _handle_plugins_mcp_get(self) -> None:
+        """Состояние MCP-плагинов: включён, запущен, выбранный браузер.
+
+        Отдельный маршрут, а не поле в `/api/plugins`: C#-редакция этих
+        плагинов не имеет, и панель по 404 честно прячет блок выбора браузера
+        вместо того, чтобы показывать пустой список.
+        """
+        self._send_json(
+            200,
+            None,
+            {"items": _mcp_plugin_states(self.panel.engine)},
+        )
+
+    def _handle_plugins_mcp_browser_post(self) -> None:
+        """Выбор браузера для Playwright MCP (то же, что «браузер выбери …»)."""
+        payload = self._read_json_object()
+        if payload is None:
+            return
+
+        for key in payload:
+            if key != "browser":
+                self._send_json(400, "VALIDATION_ERROR", f"Неизвестный ключ: «{key}».")
+                return
+
+        name = payload.get("browser")
+
+        if not isinstance(name, str) or not name.strip():
+            self._send_json(
+                400,
+                "VALIDATION_ERROR",
+                "Ключ «browser» должен быть непустой строкой (например, «opera-gx»).",
+            )
+            return
+
+        plugin = _find_mcp_plugin(self.panel.engine, "playwright")
+
+        if plugin is None:
+            self._send_json(
+                404,
+                "NOT_FOUND",
+                "Плагин браузера (Playwright MCP) не загружен: выберите браузер "
+                "командой в чате или включите плагин в config/mcp.json.",
+            )
+            return
+
+        select = getattr(plugin, "select_browser", None)
+
+        if not callable(select):
+            self._send_json(
+                404,
+                "NOT_FOUND",
+                "Плагин браузера не умеет выбирать браузер в этой сборке.",
+            )
+            return
+
+        # Причину отказа (неизвестное имя, Opera GX не найден) плагин уже
+        # формулирует по-русски — отдаём её как есть, панель покажет текст.
+        ok, message = select(name)
+
+        if not ok:
+            self._send_json(400, "BROWSER_UNAVAILABLE", message)
+            return
+
+        state = getattr(plugin, "browser_state", None)
+
+        self._send_json(
+            200,
+            None,
+            {
+                "message": message,
+                "browser": state() if callable(state) else None,
+                "items": _mcp_plugin_states(self.panel.engine),
             },
         )
 
@@ -1910,6 +1995,42 @@ def _plugin_handlers_connected(engine: Any) -> bool:
         return False
 
     return bool(contains(PluginCommandHandler))
+
+
+def _mcp_plugins(engine: Any) -> list[Any]:
+    """Загруженные MCP-плагины: у них есть `server_id` из config/mcp.json.
+
+    Список берём с самих плагинов, а не из жёсткой таблицы: панель не должна
+    знать наизусть, что MCP-плагинов ровно два (браузер и заметки).
+    """
+    plugin_manager = getattr(engine, "plugin_manager", None)
+    plugins = getattr(plugin_manager, "plugins", None) or []
+
+    return [plugin for plugin in plugins if str(getattr(plugin, "server_id", "") or "")]
+
+
+def _mcp_plugin_states(engine: Any) -> list[dict[str, Any]]:
+    """Состояние MCP-плагинов для панели — без запуска их серверов."""
+    states: list[dict[str, Any]] = []
+
+    for plugin in _mcp_plugins(engine):
+        panel_status = getattr(plugin, "panel_status", None)
+
+        if not callable(panel_status):
+            continue
+
+        states.append(panel_status())
+
+    return states
+
+
+def _find_mcp_plugin(engine: Any, server_id: str) -> Any:
+    """MCP-плагин по ключу сервера («playwright», «obsidian») или None."""
+    for plugin in _mcp_plugins(engine):
+        if str(getattr(plugin, "server_id", "")) == server_id:
+            return plugin
+
+    return None
 
 
 # Журнал: строка сессии `[ts] [LEVEL] msg` vs errors.log `[ts] [LEVEL] [src] msg`.

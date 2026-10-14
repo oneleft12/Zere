@@ -20,9 +20,9 @@ test("команды: панель открыта и содержит весь �
   await expect(panel).toBeVisible();
   await expect(panel.locator(".chat__commands-title")).toHaveText("Команды ZERE");
 
-  // 11 групп: память, история, приложения, процессы, файлы, громкость, игры,
-  // питание, рисование, вопросы к ИИ, консоль.
-  await expect(panel.locator(".cmd-group")).toHaveCount(11);
+  // 13 групп: память, история, приложения, процессы, файлы, громкость, игры,
+  // питание, рисование, браузер (MCP), заметки (MCP), вопросы к ИИ, консоль.
+  await expect(panel.locator(".cmd-group")).toHaveCount(13);
 
   // Бейдж в шапке панели совпадает с числом показанных команд.
   const total = await panel.locator(".cmd").count();
@@ -40,15 +40,21 @@ test("команды: панель открыта и содержит весь �
     "игровая статистика",
     "выключи компьютер",
     "нарисуй круг",
+    "браузер выбери opera gx",
+    "заметки найди проект",
     "что такое гравитация",
     "exit",
   ]) {
     await expect(panel.locator(".cmd__text", { hasText: command }).first()).toBeVisible();
   }
 
-  // Сноски групп: рисование — только Python-редакция, консоль — не чат.
+  // Сноски групп: рисование — только Python-редакция, консоль — не чат,
+  // MCP-плагины — про config/mcp.json.
   await expect(panel.getByText("только Python-редакция")).toBeVisible();
   await expect(panel.getByText("только в окне консоли ZERE, не в чате")).toBeVisible();
+  await expect(
+    panel.getByText("плагин MCP; нужен Python-бэкенд и включение в config/mcp.json"),
+  ).toBeVisible();
 
   // Лог и композер никуда не делись.
   await expect(page.getByText("Начните диалог")).toBeVisible();
@@ -91,7 +97,7 @@ test("команды: поиск фильтрует список и прячет
 
   // Сброс поиска возвращает весь каталог.
   await search.fill("");
-  await expect(panel.locator(".cmd")).toHaveCount(47);
+  await expect(panel.locator(".cmd")).toHaveCount(68);
 });
 
 test("команды: свёрнутая панель запоминается между заходами", async ({ page }) => {

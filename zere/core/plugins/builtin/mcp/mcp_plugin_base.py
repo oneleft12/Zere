@@ -136,6 +136,15 @@ class McpPluginBase(ICommandHandlerPlugin):
             "lastError": self._last_error,
         }
 
+    def panel_status(self) -> dict[str, Any]:
+        """`status()` плюс настройки, которые показывает вкладка «Плагины».
+
+        База отдаёт только общее состояние; плагин с настройками (выбор
+        браузера у Playwright) дополняет словарь своими полями. Панель
+        показывает это как есть — без второй модели «что умеет плагин».
+        """
+        return self.status()
+
     def close(self) -> None:
         """Останавливает сервер, если он был запущен."""
         client, self._client = self._client, None

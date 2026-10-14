@@ -667,6 +667,89 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
 
+  /api/plugins/mcp:
+    get:
+      operationId: listMcpPlugins
+      summary: >
+        Состояние MCP-плагинов (браузер Playwright, заметки Obsidian):
+        включён ли сервер, запущен ли, чем запускается, последняя ошибка,
+        а у плагина браузера — выбранный браузер и список доступных.
+        Маршрут есть только в Python-редакции: панель по 404 прячет блок
+        выбора браузера, а не показывает пустой список
+      tags: [plugins]
+      responses:
+        "200":
+          description: >
+            Состояния MCP-плагинов; пустой список — MCP-плагины не загружены
+            или выключены в config/mcp.json
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/McpPluginList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Метод не поддерживается (маршрут принимает только GET)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "405":
+          description: Метод не поддерживается
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /api/plugins/mcp/browser:
+    post:
+      operationId: selectMcpBrowser
+      summary: >
+        Выбор браузера для Playwright MCP — то же, что команда «браузер выбери
+        opera gx». Выбор сохраняется в config/mcp.json и переживает перезапуск
+        ZERE; запущенный сервер гасится, следующий вызов поднимает его с новым
+        браузером
+      tags: [plugins]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/McpBrowserSelect"
+      responses:
+        "200":
+          description: Браузер выбран; состояние MCP-плагинов после выбора
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/McpBrowserSelected"
+        "400":
+          description: >
+            Неизвестное имя браузера, браузер без канала Playwright не найден на
+            диске (Opera GX) или тело запроса не по схеме
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: Плагин браузера (Playwright MCP) не загружен в этой сборке
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "405":
+          description: Метод не поддерживается (маршрут принимает только POST)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/voice:
     get:
       operationId: getVoice
@@ -1849,6 +1932,115 @@ components:
             style:
               type: string
               description: Активный стиль (Friendly, Formal, …)
+
+    McpBrowserOption:
+      type: object
+      description: Браузер, которым может управлять Playwright MCP
+      required: [id, label, available, hint]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          description: "edge | chrome | opera-gx | chromium"
+        label:
+          type: string
+        available:
+          type: boolean
+          description: >
+            Найден ли браузер по стандартным путям. Отметка приблизительная
+            (канал Playwright может найти браузер и там, где мы не искали),
+            поэтому выбор не блокируется — предупреждаем
+        hint:
+          type: string
+          description: Что сделать, если браузера нет (пусто, если он найден)
+
+    McpBrowserState:
+      type: object
+      required: [current, currentLabel, channel, path, options]
+      additionalProperties: false
+      properties:
+        current:
+          type: string
+          description: Идентификатор выбранного браузера
+        currentLabel:
+          type: string
+        channel:
+          type: string
+          description: >
+            Канал Playwright (msedge, chrome, chromium). Пусто у Opera GX:
+            своего канала у него нет, он подключается по пути к opera.exe
+        path:
+          type: string
+          description: Явный путь из browserPath (пусто, если не задан)
+        options:
+          type: array
+          items:
+            $ref: "#/components/schemas/McpBrowserOption"
+
+    McpPluginState:
+      type: object
+      required: [id, serverId, enabled, running, command, server, lastError]
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          description: Идентификатор плагина (playwright-mcp, obsidian-mcp)
+        serverId:
+          type: string
+          description: Секция в config/mcp.json (playwright, obsidian)
+        enabled:
+          type: boolean
+          description: Сервер включён и настроен; выключенный плагин команд не получает
+        running:
+          type: boolean
+          description: Процесс MCP-сервера запущен (поднимается лениво, при первой команде)
+        command:
+          type: string
+          description: Команда запуска сервера — показывается для согласия (пусто, если не настроен)
+        server:
+          type: object
+          description: Что сервер сообщил о себе при handshake (пусто, пока не запущен)
+        lastError:
+          type: string
+        browser:
+          $ref: "#/components/schemas/McpBrowserState"
+
+    McpPluginList:
+      type: object
+      required: [items]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/McpPluginState"
+
+    McpBrowserSelect:
+      type: object
+      required: [browser]
+      additionalProperties: false
+      properties:
+        browser:
+          type: string
+          description: >
+            edge | chrome | opera-gx | chromium; принимаются и синонимы
+            («opera gx», «хром», «эдж»)
+
+    McpBrowserSelected:
+      type: object
+      required: [message, browser, items]
+      additionalProperties: false
+      properties:
+        message:
+          type: string
+          description: Ответ пользователю — как у команды «браузер выбери …»
+        browser:
+          type: object
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/McpPluginState"
 
     VoiceCapabilities:
       type: object

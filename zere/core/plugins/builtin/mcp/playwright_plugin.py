@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from zere.core.mcp.client import McpError, McpStdioClient, McpToolResult
 from zere.core.mcp.config import set_server_option
@@ -217,12 +217,28 @@ class PlaywrightMcpPlugin(McpPluginBase):
         return "\n".join(lines)
 
     def _switch_browser(self, name: str) -> str:
+        """Ответ на команду «браузер выбери …» (текст уходит пользователю)."""
+        _ok, message = self.select_browser(name)
+
+        return message
+
+    def select_browser(self, name: str) -> tuple[bool, str]:
+        """Выбирает браузер: (получилось, ответ для пользователя).
+
+        Одна реализация на два входа — команду из чата и выбор во вкладке
+        «Плагины» панели: правила одни (неизвестное имя не принимаем, для
+        браузера без канала Playwright проверяем наличие файла), выбор
+        сохраняется в `config/mcp.json` и переживает перезапуск ZERE.
+        """
+        available = ", ".join(profile.id for profile in BROWSER_PROFILES)
+
+        if not name.strip():
+            return False, f"Не указан браузер. Доступны: {available}."
+
         profile = find_profile(name)
 
         if profile is None:
-            available = ", ".join(p.id for p in BROWSER_PROFILES)
-
-            return f"Не знаю браузер «{name}». Доступны: {available}."
+            return False, f"Не знаю браузер «{name}». Доступны: {available}."
 
         # Opera GX и прочие «только по пути» обязаны существовать на диске,
         # иначе команда сменит настройку на заведомо нерабочую.
@@ -230,7 +246,7 @@ class PlaywrightMcpPlugin(McpPluginBase):
             try:
                 browser_args(profile)
             except BrowserNotInstalled as ex:
-                return str(ex)
+                return False, str(ex)
 
         saved = set_server_option(
             self.server_id, "browser", profile.id, self._config_path
@@ -244,7 +260,39 @@ class PlaywrightMcpPlugin(McpPluginBase):
 
         note = "" if saved else " (config/mcp.json недоступен — выбор до перезапуска)"
 
-        return f"Браузер переключён на {profile.label}.{note}"
+        return True, f"Браузер переключён на {profile.label}.{note}"
+
+    def browser_state(self) -> dict[str, Any]:
+        """Состояние выбора браузера для панели (сервер при этом не поднимается).
+
+        `options` отдаём целиком, с отметкой «есть на машине»: панель не
+        должна предлагать Opera GX там, где его нет, — иначе выбор молча
+        обернётся отказом при первом же переходе.
+        """
+        profile = self.browser_profile()
+
+        return {
+            "current": profile.id,
+            "currentLabel": profile.label,
+            "channel": profile.channel or "",
+            "path": self._browser_path() or "",
+            "options": [
+                {
+                    "id": option.id,
+                    "label": option.label,
+                    "available": is_available(option),
+                    "hint": option.install_hint,
+                }
+                for option in BROWSER_PROFILES
+            ],
+        }
+
+    def panel_status(self) -> dict[str, Any]:
+        """`status()` + выбор браузера — то, что показывает вкладка «Плагины»."""
+        state = self.status()
+        state["browser"] = self.browser_state()
+
+        return state
 
     # ── Разбор фраз ─────────────────────────────────────────────────
 

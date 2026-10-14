@@ -39,6 +39,7 @@ from tests.test_panel_api import (
     FakeApplicationLauncher,
     FakeConversationRepository,
     FakeEngine,
+    FakeMcpPlugin,
     FakeMemory,
     FakeProcessService,
     FakeSafeActionManager,
@@ -110,8 +111,21 @@ def main() -> None:
         panel: PanelServer | None = None
 
         try:
+            # MCP-плагины — фейки: экран «Плагины» показывает выбор браузера
+            # детерминированно, без npx и без реального Playwright.
+            engine = FakeEngine()
+            # Браузер: Chrome выбран изначально, соглашается только Edge —
+            # так видно и успешную смену, и отказ с причиной («Opera GX не
+            # найден»), как у настоящего плагина без Opera GX на диске.
+            engine.plugin_manager.plugins.extend(
+                [
+                    FakeMcpPlugin(browser="chrome", accept=("edge",)),
+                    FakeMcpPlugin("obsidian"),
+                ]
+            )
+
             panel = PanelServer(
-                engine=FakeEngine(),
+                engine=engine,
                 config=ZereConfig(),
                 memory=FakeMemory(),
                 conversation=FakeConversationRepository(),

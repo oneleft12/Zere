@@ -576,6 +576,84 @@ def test_browser_listing_marks_current() -> None:
     assert "Microsoft Edge" in current
 
 
+def test_browser_state_lists_options_and_current() -> None:
+    """Состояние для панели: текущий браузер и полный список с отметками.
+
+    Вкладка «Плагины» рисует селект именно по этим данным, поэтому в нём
+    обязаны быть все четыре браузера (даже недоступные — выбор не блокируем,
+    предупреждаем) и признак «есть на машине».
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        plugin = playwright_plugin(Path(td))
+        state = plugin.browser_state()
+
+    assert state["current"] == "edge"
+    assert state["currentLabel"] == "Microsoft Edge"
+    assert state["channel"] == "msedge"
+    assert state["path"] == ""
+
+    ids = [option["id"] for option in state["options"]]
+    assert ids == ["edge", "chrome", "opera-gx", "chromium"]
+
+    for option in state["options"]:
+        assert set(option) == {"id", "label", "available", "hint"}
+        assert isinstance(option["available"], bool)
+        assert option["label"], "у браузера должно быть человеческое имя"
+
+    assert plugin.panel_status()["browser"] == state, "панель видит выбор браузера"
+
+
+def test_panel_status_without_browser_settings_is_generic() -> None:
+    """У плагина заметок выбора браузера нет — панель не должна его ждать."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        state = obsidian_plugin(Path(td)).panel_status()
+
+    assert state["serverId"] == "obsidian"
+    assert "browser" not in state
+    assert {"id", "enabled", "running", "command", "server", "lastError"} <= set(state)
+
+
+def test_select_browser_returns_result_and_persists() -> None:
+    """Выбор из панели и из чата — одна реализация: (получилось, ответ)."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        path = enabled_config(Path(td), "playwright")
+        plugin = PlaywrightMcpPlugin(config_path=path)
+        plugin.initialize()
+
+        ok, message = plugin.select_browser("opera gx")
+
+        assert ok is False, "Opera GX на этой машине не найден — выбор отклонён"
+        assert "Opera GX" in message
+
+        ok, message = plugin.select_browser("edge")
+
+        assert ok is True
+        assert "Microsoft Edge" in message
+
+        saved = json.loads(path.read_text(encoding="utf-8"))["servers"]["playwright"]
+        assert saved["browser"] == "edge"
+
+        # Тот же текст, что у команды из чата: две точки входа — один ответ.
+        assert plugin.handle("браузер выбери edge") == plugin.select_browser("edge")[1]
+
+
+def test_select_browser_without_name_lists_variants() -> None:
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        plugin = playwright_plugin(Path(td))
+        ok, message = plugin.select_browser("   ")
+
+    assert ok is False
+    assert "opera-gx" in message
+
+
 def test_browser_commands_do_not_start_server() -> None:
     """Список и выбор браузера — локальные команды, сервер поднимать незачем."""
     import tempfile
