@@ -217,6 +217,10 @@ panel/node_modules/
 panel/test-results/
 panel/playwright-report/
 
+# Вывод MCP-сервера Playwright (скриншоты, логи консоли страницы) — рантайм,
+# появляется в корне, потому что cwd ZERE = корень проекта
+.playwright-mcp/
+
 # Готовые рисунки ZERE (открываются в Paint файлом)
 drawings/
 

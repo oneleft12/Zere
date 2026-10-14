@@ -21,6 +21,8 @@ from zere.core.mcp.client import (  # noqa: E402
     PROTOCOL_VERSION,
     McpError,
     McpStdioClient,
+    build_batch_command_line,
+    is_batch_file,
     resolve_command,
     tool_result_text,
 )
@@ -202,28 +204,31 @@ def test_resolve_command_keeps_plain_executable() -> None:
 
 
 def test_resolve_command_wraps_cmd_files_on_windows() -> None:
-    """`npx` на Windows — это `npx.cmd`, и CreateProcess его не запускает.
+    """`.cmd` запускается строкой для cmd, а не списком argv.
 
-    Без обёртки через `cmd /c` MCP-серверы не стартовали бы на целевой
-    платформе проекта (WinError 193).
+    Регрессия: при списке argv и пути с пробелом
+    (`C:\\Program Files\\nodejs\\npx.CMD`) `cmd /c` снимал первую и последнюю
+    кавычку и падал на «C:\\Program» — Opera GX (её путь тоже с пробелом)
+    не запускалась. Проверено на живой Windows.
     """
-    import zere.core.mcp.client as client_module
+    line = build_batch_command_line(
+        r"C:\Program Files\nodejs\npx.CMD",
+        ["-y", "@playwright/mcp@0.0.83", "--executable-path",
+         r"C:\Users\U\Programs\Opera GX\opera.exe"],
+    )
 
-    original_which = client_module.shutil.which
-    original_name = client_module.os.name
+    assert line.startswith('"C:\\Program Files\\nodejs\\npx.CMD"'), line
+    assert '"C:\\Users\\U\\Programs\\Opera GX\\opera.exe"' in line
+    assert "-y @playwright/mcp@0.0.83" in line
 
-    try:
-        client_module.shutil.which = lambda command: r"C:\Program Files\nodejs\npx.CMD"
-        client_module.os.name = "nt"
 
-        argv = resolve_command("npx")
-    finally:
-        client_module.shutil.which = original_which
-        client_module.os.name = original_name
+def test_batch_file_detection() -> None:
+    if os.name != "nt":
+        return  # .cmd существует только на Windows
 
-    assert argv[0].lower().endswith("cmd.exe"), argv
-    assert argv[1] == "/c"
-    assert argv[2].endswith("npx.CMD")
+    assert is_batch_file(r"C:\Program Files\nodejs\npx.CMD") is True
+    assert is_batch_file(r"C:\Program Files\nodejs\npx.bat") is True
+    assert is_batch_file(r"C:\Program Files\nodejs\node.exe") is False
 
 
 def test_live_servers_are_opt_in() -> None:

@@ -66,7 +66,7 @@ class McpPluginBase(ICommandHandlerPlugin):
         client_factory: Optional[ClientFactory] = None,
     ) -> None:
         self._config_path = config_path
-        self._client_factory = client_factory or _default_client_factory
+        self._client_factory = client_factory
         self._router = McpCommandRouter(self.triggers)
         self._settings: McpServerSettings = McpServerSettings(server_id=self.server_id)
         self._client: Optional[McpStdioClient] = None
@@ -182,8 +182,12 @@ class McpPluginBase(ICommandHandlerPlugin):
         if command is None:
             return None
 
-        if command.source == "list":
-            return self._tools_overview()
+        # Команды, которые плагин выполняет сам (список инструментов, выбор
+        # браузера и т. п.) — без обращения к MCP-инструменту.
+        local = self._handle_local(command)
+
+        if local is not None:
+            return local
 
         if not self._settings.allows(command.tool):
             return (
@@ -199,7 +203,7 @@ class McpPluginBase(ICommandHandlerPlugin):
             return self._start_failure_message(ex)
 
         try:
-            result = client.call_tool(command.tool, command.arguments)
+            result = self._call_tool(client, command)
         except McpError as ex:
             self._last_error = str(ex)
             log_error("McpPlugin", f"{self.plugin_id}: вызов {command.tool}: {ex}")
@@ -215,6 +219,16 @@ class McpPluginBase(ICommandHandlerPlugin):
         """Разбор «человеческих» фраз плагина. Наследник переопределяет."""
         return None
 
+    def _handle_local(self, command: McpCommand) -> Optional[str]:
+        """Команды, которые плагин выполняет сам, без вызова MCP-инструмента.
+
+        `None` — команда требует вызова инструмента, обработка продолжается.
+        """
+        if command.source == "list":
+            return self._tools_overview()
+
+        return None
+
     def _format(self, result: McpToolResult, command: McpCommand) -> str:
         """Ответ пользователю. Наследник может добавить подсказки."""
         text = result.text or "(сервер вернул пустой ответ)"
@@ -223,6 +237,10 @@ class McpPluginBase(ICommandHandlerPlugin):
             return self._truncate(f"Ошибка инструмента «{command.tool}»: {text}")
 
         return self._truncate(text)
+
+    def _call_tool(self, client: McpStdioClient, command: McpCommand) -> McpToolResult:
+        """Вызывает инструмент. Наследник может повторить при сбое."""
+        return client.call_tool(command.tool, command.arguments)
 
     def _start_failure_message(self, error: McpError) -> str:
         return f"Не удалось запустить MCP-сервер «{self.server_id}»: {error}"
@@ -250,11 +268,47 @@ class McpPluginBase(ICommandHandlerPlugin):
             self._client = None
             self._tools_cache = None
 
-        client = self._client_factory(self._settings)
+        client = self._build_client()
         client.start()
         self._client = client
 
         return client
+
+    def _build_client(self) -> McpStdioClient:
+        """Создаёт клиента к серверу.
+
+        Фабрика, переданная в конструктор (тесты), имеет приоритет: она
+        позволяет проверять плагин без запуска сторонних процессов.
+        """
+        if self._client_factory is not None:
+            return self._client_factory(self._settings)
+
+        return McpStdioClient(
+            self._settings.command,
+            self._effective_args(),
+            env=self._settings.env,
+            cwd=self._settings.cwd,
+            name=self._settings.server_id,
+            request_timeout=self._settings.request_timeout,
+            startup_timeout=self._settings.startup_timeout,
+        )
+
+    def _effective_args(self) -> list[str]:
+        """Аргументы запуска сервера. Наследник может дополнить.
+
+        Например, плагин браузера добавляет сюда `--browser`/`--executable-path`
+        выбранного браузера, не трогая сам файл настроек.
+        """
+        return list(self._settings.args)
+
+    def reload_settings(self) -> None:
+        """Перечитывает `config/mcp.json` и гасит запущенный сервер.
+
+        Нужно после смены параметров на лету (выбор браузера): следующая
+        команда поднимет сервер уже с новыми аргументами.
+        """
+        self._settings = load_server(self.server_id, self._config_path)
+        self.close()
 
     def _tools(self) -> list[McpTool]:
         if self._tools_cache is None:
@@ -295,18 +349,6 @@ class McpPluginBase(ICommandHandlerPlugin):
             return text
 
         return text[:limit].rstrip() + f"\n…(сокращено, всего {len(text)} символов)"
-
-
-def _default_client_factory(settings: McpServerSettings) -> McpStdioClient:
-    return McpStdioClient(
-        settings.command,
-        settings.args,
-        env=settings.env,
-        cwd=settings.cwd,
-        name=settings.server_id,
-        request_timeout=settings.request_timeout,
-        startup_timeout=settings.startup_timeout,
-    )
 
 
 __all__ = ["DEFAULT_MAX_RESPONSE_CHARS", "McpPluginBase"]

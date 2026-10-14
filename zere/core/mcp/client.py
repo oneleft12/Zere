@@ -73,12 +73,12 @@ class McpToolResult:
 
 
 def resolve_command(command: str) -> list[str]:
-    """Готовит argv для запуска команды сервера.
+    """Путь к исполняемому файлу команды (или сама команда, если не нашли).
 
-    На Windows `npx` — это `npx.cmd`, а CreateProcess не умеет запускать
-    `.cmd`/`.bat` напрямую (WinError 193), поэтому такие команды идут через
-    `cmd /c`. Без этой ветки MCP-серверы не запускались бы на целевой
-    платформе проекта.
+    Обёртка `cmd /c` для `.cmd`/`.bat` здесь больше НЕ добавляется: у cmd своя
+    обработка кавычек, и командную строку для неё нужно собирать иначе, чем
+    список argv (см. `build_batch_command_line`). Для показа пользователю
+    (SEP-1024) возвращается логическая команда, без служебной обёртки.
     """
     resolved = shutil.which(command)
 
@@ -86,11 +86,29 @@ def resolve_command(command: str) -> list[str]:
         # Не нашли — пусть Popen сообщит об этом сам (текст ошибки понятнее).
         return [command]
 
-    if os.name == "nt" and resolved.lower().endswith((".cmd", ".bat")):
-        comspec = os.environ.get("ComSpec", "cmd.exe")
-        return [comspec, "/c", resolved]
-
     return [resolved]
+
+
+def is_batch_file(path: str) -> bool:
+    """`.cmd`/`.bat`: CreateProcess не запускает их напрямую (WinError 193)."""
+    return os.name == "nt" and path.lower().endswith((".cmd", ".bat"))
+
+
+def build_batch_command_line(script: str, args: Sequence[str]) -> str:
+    """Командная строка для `.cmd`/`.bat`, которую правильно поймёт `cmd /c`.
+
+    Windows не запускает `.cmd` напрямую, поэтому идём через `cmd /c`. Но у cmd
+    собственная обработка кавычек: если кавычек в строке больше двух, он снимает
+    первую и последнюю. Из-за этого путь с пробелом
+    (`C:\\Program Files\\nodejs\\npx.CMD`) разваливался на `C:\\Program`, и
+    Opera GX — её путь тоже с пробелом — не запускалась. Проверено на живой
+    Windows.
+
+    Лечится «классической» формой: `subprocess` при `shell=True` сам оборачивает
+    строку в кавычки, и после снятия внешней пары внутреннее квотирование
+    остаётся целым.
+    """
+    return subprocess.list2cmdline([script, *args])
 
 
 def tool_result_text(result: dict[str, Any]) -> str:
@@ -147,7 +165,9 @@ class McpStdioClient:
         startup_timeout: float = 60.0,
     ) -> None:
         self.name = name
-        self._argv: list[str] = [*resolve_command(command), *args]
+        self._program: str = resolve_command(command)[0]
+        self._args: list[str] = [str(argument) for argument in args]
+        self._argv: list[str] = [self._program, *self._args]
         self._env = {**os.environ, **(env or {})}
         self._cwd = cwd
         self._request_timeout = float(request_timeout)
@@ -176,27 +196,65 @@ class McpStdioClient:
     def alive(self) -> bool:
         return self._process is not None and self._process.poll() is None
 
+    def _spawn(self) -> subprocess.Popen[str]:
+        """Запускает процесс сервера.
+
+        Обычная команда запускается списком argv. `.cmd`/`.bat` (на Windows это
+        `npx`) — строкой через `shell=True`: только так `cmd /c` не ломает
+        кавычки в путях с пробелами.
+        """
+        options: dict[str, Any] = {
+            "stdin": subprocess.PIPE,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
+            "bufsize": 1,
+            "env": self._env,
+            "cwd": self._cwd,
+        }
+
+        if is_batch_file(self._program):
+            return subprocess.Popen(
+                build_batch_command_line(self._program, self._args),
+                shell=True,
+                **options,
+            )
+
+        return subprocess.Popen([self._program, *self._args], **options)
+
+    def _kill_process(self, process: subprocess.Popen[str]) -> None:
+        """Гасит сервер; для `.cmd` через `cmd /c` — вместе с потомками."""
+        if is_batch_file(self._program) and os.name == "nt":
+            # cmd.exe не убивает запущенный им процесс: без /T после каждого
+            # перезапуска сервера оставался бы висящий node.exe.
+            try:
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                    check=False,
+                    capture_output=True,
+                    timeout=10,
+                )
+                return
+            except (OSError, subprocess.SubprocessError):
+                pass  # ниже обычный путь
+
+        try:
+            process.terminate()
+        except OSError:
+            pass
+
     def start(self) -> None:
         """Запускает сервер и выполняет handshake."""
         if self.alive:
             return
 
         try:
-            self._process = subprocess.Popen(
-                self._argv,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                bufsize=1,
-                env=self._env,
-                cwd=self._cwd,
-            )
+            self._process = self._spawn()
         except OSError as ex:
             raise McpError(
-                f"не удалось запустить «{self._argv[0]}»: {ex}. "
+                f"не удалось запустить «{self._program}»: {ex}. "
                 f"Проверьте, что команда установлена и доступна в PATH."
             ) from ex
 
@@ -225,7 +283,7 @@ class McpStdioClient:
             pass
 
         try:
-            process.terminate()
+            self._kill_process(process)
             process.wait(timeout=5)
         except (OSError, subprocess.TimeoutExpired):
             try:

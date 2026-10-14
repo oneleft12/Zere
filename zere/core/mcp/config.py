@@ -29,9 +29,33 @@ from pathlib import Path
 from typing import Any, Optional
 
 from zere import paths
+from zere.core.security.file_access import restrict_to_owner
 
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 60.0
 DEFAULT_STARTUP_TIMEOUT_SECONDS = 60.0
+
+#: Поля, которые разбираются в именованные атрибуты McpServerSettings.
+#: Всё остальное попадает в `options` и читается конкретным плагином.
+_KNOWN_SERVER_KEYS = frozenset(
+    {
+        "enabled",
+        "Enabled",
+        "command",
+        "Command",
+        "args",
+        "arguments",
+        "env",
+        "environment",
+        "cwd",
+        "workingDirectory",
+        "requestTimeoutSeconds",
+        "request_timeout_seconds",
+        "startupTimeoutSeconds",
+        "startup_timeout_seconds",
+        "allowedTools",
+        "allowed_tools",
+    }
+)
 
 
 @dataclass
@@ -48,6 +72,10 @@ class McpServerSettings:
     startup_timeout: float = DEFAULT_STARTUP_TIMEOUT_SECONDS
     #: Необязательный allowlist имён инструментов. Пусто — разрешены все.
     allowed_tools: list[str] = field(default_factory=list)
+    #: Ключи, которых нет в общих полях (например `browser` у Playwright).
+    #: Их читает конкретный плагин: у каждого сервера свои настройки, и
+    #: тащить их в общую схему незачем.
+    options: dict[str, Any] = field(default_factory=dict)
 
     @property
     def configured(self) -> bool:
@@ -121,6 +149,11 @@ def _server_from_dict(server_id: str, data: Any) -> McpServerSettings:
             DEFAULT_STARTUP_TIMEOUT_SECONDS,
         ),
         allowed_tools=_as_str_list(_first(data, "allowedTools", "allowed_tools")),
+        options={
+            key: value
+            for key, value in data.items()
+            if key not in _KNOWN_SERVER_KEYS
+        },
     )
 
 
@@ -157,3 +190,57 @@ def load_mcp_config(path: Optional[Path] = None) -> dict[str, McpServerSettings]
 def load_server(server_id: str, path: Optional[Path] = None) -> McpServerSettings:
     """Настройки одного сервера (или пустые, если его нет в конфиге)."""
     return load_mcp_config(path).get(server_id, McpServerSettings(server_id=server_id))
+
+
+def set_server_option(
+    server_id: str,
+    key: str,
+    value: Any,
+    path: Optional[Path] = None,
+) -> bool:
+    """Меняет один ключ сервера в `config/mcp.json`, сохраняя остальное.
+
+    Нужно для смены браузера из чата: выбор должен пережить перезапуск ZERE,
+    а не жить до конца процесса. Файл не переписывается целиком «по памяти» —
+    читаем текущий JSON, правим один ключ и пишем обратно, поэтому чужие
+    настройки и комментарии-поля не теряются.
+
+    Возвращает False, если файла нет (тогда менять нечего — плагин выключен).
+    """
+    config_path = path if path is not None else paths.mcp_config_path()
+
+    if not config_path.is_file():
+        return False
+
+    try:
+        raw = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    if not isinstance(raw, dict):
+        return False
+
+    servers = raw.get("servers")
+
+    if not isinstance(servers, dict):
+        return False
+
+    server = servers.get(server_id)
+
+    if not isinstance(server, dict):
+        return False
+
+    server[key] = value
+
+    try:
+        config_path.write_text(
+            json.dumps(raw, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+    except OSError:
+        return False
+
+    # Файл локальный, но у части серверов в env бывают токены — сужаем права,
+    # как для config/ai.json и config/panel.token.
+    restrict_to_owner(config_path)
+
+    return True

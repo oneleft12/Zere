@@ -160,6 +160,14 @@ Pipeline обработки команд (порядок важен):
   выдаётся понятная ошибка с версиями сервера.
 - **PlaywrightMcpPlugin** — браузер через `@playwright/mcp` (25 инструментов):
   переход, снимок, поиск на странице, клик/ввод по ссылке из снимка, скриншот.
+  **Браузер выбирается**: Edge (по умолчанию, есть на любой Windows), Chrome,
+  Opera GX, Chromium — ключом `browser` в `config/mcp.json` или командой
+  «браузер выбери opera gx» (выбор сохраняется). Edge/Chrome/Chromium идут
+  каналом Playwright, **Opera GX — через `--executable-path`** (канала для него
+  нет). Переход повторяется один раз при `ERR_ABORTED`: Opera GX на старте
+  открывает свои вкладки (GX Corner) и отменяет переход — без повтора падало
+  примерно в половине запусков. Профили — `browser_profiles.py`,
+  подробности — `docs/MCP_PLUGINS.md`, §3.1.
 - **ObsidianMcpPlugin** — заметки через `seekstone` (25 инструментов):
   файловый доступ к хранилищу, без плагина Obsidian и без запущенного
   приложения. Выдача сервера (JSON) переводится в читаемый текст — ответ
@@ -171,7 +179,14 @@ Pipeline обработки команд (порядок важен):
   если включён** в `config/mcp.json` — установка плагина ничего не запускает.
 - Настройки: `config/mcp.example.json` → рабочий `config/mcp.json`
   (gitignored), ключи `enabled`, `command`, `args`, `env`, `cwd`,
-  `requestTimeoutSeconds`, `startupTimeoutSeconds`, `allowedTools`.
+  `requestTimeoutSeconds`, `startupTimeoutSeconds`, `allowedTools`, а также
+  `browser`/`browserPath` у Playwright. Незнакомые ключи попадают в
+  `McpServerSettings.options` — общая схема их не знает и не ломается.
+- **`.cmd`-команды на Windows запускаются строкой через `shell=True`**, а не
+  списком argv: у `cmd /c` своя обработка кавычек, и путь с пробелом
+  (`C:\Program Files\nodejs\npx.CMD`) разваливался на «C:\Program» — из-за
+  этого Opera GX (её путь тоже с пробелом) не запускалась. Обёртка —
+  `build_batch_command_line`, гашение дерева процессов — `taskkill /F /T`.
 - Безопасность: подпроцесс с правами пользователя (не песочница), поэтому
   allowlist, пиннинг версий и показ точной команды запуска (SEP-1024).
 - Подробности и команды: `docs/MCP_PLUGINS.md`; разбор выбора —

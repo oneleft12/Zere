@@ -4,8 +4,10 @@
       "enabled": false,
       "command": "npx",
       "args": ["-y", "@playwright/mcp@0.0.83"],
-      "requestTimeoutSeconds": 60,
-      "startupTimeoutSeconds": 120,
+      "browser": "edge",
+      "browserPath": "",
+      "requestTimeoutSeconds": 120,
+      "startupTimeoutSeconds": 180,
       "allowedTools": []
     },
     "obsidian": {

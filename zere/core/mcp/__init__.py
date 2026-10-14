@@ -13,6 +13,8 @@ from zere.core.mcp.client import (
     McpStdioClient,
     McpTool,
     McpToolResult,
+    build_batch_command_line,
+    is_batch_file,
     resolve_command,
     tool_result_text,
 )
@@ -20,6 +22,7 @@ from zere.core.mcp.config import (
     McpServerSettings,
     load_mcp_config,
     load_server,
+    set_server_option,
 )
 
 __all__ = [
@@ -29,8 +32,11 @@ __all__ = [
     "McpStdioClient",
     "McpTool",
     "McpToolResult",
+    "build_batch_command_line",
+    "is_batch_file",
     "load_mcp_config",
     "load_server",
     "resolve_command",
+    "set_server_option",
     "tool_result_text",
 ]

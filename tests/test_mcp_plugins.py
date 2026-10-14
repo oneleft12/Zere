@@ -22,6 +22,15 @@ from zere.core.plugins.builtin.mcp import (  # noqa: E402
     ObsidianMcpPlugin,
     PlaywrightMcpPlugin,
 )
+from zere.core.plugins.builtin.mcp.browser_profiles import (  # noqa: E402
+    BrowserNotInstalled,
+    _expand,
+    browser_args,
+    find_profile,
+    is_available,
+    profile_by_id,
+    resolve_executable,
+)
 from zere.core.plugins.interfaces.plugin import PluginType  # noqa: E402
 
 FAKE_SERVER = Path(__file__).resolve().parent / "fake_mcp_server.py"
@@ -266,7 +275,17 @@ def test_browser_not_installed_gives_actionable_hint() -> None:
     from zere.core.mcp.client import McpToolResult
 
     with tempfile.TemporaryDirectory() as td:
-        plugin = playwright_plugin(Path(td))
+        path = write_config(
+            Path(td),
+            playwright={
+                "enabled": True,
+                "command": sys.executable,
+                "args": [str(FAKE_SERVER)],
+                "browser": "chrome",
+            },
+        )
+        plugin = PlaywrightMcpPlugin(config_path=path)
+        plugin.initialize()
 
     result = McpToolResult(
         text="### Error\nError: Chromium distribution 'chrome' is not found at "
@@ -275,8 +294,9 @@ def test_browser_not_installed_gives_actionable_hint() -> None:
     )
     answer = plugin._format(result, plugin._parse("браузер снимок"))
 
-    assert "не установлен" in answer
+    assert "Google Chrome" in answer, "подсказка должна называть выбранный браузер"
     assert "npx playwright install chrome" in answer
+    assert "браузер список" in answer, "и предлагать выбрать другой браузер"
 
 
 def test_obsidian_humanizes_json_answers() -> None:
@@ -383,6 +403,283 @@ def test_tools_overview_lists_server_tools() -> None:
     assert "echo" in answer and "boom" in answer
 
 
+# ── Выбор браузера ─────────────────────────────────────────────────
+
+
+def test_browser_names_and_aliases_resolve() -> None:
+    """«opera gx», «опера gx», «хром» — всё должно узнаваться."""
+    assert find_profile("edge").id == "edge"
+    assert find_profile("msedge").id == "edge"
+    assert find_profile("Microsoft Edge").id == "edge"
+    assert find_profile("Opera GX").id == "opera-gx"
+    assert find_profile("opera gx").id == "opera-gx"
+    assert find_profile("опера gx").id == "opera-gx"
+    assert find_profile("хром").id == "chrome"
+    assert find_profile("chromium").id == "chromium"
+    assert find_profile("неведомый браузер") is None
+
+
+def test_edge_and_chrome_use_playwright_channels() -> None:
+    assert browser_args(profile_by_id("edge")) == ["--browser", "msedge"]
+    assert browser_args(profile_by_id("chrome")) == ["--browser", "chrome"]
+
+
+def test_opera_gx_uses_executable_path() -> None:
+    """У Opera GX нет канала Playwright — только путь к opera.exe.
+
+    Проверено вживую: с `--executable-path` Opera GX отдаёт 25 инструментов
+    и успешно переходит на страницу.
+    """
+    args = browser_args(profile_by_id("opera-gx"), r"C:\Opera GX\opera.exe")
+
+    assert args == ["--executable-path", r"C:\Opera GX\opera.exe"]
+
+
+def test_explicit_path_overrides_profile() -> None:
+    """`browserPath` в настройках важнее профиля."""
+    args = browser_args(profile_by_id("edge"), r"C:\My\chrome.exe")
+
+    assert args == ["--executable-path", r"C:\My\chrome.exe"]
+
+
+def test_opera_gx_missing_reports_hint() -> None:
+    """Если Opera GX не найден, команда обязана сказать, что делать."""
+    profile = profile_by_id("opera-gx")
+
+    if resolve_executable(profile) is not None:
+        return  # на этой машине Opera GX есть — проверять нечего
+
+    try:
+        browser_args(profile)
+    except BrowserNotInstalled as ex:
+        assert "Opera GX" in str(ex)
+    else:
+        raise AssertionError("ожидали BrowserNotInstalled без пути к Opera GX")
+
+
+def test_plugin_appends_browser_args() -> None:
+    """Аргументы сервера дополняются флагами выбранного браузера."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        path = write_config(
+            Path(td),
+            playwright={
+                "enabled": True,
+                "command": sys.executable,
+                "args": ["-y", "@playwright/mcp@0.0.83"],
+                "browser": "opera-gx",
+                "browserPath": r"C:\Opera GX\opera.exe",
+            },
+        )
+        plugin = PlaywrightMcpPlugin(config_path=path)
+        plugin.initialize()
+
+        assert plugin.browser_profile().id == "opera-gx"
+        assert plugin._effective_args() == [
+            "-y",
+            "@playwright/mcp@0.0.83",
+            "--executable-path",
+            r"C:\Opera GX\opera.exe",
+        ]
+
+
+def test_default_browser_is_edge() -> None:
+    """Без настройки берём Edge: он есть на любой Windows, качать нечего."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        path = write_config(
+            Path(td),
+            playwright={"enabled": True, "command": sys.executable, "args": []},
+        )
+        plugin = PlaywrightMcpPlugin(config_path=path)
+        plugin.initialize()
+
+        assert plugin.browser_profile().id == "edge"
+        assert plugin._effective_args() == ["--browser", "msedge"]
+
+
+def test_unknown_browser_falls_back_to_default() -> None:
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        path = write_config(
+            Path(td),
+            playwright={
+                "enabled": True,
+                "command": sys.executable,
+                "args": [],
+                "browser": "netscape",
+            },
+        )
+        plugin = PlaywrightMcpPlugin(config_path=path)
+        plugin.initialize()
+
+        assert plugin.browser_profile().id == "edge"
+        assert "netscape" in plugin.handle("браузер какой")
+
+
+def test_switch_browser_persists_to_config() -> None:
+    """Выбор браузера переживает перезапуск: он пишется в config/mcp.json."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        path = write_config(
+            Path(td),
+            playwright={
+                "enabled": True,
+                "command": sys.executable,
+                "args": [str(FAKE_SERVER)],
+                "browser": "chrome",
+                "browserPath": r"C:\старый\путь.exe",
+            },
+        )
+        plugin = PlaywrightMcpPlugin(config_path=path)
+        plugin.initialize()
+
+        assert plugin.browser_profile().id == "chrome"
+
+        answer = plugin.handle("браузер выбери edge")
+        assert "Microsoft Edge" in answer
+
+        saved = json.loads(path.read_text(encoding="utf-8"))["servers"]["playwright"]
+        assert saved["browser"] == "edge"
+        assert saved["browserPath"] == "", "явный путь сброшен: браузер выбран профилем"
+
+        assert plugin.browser_profile().id == "edge", "настройки перечитаны на лету"
+        assert plugin._effective_args() == [str(FAKE_SERVER), "--browser", "msedge"]
+
+
+def test_switch_to_unknown_browser_is_refused() -> None:
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        plugin = playwright_plugin(Path(td))
+        answer = plugin.handle("браузер выбери netscape")
+
+    assert "Не знаю браузер" in answer
+    assert "opera-gx" in answer, "подсказываем доступные"
+
+
+def test_browser_listing_marks_current() -> None:
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        plugin = playwright_plugin(Path(td))
+        answer = plugin.handle("браузер список")
+
+    assert "edge" in answer and "opera-gx" in answer and "chrome" in answer
+    assert "текущий" in answer
+
+    current = plugin.handle("браузер какой")
+    assert "Microsoft Edge" in current
+
+
+def test_browser_commands_do_not_start_server() -> None:
+    """Список и выбор браузера — локальные команды, сервер поднимать незачем."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        plugin = playwright_plugin(Path(td))
+
+        plugin.handle("браузер список")
+        plugin.handle("браузер какой")
+
+        assert plugin.running is False
+
+
+def test_env_expansion_is_case_insensitive() -> None:
+    """Windows хранит имена в верхнем регистре, а в путях они смешанные.
+
+    Регрессия: `%ProgramFiles(x86)%` не разворачивался, и Edge — который есть
+    на любой Windows — помечался в списке как отсутствующий.
+    """
+    import os
+
+    os.environ["ZERE_TEST_DIR"] = r"C:\Test"
+    try:
+        assert _expand(r"%zere_test_dir%\bin") == r"C:\Test\bin"
+        assert _expand(r"%ZERE_TEST_DIR%\bin") == r"C:\Test\bin"
+        assert _expand(r"%Zere_Test_Dir%\bin") == r"C:\Test\bin"
+    finally:
+        del os.environ["ZERE_TEST_DIR"]
+
+    # Неизвестная переменная остаётся как есть, а не превращается в пустоту.
+    assert _expand("%НЕТ_ТАКОЙ_ПЕРЕМЕННОЙ%\\x") == "%НЕТ_ТАКОЙ_ПЕРЕМЕННОЙ%\\x"
+
+
+def test_edge_profile_is_found_on_windows() -> None:
+    """На Windows Edge обязан находиться по стандартному пути."""
+    if sys.platform != "win32":
+        return
+
+    edge = profile_by_id("edge")
+
+    assert resolve_executable(edge) is not None, "Edge есть на любой Windows"
+    assert is_available(edge) is True
+
+
+def test_navigation_abort_is_retried_once() -> None:
+    """Opera GX на старте отменяет переход (ERR_ABORTED) — повторяем один раз.
+
+    Проверено на живой Windows: без повтора первый переход падал примерно
+    в половине запусков Opera GX.
+    """
+    import tempfile
+
+    from zere.core.mcp.client import McpToolResult
+    from zere.core.plugins.builtin.mcp import playwright_plugin as module
+
+    with tempfile.TemporaryDirectory() as td:
+        plugin = playwright_plugin(Path(td))
+
+    calls: list[str] = []
+
+    class AbortingClient:
+        def call_tool(self, name: str, arguments: dict) -> McpToolResult:
+            calls.append(name)
+            if len(calls) == 1:
+                return McpToolResult(
+                    text="### Error\nError: net::ERR_ABORTED at https://example.com/",
+                    is_error=True,
+                )
+            return McpToolResult(text="Page Title: Example Domain")
+
+    original_delay = module._NAVIGATION_RETRY_DELAY_SECONDS
+    module._NAVIGATION_RETRY_DELAY_SECONDS = 0
+    try:
+        result = plugin._call_tool(AbortingClient(), plugin._parse("браузер открой example.com"))
+    finally:
+        module._NAVIGATION_RETRY_DELAY_SECONDS = original_delay
+
+    assert len(calls) == 2, "переход должен быть повторён"
+    assert result.is_error is False
+    assert "Example Domain" in result.text
+
+
+def test_other_tool_errors_are_not_retried() -> None:
+    """Повторяем только обрыв перехода: у прочих ошибок свои причины."""
+    import tempfile
+
+    from zere.core.mcp.client import McpToolResult
+
+    with tempfile.TemporaryDirectory() as td:
+        plugin = playwright_plugin(Path(td))
+
+    calls: list[str] = []
+
+    class FailingClient:
+        def call_tool(self, name: str, arguments: dict) -> McpToolResult:
+            calls.append(name)
+            return McpToolResult(text="нет доступа к элементу", is_error=True)
+
+    result = plugin._call_tool(FailingClient(), plugin._parse("браузер клик e5"))
+
+    assert len(calls) == 1, "обычную ошибку повторять не нужно"
+    assert result.is_error is True
+
+
 def main() -> None:
     tests = [
         value
@@ -395,7 +692,6 @@ def main() -> None:
         print(f"OK  {test.__name__}")
 
     print(f"ПРОЙДЕНО: {len(tests)} тестов MCP-плагинов")
-
 
 if __name__ == "__main__":
     main()
