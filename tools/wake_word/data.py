@@ -909,10 +909,16 @@ class WakeWordDataset:
         seed: int = 0,
         sample_rate: int = SAMPLE_RATE,
         window_samples: int = WINDOW_SAMPLES,
+        live_share: float = 0.0,
     ) -> None:
         if positive_ratio <= 0.0 or positive_ratio >= 1.0:
             raise ValueError(
                 f"positive_ratio должен быть в (0, 1), получено {positive_ratio}"
+            )
+
+        if not 0.0 <= live_share <= 1.0:
+            raise ValueError(
+                f"live_share должен быть в [0, 1], получено {live_share}"
             )
 
         if not positives and not negatives:
@@ -928,6 +934,14 @@ class WakeWordDataset:
         self.seed = int(seed)
         self.sample_rate = sample_rate
         self.window_samples = window_samples
+        self.live_share = float(live_share)
+
+        self._live_positives = [
+            item for item in self.positives if item.category == POSITIVE_DIR
+        ]
+        self._synth_positives = [
+            item for item in self.positives if item.category == POSITIVE_SYNTH_DIR
+        ]
 
         self._backgrounds = [item for item in negatives if item.category in _BACKGROUND_CATEGORIES]
         self._impulses = list(corpus.impulses)
@@ -971,6 +985,26 @@ class WakeWordDataset:
 
     # ─── Позитив ───
 
+    def _pick_positive(self, rng: np.random.Generator) -> IndexedAudio:
+        """Выбирает позитив: живые записи против синтеза.
+
+        При ``live_share = 0`` выборка равномерная, как в исходной
+        спецификации. Но когда живых записей 87, а синтетических 2400,
+        равномерная выборка даёт живые лишь в 3.5 % позитивов — модель
+        выучивает голос TTS и отвергает настоящие записи владельца (на
+        обученной так модели живые позитивы получали ≈0.005, синтез ≈0.3).
+        ``live_share`` задаёт долю окон из живых записей.
+        """
+        live = self._live_positives
+        synth = self._synth_positives
+
+        if live and (not synth or rng.random() < self.live_share):
+            return live[int(rng.integers(0, len(live)))]
+
+        pool = synth or self.positives
+
+        return pool[int(rng.integers(0, len(pool)))]
+
     def _positive_window(self, rng: np.random.Generator) -> np.ndarray:
         """Собирает окно со словом в разрешённой позиции конца слова.
 
@@ -981,7 +1015,7 @@ class WakeWordDataset:
         таком примере значит размывать границу срабатывания.
         """
         config = self.config
-        item = self.positives[int(rng.integers(0, len(self.positives)))]
+        item = self._pick_positive(rng)
         samples, rate = read_wav(item.path)
         samples = resample_audio(samples, rate, self.sample_rate)
 
@@ -1116,6 +1150,7 @@ def dataset_for_split(
     augment: bool = True,
     seed: int = 0,
     config: AugmentConfig | None = None,
+    live_share: float = 0.0,
 ) -> WakeWordDataset:
     """Собирает датасет для разбиения из ``splits.json``.
 
@@ -1151,6 +1186,7 @@ def dataset_for_split(
         augment=augment,
         config=config,
         seed=seed,
+        live_share=live_share,
     )
 
 

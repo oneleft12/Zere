@@ -58,6 +58,11 @@ MODEL_DIR = Path("ZERE.Voice") / "WakeWord" / "models"
 #: Имя файла CSV с метриками внутри каталога прогона.
 METRICS_FILENAME = "metrics.csv"
 
+#: Потолок FA/час, при котором эпоха считается дотянувшейся до цели по recall.
+#: Цель по бою — ~0.5 ложных срабатывания в час; 100 — заведомо непригодный
+#: порог (раз в 36 секунд), который отсекает вырожденные «всем понемногу» модели.
+FA_SANITY_CAP = 100.0
+
 
 # ─── Конфигурация ───────────────────────────────────────────────
 
@@ -88,6 +93,10 @@ class TrainConfig:
     num_workers: int = 0
     seed: int = 0
     augment: bool = True
+    #: Доля позитивных окон из живых записей (0 — равномерно, как в
+    #: спецификации). При 87 живых и 2400 синтетических равномерная выборка
+    #: учит голос TTS, а не слово: живые записи владельца получают ≈0.005.
+    live_share: float = 0.0
     export: bool = True
     torch_version: str = ""
     manifest_min_consecutive: int = DEFAULT_MIN_CONSECUTIVE
@@ -282,10 +291,26 @@ def selection_key(evaluation: ww_evaluate.SplitEvaluation,
     Сортировка по loss тут не годится: на фоне с дисбалансом классов loss
     почти не связан с числом ложных срабатываний в час, а нам важно именно
     оно. Первый элемент ключа — 0, если цель по recall достигнута.
-    """
-    reached = 0 if evaluation.recall >= target_recall else 1
 
-    return (reached, evaluation.fa_per_hour, -evaluation.recall)
+    «Достигнута» требует ещё и пригодного FA/час: вырожденная модель, которая
+    всем окнам ставит 0.06, дотягивается до recall=1.0 на нижнем пороге при
+    FA/час ~90 000 и навсегда выигрывает у эпох, где слово реально выучено
+    (recall 0.9 при FA/час 10). Из-за этого `best.pt` оставался с первой
+    эпохи, а обучение останавливалось по «отсутствию улучшений». Когда цель
+    недостижима ни на одном пороге, порядок обратный: сначала recall, потом
+    FA — иначе побеждает модель, которая молчит всегда.
+    """
+    reached = (
+        0
+        if evaluation.recall >= target_recall
+        and evaluation.fa_per_hour <= FA_SANITY_CAP
+        else 1
+    )
+
+    if reached == 0:
+        return (0, evaluation.fa_per_hour, -evaluation.recall)
+
+    return (1, -evaluation.recall, evaluation.fa_per_hour)
 
 
 def save_checkpoint(path: Path, model: WakeWordNet, optimizer: Any,
@@ -358,6 +383,7 @@ def fit(config: TrainConfig) -> TrainResult:
         augment=config.augment,
         seed=config.seed,
         config=augment_config,
+        live_share=config.live_share,
     )
     print(
         f"Train: позитивов {len(train_dataset.positives)} файлов, "
@@ -603,6 +629,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num-workers", type=int, default=0,
                         help="процессов DataLoader (0 — в основном процессе)")
     parser.add_argument("--seed", type=int, default=0, help="зерно")
+    parser.add_argument("--live-share", type=float, default=0.0,
+                        help="доля позитивов из живых записей (0 — равномерно)")
     parser.add_argument("--no-augment", action="store_true",
                         help="выключить аугментацию (для отладки)")
     parser.add_argument("--no-export", action="store_true",
@@ -664,6 +692,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         num_workers=args.num_workers,
         seed=args.seed,
         augment=not args.no_augment,
+        live_share=args.live_share,
         export=not args.no_export,
     )
 

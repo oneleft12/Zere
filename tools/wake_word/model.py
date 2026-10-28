@@ -394,6 +394,15 @@ def export_onnx(model: WakeWordNet, path: str | Path,
     was_training = model.training
     model.eval()
 
+    # Экспорт всегда на CPU: dummy-вход создаётся здесь, и на CUDA-модели
+    # torch падал на несовпадении устройств («weight is on cuda:0, different
+    # from other tensors on cpu»). Сам ONNX-граф от устройства не зависит,
+    # а CPU-экспорт воспроизводим; после экспорта модель возвращается.
+    model_device = next(model.parameters()).device
+
+    if model_device.type != "cpu":
+        model.to("cpu")
+
     dummy = torch.zeros(1, WINDOW_SAMPLES, dtype=torch.float32)
 
     try:
@@ -431,6 +440,9 @@ def export_onnx(model: WakeWordNet, path: str | Path,
 
         raise
     finally:
+        if model_device.type != "cpu":
+            model.to(model_device)
+
         if was_training:
             model.train()
 
@@ -457,8 +469,12 @@ def verify_onnx_parity(model: WakeWordNet, onnx_path: str | Path,
 
     model.eval()
 
+    # Вход идёт на устройство модели: на CUDA-модели пара «вход на CPU,
+    # веса на GPU» роняла проверку паритета после экспорта.
+    model_device = next(model.parameters()).device
+
     with torch.no_grad():
-        torch_out = model(torch.from_numpy(audio)).numpy()
+        torch_out = model(torch.from_numpy(audio).to(model_device)).detach().cpu().numpy()
 
     session = ort.InferenceSession(str(onnx_path), providers=["CPUExecutionProvider"])
     onnx_out = session.run([OUTPUT_NAME], {INPUT_NAME: audio})[0]

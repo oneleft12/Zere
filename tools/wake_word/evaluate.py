@@ -146,6 +146,22 @@ def load_onnx_session(onnx_path: str | Path) -> Any:
 # ─── Скоринг ────────────────────────────────────────────────────
 
 
+def _model_device(model: Any, fallback: str) -> Any:
+    """Устройство модели: решают веса, а не аргумент по умолчанию.
+
+    ``train.py`` зовёт ``evaluate_split`` без устройства (по умолчанию «cpu»),
+    и на CUDA-модели эпоха падала: вход оставался на CPU, а веса фронтенда —
+    на GPU (``Input type (torch.FloatTensor) and weight type
+    (torch.cuda.FloatTensor)``). Оценка обязана идти там же, где веса.
+    """
+    import torch  # noqa: PLC0415
+
+    try:
+        return next(model.parameters()).device
+    except (AttributeError, StopIteration, TypeError):
+        return torch.device(fallback)
+
+
 def _batch_scores_torch(model: WakeWordNet, windows: np.ndarray, device: str,
                         batch_size: int = 64) -> np.ndarray:
     """Вероятности для набора окон через torch (батчами).
@@ -163,7 +179,7 @@ def _batch_scores_torch(model: WakeWordNet, windows: np.ndarray, device: str,
         return np.zeros(0, dtype="float64")
 
     scores: list[np.ndarray] = []
-    torch_device = torch.device(device)
+    torch_device = _model_device(model, device)
     was_training = bool(getattr(model, "training", False))
 
     if was_training:
