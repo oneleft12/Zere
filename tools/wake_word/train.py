@@ -611,8 +611,27 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _console_safe() -> None:
+    """Вывод не должен ронять прогон из-за кодировки консоли.
+
+    На Windows stdout по умолчанию cp1251, и первый же ``print`` со стрелкой
+    («← лучшая») падал с UnicodeEncodeError — обучение умирало после первой
+    эпохи, хотя чекпойнт уже был записан. Русский текст оставляем в кодировке
+    консоли, а непереводимые символы заменяем, а не выбрасываем исключение.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(errors="replace")
+        except (ValueError, OSError):
+            pass
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Точка входа ``python -m tools.wake_word.train``."""
+    _console_safe()
     args = build_parser().parse_args(argv)
 
     if not 1 <= args.neg_per_pos <= 3:
