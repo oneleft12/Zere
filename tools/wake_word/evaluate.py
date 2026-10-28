@@ -148,7 +148,15 @@ def load_onnx_session(onnx_path: str | Path) -> Any:
 
 def _batch_scores_torch(model: WakeWordNet, windows: np.ndarray, device: str,
                         batch_size: int = 64) -> np.ndarray:
-    """Вероятности для набора окон через torch (батчами)."""
+    """Вероятности для набора окон через torch (батчами).
+
+    Модель переводится в ``eval()`` на время скоринга и возвращается в прежний
+    режим: ``train.py`` зовёт оценку прямо в середине обучения, когда модель
+    ещё в ``train``. В ``train`` BatchNorm считает статистику по батчу,
+    Dropout и SpecAugment включены — recall и FA/час на эпохе получались
+    мусорными (recall 1.0 при FA/час 40 000), и по ним выбирался чекпойнт.
+    Инференс в рантайме всегда eval-режим, поэтому и метрики должны быть с ним.
+    """
     import torch  # noqa: PLC0415
 
     if windows.size == 0:
@@ -156,13 +164,21 @@ def _batch_scores_torch(model: WakeWordNet, windows: np.ndarray, device: str,
 
     scores: list[np.ndarray] = []
     torch_device = torch.device(device)
+    was_training = bool(getattr(model, "training", False))
 
-    with torch.no_grad():
-        for start in range(0, windows.shape[0], batch_size):
-            chunk = windows[start: start + batch_size]
-            tensor = torch.from_numpy(np.ascontiguousarray(chunk, dtype="float32"))
-            out = model(tensor.to(torch_device))
-            scores.append(out.detach().cpu().numpy().reshape(-1))
+    if was_training:
+        model.eval()
+
+    try:
+        with torch.no_grad():
+            for start in range(0, windows.shape[0], batch_size):
+                chunk = windows[start: start + batch_size]
+                tensor = torch.from_numpy(np.ascontiguousarray(chunk, dtype="float32"))
+                out = model(tensor.to(torch_device))
+                scores.append(out.detach().cpu().numpy().reshape(-1))
+    finally:
+        if was_training:
+            model.train()
 
     return np.concatenate(scores).astype("float64")
 
