@@ -37,6 +37,7 @@ from zere.desktop.desktop import (  # noqa: E402
     run_desktop,
 )
 from zere.desktop.stdio import ensure_std_streams  # noqa: E402
+from zere.desktop.startup_log import log_startup_failure  # noqa: E402
 from zere.desktop.window import DesktopWindowUnavailable, run_window  # noqa: E402
 
 
@@ -290,6 +291,36 @@ def test_paths_point_inside_repo() -> None:
             assert paths.desktop_log_path() == paths.LOGS_DIR / "desktop.log"
             assert paths.icon_path() == str(paths.ASSETS_DIR / "zere.ico")
             assert paths.webview_dir() == Path(tmp) / "data" / "webview"
+
+
+def test_startup_failure_is_logged() -> None:
+    """Сбой импорта у pythonw виден в журнале, а не только «код 1».
+
+    У pythonw stdout/stderr = None, а подмена потоков стоит после импортов:
+    ImportError не печатался никуда, и лаунчер показывал «ZERE завершился с
+    ошибкой (код 1)» без причины.
+    """
+    with tempfile.TemporaryDirectory(prefix="zere-startup-") as tmp:
+        target = Path(tmp) / "logs" / "desktop.log"
+        try:
+            raise ImportError("No module named 'broken_dependency'")
+        except ImportError as exc:
+            written = log_startup_failure(exc, target)
+
+        assert written == target, "функция вернула не тот путь журнала"
+        text = target.read_text(encoding="utf-8")
+        assert "СБОЙ ЗАПУСКА" in text, "нет заголовка сбоя старта"
+        assert "broken_dependency" in text, "в журнале нет причины сбоя"
+        assert "Traceback" in text, "в журнале нет traceback"
+
+
+def test_startup_failure_never_raises() -> None:
+    """Недоступный журнал не должен превращать сбой старта в другой сбой."""
+    with tempfile.TemporaryDirectory(prefix="zere-startup-") as tmp:
+        blocker = Path(tmp) / "not-a-dir"
+        blocker.write_text("занято", encoding="utf-8")
+
+        assert log_startup_failure(RuntimeError("boom"), blocker / "desktop.log") is None
 
 
 def main() -> None:

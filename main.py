@@ -6,32 +6,42 @@ import sys
 import threading
 import webbrowser
 
-from zere import paths
-from zere.ai.ai_service import AiService
-from zere.ai.ai_settings import AiSettings
-from zere.ai.ollama_client import OllamaClient
-from zere.api.server import DEFAULT_PORT, PanelServer
-from zere.core.configuration.zere_config import ZereConfig
-from zere.core.console import configure_console_encoding
-from zere.core.context.runtime_context import RuntimeContext
-from zere.core.dependencies.dependency_checker import DependencyChecker
-from zere.core.engine import ZereEngine
-from zere.core.logging.log_service import LogService
-from zere.core.plugins.plugin_config import PluginConfig
-from zere.core.plugins.plugin_manager import PluginManager
-from zere.core.plugins.settings.settings_menu import SettingsMenu
-from zere.core.services import create_services
-from zere.desktop.desktop import desktop_requested, port_from_argv, run_desktop
-from zere.desktop.stdio import ensure_std_streams
-from zere.desktop.window import PanelWindowHost
-from zere.memory.database.conversation_repository import ConversationRepository
-from zere.memory.database.memory_database import MemoryDatabase
-from zere.memory.database.memory_repository import MemoryRepository
-from zere.tools.applications.application_launcher import ApplicationLauncher
-from zere.tools.windows.process_service import ProcessService
-from zere.tools.windows.safe_action_manager import SafeActionManager
-from zere.voice.voice_bootstrap import bootstrap_voice
-from zere.voice.voice_manager import VoiceManager
+# Лёгкий модуль без зависимостей: он нужен до импорта тяжёлых пакетов,
+# чтобы сбой импорта попал в logs\desktop.log (у pythonw нет stderr).
+from zere.desktop.startup_log import log_startup_failure
+
+try:
+    from zere import paths
+    from zere.ai.ai_service import AiService
+    from zere.ai.ai_settings import AiSettings
+    from zere.ai.ollama_client import OllamaClient
+    from zere.api.server import DEFAULT_PORT, PanelServer
+    from zere.core.configuration.zere_config import ZereConfig
+    from zere.core.console import configure_console_encoding
+    from zere.core.context.runtime_context import RuntimeContext
+    from zere.core.dependencies.dependency_checker import DependencyChecker
+    from zere.core.engine import ZereEngine
+    from zere.core.logging.log_service import LogService
+    from zere.core.plugins.plugin_config import PluginConfig
+    from zere.core.plugins.plugin_manager import PluginManager
+    from zere.core.plugins.settings.settings_menu import SettingsMenu
+    from zere.core.services import create_services
+    from zere.desktop.desktop import desktop_requested, port_from_argv, run_desktop
+    from zere.desktop.stdio import ensure_std_streams
+    from zere.desktop.window import PanelWindowHost
+    from zere.memory.database.conversation_repository import ConversationRepository
+    from zere.memory.database.memory_database import MemoryDatabase
+    from zere.memory.database.memory_repository import MemoryRepository
+    from zere.tools.applications.application_launcher import ApplicationLauncher
+    from zere.tools.windows.process_service import ProcessService
+    from zere.tools.windows.safe_action_manager import SafeActionManager
+    from zere.voice.voice_bootstrap import bootstrap_voice
+    from zere.voice.voice_manager import VoiceManager
+except BaseException as _import_error:  # noqa: BLE001 — фиксируем и пробрасываем
+    # Только для запуска без консоли: при обычном `python main.py` traceback и
+    # так виден в терминале, но запись в журнал не мешает.
+    log_startup_failure(_import_error)
+    raise
 
 
 _USAGE = """ZERE — персональный AI-ассистент.
