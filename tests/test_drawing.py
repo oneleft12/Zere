@@ -21,7 +21,6 @@ from zere.tools.drawing.drawing_service import DrawingService
 from zere.tools.drawing.drawing_target import (
     DEFAULT_TARGET,
     DrawingTarget,
-    display_name,
     spec_for,
 )
 

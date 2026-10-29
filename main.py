@@ -14,7 +14,6 @@ try:
     from zere import paths
     from zere.ai.ai_service import AiService
     from zere.ai.ai_settings import AiSettings
-    from zere.ai.ollama_client import OllamaClient
     from zere.api.server import DEFAULT_PORT, PanelServer
     from zere.core.configuration.zere_config import ZereConfig
     from zere.core.console import configure_console_encoding
@@ -284,7 +283,7 @@ def main() -> int:
             if runtime is not None:
                 runtime.voice_mode = True
 
-            run_voice_mode(voice_manager, zere, config, logger, voice_mode_holder := [True])
+            run_voice_mode(voice_manager, zere, config, logger, [True])
 
             if runtime is not None:
                 runtime.voice_mode = False
@@ -456,17 +455,24 @@ def run_voice_mode(
 
             cancel_event = threading.Event()
 
-            wake_detected = False
             wake_result: list[bool] = [False]
             wake_error: list[BaseException] = []
 
-            def wake_worker() -> None:
+            def wake_worker(
+                cancel: threading.Event,
+                result: list[bool],
+                errors: list[BaseException],
+            ) -> None:
                 try:
-                    wake_result[0] = voice_manager.wait_for_wake_word(cancel_event)
+                    result[0] = voice_manager.wait_for_wake_word(cancel)
                 except BaseException as exc:  # noqa: BLE001
-                    wake_error.append(exc)
+                    errors.append(exc)
 
-            wake_thread = threading.Thread(target=wake_worker, daemon=True)
+            wake_thread = threading.Thread(
+                target=wake_worker,
+                args=(cancel_event, wake_result, wake_error),
+                daemon=True,
+            )
             wake_thread.start()
 
             aborted = False

@@ -385,8 +385,6 @@ def _screen_colors(x: int, y: int, width: int, height: int) -> List[Tuple[int, i
     штрих, начатый вне изображения. Контексты освобождаются всегда — снимок
     не должен течь даже при ошибке.
     """
-    from ctypes import wintypes
-
     if width <= 0 or height <= 0:
         return []
 

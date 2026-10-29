@@ -321,8 +321,6 @@ class ConspectHandler(IZereHandler):
         return text
 
     def _list_answer(self) -> str:
-        settings = self._settings
-
         try:
             writer = self.writer
             notes = writer.list_notes(limit=_MAX_LIST)

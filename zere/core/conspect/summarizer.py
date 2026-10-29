@@ -31,7 +31,7 @@ from zere.ai.ai_service import (
     MESSAGE_NOT_CONFIGURED,
 )
 from zere.ai.local_model import MESSAGE_LOCAL_MODEL_MISSING
-from zere.core.conspect.chunking import chunk_stats, chunk_text
+from zere.core.conspect.chunking import chunk_text
 from zere.core.conspect.config import ConspectSettings
 from zere.core.conspect.contract import (
     SYSTEM_PROMPT,
@@ -184,8 +184,6 @@ class Summarizer:
         limit = settings.max_chunks if max_chunks is None else min(max_chunks, settings.max_chunks)
         truncated = len(chunks) > limit
         chunks = chunks[:limit]
-        stats = chunk_stats(chunks)
-
         partials, failed, first_error = self._map(chunks, source, settings)
 
         if not partials:

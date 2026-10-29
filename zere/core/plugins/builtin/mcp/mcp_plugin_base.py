@@ -28,7 +28,7 @@ from zere.core.plugins.builtin.mcp.mcp_command import (
     McpCommandRouter,
 )
 from zere.core.plugins.interfaces.command_handler_plugin import ICommandHandlerPlugin
-from zere.core.plugins.interfaces.plugin import IPlugin, PluginType
+from zere.core.plugins.interfaces.plugin import PluginType
 
 #: Ограничение длины ответа: ответ уходит в консоль и в озвучку, а снимок
 #: страницы или выдержка из заметки легко дают десятки тысяч символов.

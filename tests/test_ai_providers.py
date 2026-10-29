@@ -35,7 +35,6 @@ from zere.ai.ai_service import (
 )
 from zere.ai.ai_settings import (
     DEFAULT_LOCAL_MODEL,
-    KEY_INVALID,
     KEY_OK,
     LOCAL_MODEL_SUGGESTIONS,
     MODE_CLOUD,
@@ -278,7 +277,7 @@ def test_panel_token_is_owner_only_on_windows() -> None:
 
 
 def test_settings_owner_key_from_env_has_priority_rules() -> None:
-    with temp_config() as tmp:
+    with temp_config():
         os.environ["ZERE_CLOUD_API_KEY"] = "sk-owner-111111111111"
         os.environ["ZERE_AI_MODE"] = "cloud"
 

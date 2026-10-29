@@ -352,7 +352,6 @@ def test_factory_falls_back_when_model_is_broken() -> None:
     """Битая модель (сессия не создалась) → откат на STT, а не мёртвый режим."""
     from zere.voice.voice_config import VoiceConfig
     from zere.voice.wakeword import create_wake_detector, kws_detector
-    from zere.voice.wakeword import wake_word_detector as stt_module
 
     fake_stt = mock.Mock(name="WakeWordDetector")
 

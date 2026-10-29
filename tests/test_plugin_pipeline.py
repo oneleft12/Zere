@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from zere.core.handlers.handler_pipeline import HandlerPipeline  # noqa: E402
 from zere.core.handlers.i_zere_handler import IZereHandler  # noqa: E402
 from zere.core.handlers.plugin_handler import PluginCommandHandler  # noqa: E402
-from zere.core.plugins.interfaces.plugin import IPlugin, PluginType  # noqa: E402
+from zere.core.plugins.interfaces.plugin import PluginType  # noqa: E402
 from zere.core.plugins.plugin_manager import PluginManager  # noqa: E402
 
 

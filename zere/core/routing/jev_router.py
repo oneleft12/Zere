@@ -67,7 +67,6 @@ from zere.core.routing.intents import (
     Intent,
     Slot,
     build_command,
-    dispatchable,
     extract_payload,
     get_intent,
 )

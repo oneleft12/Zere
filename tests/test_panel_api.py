@@ -37,7 +37,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from zere import paths as paths_module
 from zere.ai.ai_service import AiService, MESSAGE_NOT_CONFIGURED
-from zere.ai.ai_settings import DEFAULT_LOCAL_MODEL, AiSettings
+from zere.ai.ai_settings import DEFAULT_LOCAL_MODEL
 from zere.ai.ollama_url_resolver import OllamaUrlResolver
 from zere.api.server import PanelServer
 from zere.core.update.updater import UpdateBusyError
@@ -1289,7 +1289,7 @@ def test_history_pagination() -> None:
         assert len(first["items"]) <= 2
         total = first["total"]
 
-        status, raw, _ = call(panel, "GET", f"/api/history?limit=2&offset=2")
+        status, raw, _ = call(panel, "GET", "/api/history?limit=2&offset=2")
         assert status == 200
         second = json.loads(raw.decode("utf-8"))
         assert len(second["items"]) <= 2

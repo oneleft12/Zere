@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from zere.tools.drawing import drawing_geometry as geometry
 from zere.tools.drawing import drawing_service, krita_install
 from zere.tools.drawing.drawing_command_router import DrawingCommandRouter
-from zere.tools.drawing.drawing_command_type import DrawingCommandType
 from zere.tools.drawing.drawing_service import DrawingService
 from zere.tools.drawing.drawing_svg import (
     DEFAULT_COLOR,

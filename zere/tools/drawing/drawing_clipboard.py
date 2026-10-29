@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import ctypes
 import sys
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 from zere.tools.drawing.drawing_canvas import dib_legacy, dib_v5, png_bytes
 
