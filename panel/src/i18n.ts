@@ -153,6 +153,27 @@ const CORE_EN: Record<string, string> = {
   "Конфигурация config/config.json — строгая схема, валидация на сервере":
     "config/config.json — strict schema, validated server-side",
   "Язык": "Language",
+  "Язык ассистента": "Assistant language",
+  "Язык ответов ассистента: смена действует сразу, без перезапуска":
+    "Assistant answer language: applied immediately, no restart needed",
+  "русский": "Russian",
+  "английский": "English",
+  // ── Дашборд, ИИ, голос, плагины: строки, которые раньше падали на ru ──
+  "ZERE готов отвечать": "ZERE is ready",
+  "ZERE без модели": "ZERE has no model configured",
+  "Стиль": "Style",
+  "Открыть чат": "Open chat",
+  "Записей в памяти": "Memory records",
+  "Локальная модель не ответила": "The local model did not respond",
+  "Ключ можно получить здесь: ": "Get a key here: ",
+  "Фаза непрерывного слушателя: слово-триггер → команда → ответ":
+    "Continuous listener phase: wake word → command → answer",
+  "Плагины-обработчики подключены к конвейеру: их команды работают. Внешние плагины кладутся в ./plugins/*.py и загружаются при старте.":
+    "Command-handler plugins are wired into the pipeline: their commands work. External plugins live in ./plugins/*.py and are loaded on start.",
+  "handlersConnected=false — плагины-обработчики этой сборки не подключены к конвейеру: они видны в списке, но команд не получают.":
+    "handlersConnected=false — this build does not wire command-handler plugins into the pipeline: they are listed but never receive commands.",
+  "Значения честные для текущей реализации: C# умеет больше, Python-порт отдаёт false там, где функции ещё нет — панель это показывает, а не скрывает.":
+    "Values reflect the current implementation honestly: the C# edition does more, the Python port reports false where a feature is missing — the panel shows that instead of hiding it.",
   "Двухбуквенный код: ru, en": "Two-letter code: ru, en",
   "Таймаут Ollama, мин": "Ollama timeout, min",
   "От 1 до 120 минут": "From 1 to 120 minutes",

@@ -163,16 +163,19 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
           }),
         ),
         field(
-          t("Язык"),
-          textInput({
+          t("Язык ассистента"),
+          select({
             value: d.language,
-            placeholder: "ru",
-            onInput: (v) => {
+            options: [
+              { value: "ru", label: t("русский") },
+              { value: "en", label: t("английский") },
+            ],
+            onChange: (v) => {
               d.language = v;
               updateDirty();
             },
           }),
-          t("Двухбуквенный код: ru, en"),
+          t("Язык ответов ассистента: смена действует сразу, без перезапуска"),
         ),
         field(
           t("Модель Ollama"),

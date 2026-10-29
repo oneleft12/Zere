@@ -5,6 +5,23 @@ namespace ZERE.Core.AI;
 public class PromptBuilder
 {
     private readonly StringBuilder _builder = new();
+    private readonly string _memoryLabel;
+    private readonly string _historyLabel;
+    private readonly string _userLabel;
+    private readonly string _answerLabel;
+
+    // Заголовки блоков промпта: при language=en английские, иначе модель
+    // получает правило «answer only in English», но русские заголовки в самом
+    // промпте тянули ответ обратно в русский (паритет с Python).
+    public PromptBuilder(string language = "ru")
+    {
+        var english = string.Equals(language, "en", StringComparison.OrdinalIgnoreCase);
+
+        _memoryLabel = english ? "=== USER MEMORY ===" : "=== ПАМЯТЬ ПОЛЬЗОВАТЕЛЯ ===";
+        _historyLabel = english ? "=== LAST DIALOG ===" : "=== ПОСЛЕДНИЙ ДИАЛОГ ===";
+        _userLabel = english ? "=== USER MESSAGE ===" : "=== СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ ===";
+        _answerLabel = english ? "=== ASSISTANT ANSWER ===" : "=== ОТВЕТ АССИСТЕНТА ===";
+    }
 
     public PromptBuilder SystemPrompt(string systemPrompt)
     {
@@ -18,7 +35,7 @@ public class PromptBuilder
     {
         if (!string.IsNullOrWhiteSpace(memory))
         {
-            _builder.AppendLine("=== ПАМЯТЬ ПОЛЬЗОВАТЕЛЯ ===");
+            _builder.AppendLine(_memoryLabel);
             _builder.AppendLine(memory);
             _builder.AppendLine();
         }
@@ -30,7 +47,7 @@ public class PromptBuilder
     {
         if (!string.IsNullOrWhiteSpace(history))
         {
-            _builder.AppendLine("=== ПОСЛЕДНИЙ ДИАЛОГ ===");
+            _builder.AppendLine(_historyLabel);
             _builder.AppendLine(history);
             _builder.AppendLine();
         }
@@ -40,10 +57,10 @@ public class PromptBuilder
 
     public PromptBuilder UserMessage(string message)
     {
-        _builder.AppendLine("=== СООБЩЕНИЕ ПОЛЬЗОВАТЕЛЯ ===");
+        _builder.AppendLine(_userLabel);
         _builder.AppendLine(message);
         _builder.AppendLine();
-        _builder.AppendLine("=== ОТВЕТ АССИСТЕНТА ===");
+        _builder.AppendLine(_answerLabel);
 
         return this;
     }
