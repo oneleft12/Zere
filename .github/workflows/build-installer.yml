@@ -1,0 +1,69 @@
+name: Установщик ZERE
+
+# Собирает installer/Output/ZereSetup.exe и подписывает его, если в
+# репозитории настроен сертификат (секрет SIGNING_PFX_BASE64).
+#
+# Подпись важна: Windows 11 со Smart App Control блокирует неподписанный exe
+# целиком. Подписываются ОБА файла — zere.exe внутри дистрибутива и сам
+# ZereSetup.exe (build-installer.ps1 делает это одним сертификатом).
+#
+# Как получить сертификат (бесплатно для открытых проектов) — docs/SIGNING.md.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Репозиторий
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Сборка установщика
+        shell: pwsh
+        env:
+          SIGNING_PFX_BASE64: ${{ secrets.SIGNING_PFX_BASE64 }}
+          SIGNING_PFX_PASSWORD: ${{ secrets.SIGNING_PFX_PASSWORD }}
+        run: |
+          $buildArgs = @{}
+          if ($env:SIGNING_PFX_BASE64) {
+            $pfx = Join-Path $env:RUNNER_TEMP 'zere-signing.pfx'
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
+            $buildArgs.PfxPath = $pfx
+            $buildArgs.PfxPassword = $env:SIGNING_PFX_PASSWORD
+            Write-Host 'Подпись включена (сертификат из секрета SIGNING_PFX_BASE64)'
+          } else {
+            Write-Warning 'Сертификат не настроен: exe будет неподписанным, Windows 11 со Smart App Control его заблокирует'
+          }
+
+          & .\installer\build-installer.ps1 @buildArgs
+          if ($LASTEXITCODE -ne 0) { throw "Сборка установщика завершилась с кодом $LASTEXITCODE" }
+
+      - name: Проверка подписи
+        shell: pwsh
+        run: |
+          $setup = 'installer\Output\ZereSetup.exe'
+          $sig = Get-AuthenticodeSignature $setup
+          Write-Host "Статус: $($sig.Status) — $($sig.StatusMessage)"
+          if ($sig.SignerCertificate) {
+            Write-Host "Издатель: $($sig.SignerCertificate.Subject)"
+            Write-Host "Метка времени: $(if ($sig.TimeStamperCertificate) { 'есть' } else { 'НЕТ (после истечения сертификата подпись умрёт)' })"
+          }
+          if ($sig.Status -ne 'Valid') {
+            Write-Warning 'Подпись не подтверждена доверенным УЦ — для распространения это не годится'
+          }
+
+      - name: Артефакт
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZereSetup
+          path: installer/Output/ZereSetup.exe
+          if-no-files-found: error

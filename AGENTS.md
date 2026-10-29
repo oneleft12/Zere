@@ -559,6 +559,8 @@ Zere/
 │   │                             #   payload.zip, запуск install.ps1 (-SkipOllama — галочка
 │   │                             #   «без Ollama»), деинсталлятор в реестре
 │   ├── build-installer.ps1       # Сборка ZereSetup.exe (git archive + csc) — основной путь
+│   ├── sign.ps1                  # Подпись Authenticode без Windows SDK: -Thumbprint /
+│   │                             #   -Pfx / -SelfTest, метка времени, проверка статуса
 │   ├── Zere.iss                  # Inno Setup: запасной Setup.exe (код возврата install.ps1 проверяется)
 │   └── build-setup.ps1           # Сборка Inno Setup.exe (git archive + ISCC)
 ├── tests/
@@ -594,7 +596,7 @@ Zere/
 │   ├── fake_http.py              # Фейковый requests.Session для тестов ИИ (без сети)
 │   ├── check_ai_contract_external.py  # /api/ai* против запущенной панели (C# и Python)
 │   └── e2e_server.py             # Раннер панели с фейками для E2E
-├── docs/                         # Планы, отчёты, openapi.yaml (PANEL_DESIGN.md, UPDATE.md, AI_PROVIDERS.md, TTS_SILERO.md, WAKE_WORD.md, PLUGINS_RESEARCH.md, MCP_PLUGINS.md, CONSPECT.md)
+├── docs/                         # Планы, отчёты, openapi.yaml (PANEL_DESIGN.md, UPDATE.md, AI_PROVIDERS.md, TTS_SILERO.md, WAKE_WORD.md, PLUGINS_RESEARCH.md, MCP_PLUGINS.md, CONSPECT.md, SIGNING.md)
 ├── logs/                         # Логи
 └── backups/                      # Бэкапы версий
 ```

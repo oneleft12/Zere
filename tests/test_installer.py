@@ -53,7 +53,7 @@ EXPECTED_ARTIFACTS = {
     ),
 }
 
-PS1_FILES = ("install.ps1", "uninstall.ps1", "build-setup.ps1", "build-installer.ps1")
+PS1_FILES = ("install.ps1", "uninstall.ps1", "build-setup.ps1", "build-installer.ps1", "sign.ps1")
 BAT_FILES = ("ZereLauncher.bat", "Install-Zere.bat", "Uninstall-Zere.bat")
 
 
@@ -240,6 +240,41 @@ def test_app_starts_without_ollama_message() -> None:
         text,
     ), "печать «всё в порядке» не привязана к проверке зависимостей"
     assert "ИИ не настроен" in text, "нет честного сообщения для запуска без Ollama"
+
+
+def test_signing_pipeline() -> None:
+    """Подпись — часть сборки: без неё Smart App Control блокирует exe.
+
+    Подписываются оба файла: zere.exe ДО упаковки в payload (его запускают
+    ярлыки) и ZereSetup.exe после компиляции. Подпись только установщика не
+    спасает — приложение всё равно заблокируют.
+    """
+    build = _read("build-installer.ps1")
+    assert "$CertThumbprint" in build, "нет параметра отпечатка сертификата"
+    assert "$PfxPath" in build and "$SelfTestSign" in build, "нет .pfx и режима проверки"
+    assert "sign.ps1" in build, "сборка не вызывает sign.ps1"
+
+    # zere.exe подписывается до создания payload.zip, установщик — после csc.
+    payload_pos = build.find("упаковка payload.zip")
+    sign_app_pos = build.find("$signTargets = @(Join-Path $stageDir 'zere.exe')")
+    compile_pos = build.find("csc -> ")
+    sign_setup_pos = build.find("$signParams = @{ Files = @($setupPath) }")
+    assert 0 < sign_app_pos < payload_pos, "zere.exe подписывается после упаковки payload"
+    assert 0 < compile_pos < sign_setup_pos, "ZereSetup.exe подписывается до компиляции"
+
+    sign = _read("sign.ps1")
+    assert "Set-AuthenticodeSignature" in sign, "подпись идёт не через Authenticode"
+    assert "TimestampServer" in sign, "нет метки времени — подпись умрёт с сертификатом"
+    assert "New-SelfSignedCertificate" in sign, "нет режима проверки конвейера"
+
+    workflow = ROOT / ".github" / "workflows" / "build-installer.yml"
+    assert workflow.is_file(), "нет CI-сборки установщика"
+    text = workflow.read_text(encoding="utf-8")
+    assert "build-installer.ps1" in text, "CI не собирает установщик"
+    assert "SIGNING_PFX_BASE64" in text, "CI не умеет подписывать"
+    assert "Get-AuthenticodeSignature" in text, "CI не проверяет подпись"
+
+    assert (ROOT / "docs" / "SIGNING.md").is_file(), "нет инструкции по сертификату"
 
 
 def test_cs_installer_source_is_utf8_bom() -> None:

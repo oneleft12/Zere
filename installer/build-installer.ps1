@@ -21,13 +21,35 @@
     Архивировать не HEAD, а текущее рабочее дерево (учесть некоммиченные
     изменения, кроме gitignored-файлов). Удобно для отладки установщика.
 
+.PARAMETER CertThumbprint
+    Отпечаток сертификата подписи в хранилище (USB-токен, облачный HSM,
+    Certum). Подписываются И zere.exe внутри дистрибутива, И ZereSetup.exe —
+    иначе Smart App Control блокирует приложение при первом запуске.
+
+.PARAMETER PfxPath
+    Файл .pfx с ключом (старые сертификаты, локальные сборки).
+
+.PARAMETER PfxPassword
+    Пароль .pfx.
+
+.PARAMETER SelfTestSign
+    Подписать самоподписанным сертификатом, чтобы проверить конвейер.
+    Windows такую подпись не считает доверенной: для распространения нужен
+    сертификат УЦ (docs\SIGNING.md).
+
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1
     powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 -WorkingTree
+    powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 -CertThumbprint ABCD1234
+    powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 -SelfTestSign
 #>
 [CmdletBinding()]
 param(
-    [switch]$WorkingTree
+    [switch]$WorkingTree,
+    [string]$CertThumbprint = '',
+    [string]$PfxPath = '',
+    [string]$PfxPassword = '',
+    [switch]$SelfTestSign
 )
 
 $ErrorActionPreference = 'Stop'
@@ -42,6 +64,7 @@ function Write-Utf8NoBom {
 
 $root = Split-Path -Parent $PSScriptRoot
 $sourcePath = Join-Path $PSScriptRoot 'ZereSetup.cs'
+$signScript = Join-Path $PSScriptRoot 'sign.ps1'
 $stageDir = Join-Path $PSScriptRoot 'stage'
 $stageZip = Join-Path $PSScriptRoot 'stage.zip'
 $payloadZip = Join-Path $PSScriptRoot 'payload.zip'
@@ -134,6 +157,33 @@ if (-not (Test-Path (Join-Path $stageDir 'zere.exe'))) {
 $staged = @(Get-ChildItem -LiteralPath $stageDir -Recurse -File).Count
 Write-Info ('файлов в stage: ' + $staged)
 
+# --- 3.1. Подпись приложения ДО упаковки -------------------------------------
+# zere.exe запускают ярлыки, и Smart App Control проверяет его при запуске:
+# подпись установщика без подписи приложения не помогает. Поэтому подписываем
+# копию в stage (файл в репозитории не трогаем) — она и уйдёт в payload.
+$signingConfigured = ($CertThumbprint -ne '') -or ($PfxPath -ne '') -or $SelfTestSign
+if ($signingConfigured) {
+    $signTargets = @(Join-Path $stageDir 'zere.exe')
+    $speakerInStage = Join-Path $stageDir 'publish\speaker\ZERE.Speaker.exe'
+    if (Test-Path -LiteralPath $speakerInStage) { $signTargets += $speakerInStage }
+
+    # Хэш-таблица, а не массив: массивы в PowerShell сплатятся ПОЗИЦИОННО,
+    # и «-Files» уехал бы значением первого параметра.
+    $signParams = @{ Files = $signTargets }
+    if ($SelfTestSign) { $signParams.SelfTest = $true; $signParams.AllowSelfSigned = $true }
+    if ($CertThumbprint -ne '') { $signParams.Thumbprint = $CertThumbprint }
+    if ($PfxPath -ne '') { $signParams.Pfx = $PfxPath; $signParams.PfxPassword = $PfxPassword }
+
+    & $signScript @signParams
+    if ($LASTEXITCODE -ne 0) {
+        Write-Fail2 'подпись приложения (zere.exe) не удалась — установщик не собран'
+        exit 1
+    }
+} else {
+    Write-Host '   [!]  подпись не настроена: Windows 11 со Smart App Control заблокирует' -ForegroundColor Yellow
+    Write-Host '        неподписанный exe. Как включить — docs\SIGNING.md (-CertThumbprint / -SelfTestSign)' -ForegroundColor Yellow
+}
+
 # --- 4. payload.zip (встраивается в exe) ---
 Write-Info 'упаковка payload.zip'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -195,6 +245,22 @@ Remove-Item -LiteralPath $payloadZip -Force -ErrorAction SilentlyContinue
 if ($code -ne 0) {
     Write-Fail2 ('csc завершился с ошибкой (код ' + $code + ')')
     exit 1
+}
+
+# --- 7. Подпись установщика --------------------------------------------------
+# Ставится последней: подпись покрывает байты файла, и любое изменение после
+# неё её ломает. ZereUninstall.exe — копия этого файла, подпись сохраняется.
+if ($signingConfigured) {
+    $signParams = @{ Files = @($setupPath) }
+    if ($SelfTestSign) { $signParams.SelfTest = $true; $signParams.AllowSelfSigned = $true }
+    if ($CertThumbprint -ne '') { $signParams.Thumbprint = $CertThumbprint }
+    if ($PfxPath -ne '') { $signParams.Pfx = $PfxPath; $signParams.PfxPassword = $PfxPassword }
+
+    & $signScript @signParams
+    if ($LASTEXITCODE -ne 0) {
+        Write-Fail2 'подпись ZereSetup.exe не удалась — файл оставлен неподписанным, распространять нельзя'
+        exit 1
+    }
 }
 
 if (Test-Path $setupPath) {
