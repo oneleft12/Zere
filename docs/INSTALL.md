@@ -6,7 +6,38 @@
 
 ## Способы установки
 
-### 1. Быстрый (из репозитория)
+### 1. Готовый установщик — `ZereSetup.exe` (рекомендуется)
+
+Один exe: двойной клик, мастер на русском, права администратора не нужны.
+Мастер спрашивает папку (по умолчанию `%LOCALAPPDATA%\Programs\ZERE`),
+распаковывает дистрибутив, запускает `installer\install.ps1` (ход установки
+виден в окне консоли), после успеха регистрирует деинсталлятор в «Установка и
+удаление программ» и запускает `zere.exe` — окно приложения.
+
+```powershell
+# сборка установщика (git-архив + системный csc.exe, Inno Setup не нужен)
+powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1
+```
+
+Результат: `installer\Output\ZereSetup.exe`. Тихая установка для автоматизации:
+
+```powershell
+installer\Output\ZereSetup.exe /SILENT "/DIR=C:\ZERE" /NOLAUNCH
+```
+
+Коды возврата: `0` — установлено, `1` — ошибка (подробности в
+`installer\install-log.txt` папки установки).
+
+**Почему установщик собран `csc.exe`, а не Inno Setup.** На Windows 11 с
+включённым Smart App Control (WDAC) свежесобранный неподписанный `Setup.exe`
+блокируется: «Политика ограничила приложение. Обратитесь к администратору»
+(событие CodeIntegrity 3077/3118). Файлы, собранные системным компилятором,
+этот фильтр пропускает — так же запускается `zere.exe`. Поэтому мастер
+установки собирается им, а не ISCC. Подписанный установщик (Authenticode)
+это ограничение снимает — но сертификат нужен платный.
+
+### 2. Быстрый (из репозитория)
+
 
 Двойной клик по **`installer\Install-Zere.bat`** — или из консоли:
 
@@ -14,7 +45,7 @@
 powershell -ExecutionPolicy Bypass -File installer\install.ps1
 ```
 
-### 2. Проверка без изменений (dry-run)
+### 3. Проверка без изменений (dry-run)
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File installer\install.ps1 -CheckOnly
@@ -23,7 +54,7 @@ powershell -ExecutionPolicy Bypass -File installer\install.ps1 -CheckOnly
 Показывает состояние всех компонентов и что потребуется сделать.
 Код возврата: `0` — всё готово, `1` — требуются действия.
 
-### 3. Готовый Setup.exe (Inno Setup)
+### 4. Запасной Setup.exe (Inno Setup)
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1            # обе редакции (по умолчанию)
@@ -34,6 +65,8 @@ powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1 -WorkingTree 
 Результат: `installer\Output\ZereInstaller.exe` — стандартный мастер
 установки Windows (установка в `%LOCALAPPDATA%\Programs\ZERE`, без прав
 администратора, с деинсталлятором в «Установка и удаление программ»).
+Годится там, где Smart App Control выключен или установщик подписан:
+неподписанный `ZereInstaller.exe` на Windows 11 с SAC блокируется (см. §1).
 
 Требования для сборки Setup: [Inno Setup 6](https://jrsoftware.org/isdl.php)
 и git. По умолчанию staged-дистрибутив формируется из `git archive HEAD`
@@ -129,12 +162,13 @@ ZERE падал на старте с `No module named ...`, хотя устан�
 ## Что создаётся
 
 - `.venv\` — виртуальное окружение Python
-- `zere.exe` — приложение: окно без консоли (ярлыки ведут сюда)
-- `ZERE.bat` в корне — запасной лаунчер (приложение → `.venv`, иначе
+- `zere.exe` — приложение: одно окно ZERE, без консоли и без браузера
+  (ярлыки ведут сюда)
+- `ZERE.bat` в корне — запасной лаунчер (`zere.exe` → `.venv`, иначе
   `publish\app\ZERE.App.exe`, иначе системный `python`)
-- Ярлыки `ZERE.lnk` на рабочем столе и в меню «Пуск» — на `zere.exe` (при
-  включённом Smart App Control — на `pythonw.exe main.py --desktop`);
-  `ZERE - panel.url` (web-панель `http://127.0.0.1:8080`)
+- Ярлык `ZERE.lnk` на рабочем столе и в меню «Пуск» — на `zere.exe`.
+  Браузерный ярлык `ZERE - panel.url` больше не создаётся (старый удаляется):
+  он открывал панель в браузере, а ZERE — оконное приложение
 - `logs\desktop.log` — журнал запуска приложения (вывод Python без консоли)
 - `data\webview\` — профиль WebView2: тема и язык панели (gitignored)
 - `installer\install-manifest.json` — манифест установки (читается
@@ -142,6 +176,9 @@ ZERE падал на старте с `No module named ...`, хотя устан�
 - `installer\install-log.txt` — полный лог установки (перезаписывается при
   каждом запуске; в git не попадает)
 - Недостающие `config\config.json` / `config\plugins.json`
+- Только для `ZereSetup.exe`: `ZereUninstall.exe` рядом с программой и запись
+  в `HKCU\...\Uninstall\ZERE` — деинсталлятор в «Установка и удаление
+  программ»
 
 Коды возврата: `0` — успех, `1` — есть критичные ошибки (см. `[FAIL]` в
 отчёте), `2` — фатальная ошибка (отчёт всё равно печатается).
@@ -167,11 +204,13 @@ installer/
 ├── ZereLauncher.bat   # шаблон лаунчера ZERE.bat (ASCII/CRLF)
 ├── Install-Zere.bat   # двойной клик → install.ps1
 ├── Uninstall-Zere.bat # двойной клик → uninstall.ps1
-├── Zere.iss           # Inno Setup: готовый Setup.exe
+├── ZereSetup.cs       # установщик-мастер (WinForms, C# 5): payload + install.ps1
+├── build-installer.ps1  # сборка ZereSetup.exe (stage из git + csc)
+├── Zere.iss           # Inno Setup: запасной Setup.exe
 ├── build-setup.ps1      # сборка Setup.exe (stage из git + ISCC)
 ├── install-manifest.json# (генерируется) манифест установки
 ├── install-log.txt      # (генерируется) полный лог установки
-└── Output/              # (генерируется) ZereInstaller.exe
+└── Output/              # (генерируется) ZereSetup.exe, ZereInstaller.exe
 ```
 
 ## Диагностика
@@ -185,6 +224,8 @@ installer/
 | `файл не прошёл проверку SHA-256` | Повреждённая загрузка или изменился апстрим-файл — сообщите, обновим контрольную сумму |
 | `No module named ...` при запуске ZERE | Откройте `installer\install-log.txt`: видно, что именно не поставил pip. Повторный запуск `installer\install.ps1` доустановит недостающие пакеты (шаг не пропускается, даже если часть зависимостей уже стоит) |
 | Setup.exe: «Настройка ZERE завершилась с ошибкой (код N)» | Файлы скопированы, окружение настроено не полностью — причина в `installer\install-log.txt`; устраните её и запустите `installer\install.ps1` ещё раз |
+| `ZereInstaller.exe` не запускается: «Политика ограничила приложение» | Windows 11 Smart App Control блокирует неподписанный Setup.exe от Inno Setup. Используйте `ZereSetup.exe` (собран системным `csc.exe`, этот фильтр его пропускает), `installer\Install-Zere.bat` или подпишите установщик сертификатом |
+| `ZereSetup.exe` запустился, но установка падает | Откройте `installer\install-log.txt` в папке установки: мастер только распаковывает файлы и запускает `install.ps1`, вся настройка — там |
 | `[FAIL] .venv и зависимости — нет: ...` | В отчёте перечислены отсутствующие модули: обычно это обрыв сети на PyPI или отсутствие колеса под выбранную версию Python; ставьте `pip install -r requirements.txt` вручную и смотрите хвост ошибки в логе |
 | Голос не работает | `python -m compileall main.py zere`; проверьте `ttsEngine` в `config\config.json`; для ChatTTS — `tools\uv.exe` (первый синтез тянет ~2–3 ГБ с torch), для Silero — `torch` в окружении и 145 МБ модели в `ZERE.Voice\Silero` |
 | Панель не отвечает | Она запускается вместе с ZERE на `http://127.0.0.1:8080` |

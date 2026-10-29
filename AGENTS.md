@@ -46,11 +46,15 @@ UI не переписан: в окне живёт та же панель (`pane
   `launcher/ZereLauncher.cs` (исходник `zere.exe`).
 - **`python main.py --desktop`** — то же без лаунчера; `python main.py` —
   консольный режим отладки (панель в браузере, команды текстом).
-- Ярлыки установщика ведут на `zere.exe`; при включённом Smart App Control
-  (Windows 11) — на подписанный `pythonw.exe main.py --desktop`, потому что
-  новый неподписанный exe блокируется. `ZERE.bat` делает так же (проверяет
-  `VerifiedAndReputablePolicyState`). Профиль WebView2 (тема/язык) —
-  `data/webview/` (gitignored).
+- Ярлыки установщика ведут на `zere.exe` — окно приложения; браузерный ярлык
+  панели (`.url`) больше не создаётся, старый удаляется. Если Smart App Control
+  (Windows 11) заблокирует неподписанный exe, `ZERE.bat` откатывается на
+  подписанный `pythonw.exe main.py --desktop` — то же окно, без консоли
+  (`VerifiedAndReputablePolicyState`). Сам установщик — `ZereSetup.exe`,
+  собранный системным `csc.exe`: готовый Setup.exe от Inno Setup Smart App
+  Control блокирует целиком («Политика ограничила приложение»), а файлы
+  системного компилятора запускаются — как и `zere.exe`. Профиль WebView2
+  (тема/язык) — `data/webview/` (gitignored).
 - Подробности: `docs/DESKTOP_APP.md`; тесты — `tests/test_desktop.py`.
 
 ## Tools (инструменты)
@@ -544,15 +548,18 @@ Zere/
 │   │   └── commands.ts           # каталог команд ZERE (панель на вкладке «Чат»)
 │   ├── e2e/                      # Playwright-смоук (npm run test:e2e)
 │   └── dist/                     # Сборка — коммитится, раздаётся сервером
-├── installer/                    # Установщик Windows (PowerShell + Inno Setup)
+├── installer/                    # Установщик Windows (PowerShell + C#-мастер)
 │   ├── install.ps1               # Установка: Python/Ollama/голос/ярлыки, SHA-256, -CheckOnly,
 │   │                             #   проверка всего requirements.txt и лог install-log.txt
 │   ├── uninstall.ps1             # Деинсталляция (-RemoveAssets, -PurgeData)
-│   ├── ZereLauncher.bat          # Шаблон лаунчера ZERE.bat
+│   ├── ZereLauncher.bat          # Шаблон лаунчера ZERE.bat (zere.exe → pythonw → консоль)
 │   ├── Install-Zere.bat          # Двойной клик → install.ps1
 │   ├── Uninstall-Zere.bat        # Двойной клик → uninstall.ps1
-│   ├── Zere.iss                  # Inno Setup: готовый Setup.exe (код возврата install.ps1 проверяется)
-│   └── build-setup.ps1           # Сборка Setup.exe (git archive + ISCC)
+│   ├── ZereSetup.cs              # Свой установщик (WinForms, C# 5): мастер, встроенный
+│   │                             #   payload.zip, запуск install.ps1, деинсталлятор в реестре
+│   ├── build-installer.ps1       # Сборка ZereSetup.exe (git archive + csc) — основной путь
+│   ├── Zere.iss                  # Inno Setup: запасной Setup.exe (код возврата install.ps1 проверяется)
+│   └── build-setup.ps1           # Сборка Inno Setup.exe (git archive + ISCC)
 ├── tests/
 │   ├── conftest.py               # Изоляция: журнал ZERE уводится в tmp (logs/ не засоряется)
 │   ├── test_panel_api.py         # Контрактные тесты панели (123, по OpenAPI)

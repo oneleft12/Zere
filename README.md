@@ -30,6 +30,19 @@
 
 ## Установка (Windows)
 
+**Установщик в одном exe:** `installer\Output\ZereSetup.exe` — двойной клик,
+права администратора не нужны. Ставит Python-окружение, Ollama с моделью,
+голосовые модели, ярлыки (ведут на `zere.exe` — окно приложения), пишет
+деинсталлятор в «Установка и удаление программ». Сборка:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1
+```
+
+Установщик собирается системным `csc.exe` — так его запускает и Windows 11 со
+включённым Smart App Control (готовый `Setup.exe` от Inno Setup в этом режиме
+блокируется как неизвестный exe).
+
 ```powershell
 # полная установка: Python-окружение, Ollama + модель, Whisper + uv (для ChatTTS), ярлыки
 powershell -ExecutionPolicy Bypass -File installer\install.ps1
@@ -39,7 +52,7 @@ powershell -ExecutionPolicy Bypass -File installer\install.ps1 -CheckOnly
 ```
 
 - Двойной клик: `installer\Install-Zere.bat`
-- Готовый Setup.exe (Inno Setup 6): `installer\build-setup.ps1`
+- Запасной Setup.exe (Inno Setup 6): `installer\build-setup.ps1`
 - Удаление: `installer\Uninstall-Zere.bat`
 - Подробности, параметры и диагностика — [docs/INSTALL.md](docs/INSTALL.md)
 
