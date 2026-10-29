@@ -925,18 +925,18 @@ function New-Shortcuts {
     $pythonw = Join-Path $Root '.venv\Scripts\pythonw.exe'
     $icon = Join-Path $Root 'assets\zere.ico'
 
-    # Ярлык ведёт в приложение. Smart App Control блокирует неподписанный
-    # zere.exe, поэтому при включённом SAC или отсутствии exe ярлык запускает
-    # подписанный pythonw.exe с main.py --desktop — окно то же, консоли нет.
+    # Ярлык ведёт в приложение zere.exe — это окно ZERE, а не браузер.
+    # Порядок: zere.exe → pythonw main.py --desktop (то же окно, если exe не
+    # собрался) → ZERE.bat (последняя страховка; он сам разберётся с SAC).
+    # Браузерный ярлык панели (.url) больше не создаётся: он открывал ZERE в
+    # браузере, а нужен именно zere.exe.
     $target = $bat
     $arguments = ''
-    if ((Test-Path $exe) -and -not (Test-SmartAppControl)) {
+    if (Test-Path $exe) {
         $target = $exe
     } elseif (Test-Path $pythonw) {
         $target = $pythonw
         $arguments = 'main.py --desktop'
-    } elseif (Test-Path $exe) {
-        $target = $exe
     }
 
     $shell = New-Object -ComObject WScript.Shell
@@ -955,10 +955,14 @@ function New-Shortcuts {
         $lnk.Save()
     }
 
-    $panelUrl = 'http://127.0.0.1:8080'
-    $urlText = "[InternetShortcut]`r`nURL=$panelUrl`r`n"
-    [System.IO.File]::WriteAllText((Join-Path $desktop 'ZERE - panel.url'), $urlText, $Utf8NoBom)
-    [System.IO.File]::WriteAllText((Join-Path $smDir 'ZERE - panel.url'), $urlText, $Utf8NoBom)
+    # Старый ярлык браузерной панели мог остаться от прежней установки:
+    # убираем, иначе ZERE открывается в браузере вместо окна приложения.
+    foreach ($dir in @($desktop, $smDir)) {
+        $oldUrl = Join-Path $dir 'ZERE - panel.url'
+        if (Test-Path -LiteralPath $oldUrl) {
+            Remove-Item -LiteralPath $oldUrl -Force -ErrorAction SilentlyContinue
+        }
+    }
     return $true
 }
 
@@ -1480,15 +1484,25 @@ if ($script:LogPath -ne '') {
 }
 
 # --- Запуск ---
+# Запускаем приложение zere.exe: одно окно ZERE, без консоли и без браузера.
+# ZERE.bat — только если приложение не собралось (тогда он сам выберет
+# pythonw main.py --desktop, чтобы окно всё равно было, а не браузер).
+$appPath = Join-Path $Prefix 'zere.exe'
 $batPath = Join-Path $Prefix 'ZERE.bat'
-if (-not $NoLaunch -and (Test-Path $batPath)) {
+$launchTarget = $appPath
+if (-not (Test-Path -LiteralPath $launchTarget)) { $launchTarget = $batPath }
+if (-not $NoLaunch -and (Test-Path -LiteralPath $launchTarget)) {
     $answer = 'y'
     if (-not $Yes) {
         $answer = Read-Host 'Запустить ZERE сейчас? [Y/n]'
         $answer = $answer.Trim()
     }
     if ($answer -eq '' -or $answer -match '(?i)^(y|д|да|yes)$') {
-        Start-Process -FilePath 'cmd.exe' -ArgumentList ('/k "' + $batPath + '"') | Out-Null
+        if ($launchTarget -eq $appPath) {
+            Start-Process -FilePath $appPath -WorkingDirectory $Prefix | Out-Null
+        } else {
+            Start-Process -FilePath 'cmd.exe' -ArgumentList ('/k "' + $batPath + '"') | Out-Null
+        }
     }
 }
 exit 0

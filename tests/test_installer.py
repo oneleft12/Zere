@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -52,7 +53,7 @@ EXPECTED_ARTIFACTS = {
     ),
 }
 
-PS1_FILES = ("install.ps1", "uninstall.ps1", "build-setup.ps1")
+PS1_FILES = ("install.ps1", "uninstall.ps1", "build-setup.ps1", "build-installer.ps1")
 BAT_FILES = ("ZereLauncher.bat", "Install-Zere.bat", "Uninstall-Zere.bat")
 
 
@@ -61,7 +62,7 @@ def _read(name: str) -> str:
 
 
 def test_installer_files_exist() -> None:
-    expected = set(PS1_FILES) | set(BAT_FILES) | {"Zere.iss"}
+    expected = set(PS1_FILES) | set(BAT_FILES) | {"Zere.iss", "ZereSetup.cs"}
     missing = sorted(n for n in expected if not (INSTALLER / n).is_file())
     assert not missing, f"нет файлов установщика: {missing}"
 
@@ -125,8 +126,12 @@ def test_launcher_handles_smart_app_control() -> None:
     bat = (INSTALLER / "ZereLauncher.bat").read_bytes().decode("ascii")
     assert "VerifiedAndReputablePolicyState" in bat, "лаунчер не проверяет SAC"
     assert "pythonw.exe" in bat, "лаунчер не умеет запускать приложение через pythonw"
-    assert 'if "%SAC%"=="0" if exist "zere.exe"' in bat, (
-        "zere.exe должен запускаться только при выключенном SAC"
+    # Приложение — первый путь: zere.exe запускается всегда, когда он есть.
+    # Откат на pythonw включается, только если exe не стартовал при включённом
+    # SAC (иначе второй запуск поверх диалога ошибки самого exe).
+    assert 'if exist "zere.exe"' in bat, "лаунчер не запускает zere.exe"
+    assert 'if errorlevel 1 if "%SAC%"=="1" goto :fallback' in bat, (
+        "откат на pythonw должен срабатывать только при блокировке zere.exe"
     )
 
 
@@ -183,6 +188,41 @@ def test_inno_script_wiring() -> None:
         "build-setup.ps1 не формирует stage из git"
     )
     assert "ISCC" in build, "build-setup.ps1 не ищет ISCC.exe"
+
+
+def test_csharp_installer_runs_app_not_browser() -> None:
+    """ZereSetup.exe ставит ZERE и запускает приложение zere.exe.
+
+    Свой установщик на csc нужен из-за Smart App Control: он блокирует
+    свежесобранный неподписанный Setup.exe от Inno Setup, а файлы системного
+    компилятора пропускает — так же запускается zere.exe.
+    """
+    cs = _read("ZereSetup.cs")
+    assert 'PayloadResource = "payload.zip"' in cs, "нет встроенного архива дистрибутива"
+    assert "-Edition python -Yes -NoLaunch" in cs, "install.ps1 запускается не с Python-редакцией"
+    assert "ZereUninstall.exe" in cs, "нет деинсталлятора рядом с программой"
+    assert "Uninstall\\ZERE" in cs, "нет записи в «Установка и удаление программ»"
+    assert 'Path.Combine(prefix, "zere.exe")' in cs, "установщик не запускает zere.exe"
+    assert "webbrowser" not in cs, (
+        "установщик не должен открывать браузерную панель — только окно zere.exe"
+    )
+    assert "Smart App" in cs and "WDAC" in cs, "нет пояснения, зачем свой установщик"
+
+
+def test_cs_installer_source_is_utf8_bom() -> None:
+    """Кириллица в мастере: csc читает UTF-8 без BOM как ANSI."""
+    data = (INSTALLER / "ZereSetup.cs").read_bytes()
+    assert data.startswith(BOM), "ZereSetup.cs без UTF-8 BOM — русский текст станет кракозябрами"
+
+
+def test_build_installer_wiring() -> None:
+    """build-installer.ps1 собирает один exe: git-архив + payload + csc."""
+    build = _read("build-installer.ps1")
+    assert "csc.exe" in build, "не используется системный компилятор"
+    assert "git archive" in build, "stage не формируется из git"
+    assert "/resource:" in build and "payload.zip" in build, "архив не встраивается"
+    assert "ZereSetup.exe" in build, "не задано имя установщика"
+    assert "/codepage:65001" in build, "кодировка исходника не задана — кириллица сломается"
 
 
 def test_version_sources_agree() -> None:
@@ -276,6 +316,27 @@ def test_build_setup_ships_both_editions() -> None:
     assert match.group(1) == "both", "ручной ISCC соберёт не обе редакции"
 
 
+def _windows_path(path: Path) -> str:
+    """Путь так, как его видит Windows PowerShell.
+
+    Под WSL каталог репозитория — /mnt/c/..., и Windows такого пути не знает:
+    без перевода тест «проверял синтаксис» на несуществующем файле.
+    """
+    if os.name == "nt":
+        return str(path)
+    wslpath = shutil.which("wslpath")
+    if wslpath:
+        try:
+            result = subprocess.run(
+                [wslpath, "-w", str(path)], capture_output=True, text=True, timeout=30
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return result.stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+    return path.as_posix().replace("/", chr(92))
+
+
 def test_ps1_parse_powershell() -> None:
     """Синтаксис .ps1 через парсер PowerShell (пропускается вне Windows)."""
     ps = next(
@@ -298,9 +359,9 @@ def test_ps1_parse_powershell() -> None:
         cmd = (
             "$e=$null;$t=$null;"
             "[System.Management.Automation.Language.Parser]::ParseFile("
-            f"'{(INSTALLER / name).as_posix().replace('/', chr(92))}',"
+            f"'{_windows_path(INSTALLER / name)}',"
             "[ref]$t,[ref]$e)|Out-Null;"
-            "if($e.Count){$e|%%{('{0}: {1}' -f $_.Extent.StartLineNumber,$_.Message)};"
+            "if($e.Count){$e|ForEach-Object{('{0}: {1}' -f $_.Extent.StartLineNumber,$_.Message)};"
             "exit 1}else{exit 0}"
         )
         proc = subprocess.run(

@@ -32,9 +32,10 @@
 #define MyAppName "ZERE"
 #define MyAppPublisher "ZERE Project"
 #define MyAppURL "https://github.com/oneleft12/Zere"
-; Ярлык Inno создаётся до install.ps1 (он перезапишет его на zere.exe или
-; pythonw при Smart App Control). ZERE.bat — безопасный стартовый путь.
-#define MyAppExeName "ZERE.bat"
+; Ярлык Inno создаётся до install.ps1 (он перезапишет его на zere.exe).
+; zere.exe — приложение: одно окно ZERE (pywebview), без консоли и без
+; браузера. ZERE.bat остаётся запасным путём, если exe не собрался.
+#define MyAppExeName "zere.exe"
 
 [Setup]
 AppId={{5E7A1C42-93B8-4F6D-A2E1-7C4D0B9F3A55}
@@ -56,6 +57,7 @@ Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName={#MyAppName}
+UninstallDisplayIcon={app}\zere.exe
 CloseApplications=yes
 
 [Languages]
@@ -80,6 +82,11 @@ Name: "{userprograms}\{#MyAppName}\{#MyAppName}"; Filename: "{app}\{#MyAppExeNam
 ; Через [Run] мастер показывал «Установка завершена» даже когда pip не поставил
 ; зависимости: пользователь узнавал об этом только при запуске ZERE, уже с
 ; ошибкой «No module named ...». Окно консоли НЕ скрыто — виден ход установки.
+;
+; Финальный шаг — запуск приложения: zere.exe открывает окно ZERE (не
+; браузер). Галочка на странице «Завершение»; в тихой установке не
+; запускается (skipifsilent), чтобы автоматизация не открывала окна.
+Filename: "{app}\zere.exe"; Description: "Запустить ZERE"; WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent
 
 [Code]
 procedure CurStepChanged(CurStep: TSetupStep);

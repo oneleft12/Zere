@@ -207,11 +207,14 @@ config/conspect.json
 
 # Артефакты установщика (генерируются)
 /ZereInstaller.exe
+/ZereSetup.exe
 /ZERE.bat
 /installer/install-manifest.json
 /installer/install-log.txt
 /installer/stage/
 /installer/stage.zip
+# Архив дистрибутива, встраиваемый в ZereSetup.exe (build-installer.ps1)
+/installer/payload.zip
 /installer/Output/
 
 # Зависимости панели (dist — наоборот, коммитим: раздаётся без node)
