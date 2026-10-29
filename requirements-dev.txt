@@ -1,0 +1,23 @@
+# Зависимости разработки и CI: только то, что нужно тестам и линтеру.
+#
+# Почему отдельный файл, а не requirements.txt: полный рантайм тянет torch
+# (ChatTTS), sherpa-onnx, pywebview и прочее на несколько гигабайт. Тестам
+# всего этого не нужно — они работают на фейках (tests/fake_*.py), а тяжёлые
+# пакеты подставляются скипами. Установка здесь — секунды.
+#
+# Использование:
+#   python -m pip install -r requirements-dev.txt
+#   python -m pytest tests -q
+#   ruff check zere main.py
+
+# numpy импортируется на уровне модуля в zere/voice/audio и нужен
+# тестам (wake word, предзагрузка onnxruntime, C#-спикер).
+numpy>=1.26
+
+pytest>=8.0
+pytest-cov>=5.0
+PyYAML>=6.0
+requests>=2.32
+pillow>=10.0
+psutil>=6.0
+ruff>=0.9

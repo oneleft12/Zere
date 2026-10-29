@@ -1,7 +1,0 @@
-<Solution>
-  <Project Path="JARVIS.AI/JARVIS.AI.csproj" />
-  <Project Path="JARVIS.App/JARVIS.App.csproj" />
-  <Project Path="JARVIS.Core/JARVIS.Core.csproj" />
-  <Project Path="JARVIS.Memory/JARVIS.Memory.csproj" />
-  <Project Path="JARVIS.Tools/JARVIS.Tools.csproj" />
-</Solution>

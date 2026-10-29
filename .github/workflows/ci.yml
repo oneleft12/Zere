@@ -89,11 +89,17 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Зависимости тестов
-        # psutil нужен тестам роутера интентов: они проверяют подтверждение
-        # «да» в SafeActionManager (тот тянет ProcessService). В requirements.txt
-        # пакет уже есть — это зависимость самого ZERE.
-        run: pip install pyyaml requests pillow psutil
+      - name: Зависимости тестов и линтера
+        # requirements-dev.txt — pytest, pytest-cov, PyYAML, requests, pillow,
+        # psutil, ruff. Полный requirements.txt не ставим: ChatTTS тянет torch
+        # (~2–3 ГБ), а тестам хватает фейков (tests/fake_*.py) и скипов по
+        # отсутствующим тяжёлым пакетам.
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Линтер (ruff)
+        # F — неопределённые имена и неиспользуемое, E9 — синтаксис,
+        # B023 — замыкание над переменной цикла. Обоснование — ruff.toml.
+        run: ruff check zere main.py tests
 
       - name: Компиляция
         run: python -m compileall -q zere main.py
@@ -101,51 +107,15 @@ jobs:
       - name: Проверка порта (AST-контракт)
         run: python scripts/check_port.py
 
-      - name: Тесты установщика (SHA-256, связность, зависимости, лог)
-        # Ловят класс сбоев, невидимый на машине разработчика: пакет есть в
-        # requirements.txt, а установщик его не проверяет, считает окружение
-        # готовым — и ZERE падает с «No module named ...». Парсинг .ps1
-        # пропускается вне Windows.
-        run: python tests/test_installer.py
-
-      - name: Контрактные тесты панели (внутрипроцессная)
-        run: python tests/test_panel_api.py
-
-      - name: Тесты P1-2 (system-промпт один раз)
-        run: python tests/test_system_prompt.py
-
-      - name: Тесты рисования (Krita/Paint)
-        run: python tests/test_drawing.py
-
-      - name: Тесты плагина Krita (SVG, протокол, установка, выбор способа)
-        run: python tests/test_krita_plugin.py
-
-      - name: Тесты рисования картинкой (рендер, DIB, буфер, доставка в Paint)
-        run: python tests/test_drawing_canvas.py
-
-      - name: Тесты десктоп-режима (окно, флаги, коды возврата лаунчера)
-        # GUI не запускается: проверяются stdio pythonw, разбор --desktop,
-        # сценарий «панель → окно → остановка» на фейках и артефакты zere.exe.
-        run: python tests/test_desktop.py
-
-      - name: Тесты предзагрузки onnxruntime (System32 не перехватывает sherpa)
-        run: python tests/test_onnx_preload.py
-
-      - name: Тесты обновления из GitHub (git в temp-каталоге)
-        run: python tests/test_updater.py
-
-      - name: Тесты ИИ (ключ, провайдеры, локальная модель, маскирование)
-        run: python tests/test_ai_providers.py
-
-      - name: Тесты роутера интентов Jev (реестр, пороги, слоты, встраивание)
-        run: python tests/test_jev_router.py
-
-      - name: Тесты Silero TTS (ленивая загрузка, голоса, нормализация текста)
-        # Нормализация — то, что нельзя поймать «на слух»: у модели v5_5_ru в
-        # наборе символов нет ни цифр, ни латиницы, и apply_tts выбрасывает их
-        # МОЛЧА. Тесты держат контракт «на выходе нет латиницы и цифр» и
-        # разбивку предложений (точка в «3.5» — не конец фразы).
-        run: python tests/test_silero.py
+      - name: Все тесты с покрытием
+        # Раньше файлы вызывались поимённо, и 13 файлов (конспектор, MCP,
+        # ChatTTS, KWS…) не исполнялись вовсе — 294 теста из 753. Теперь
+        # pytest гоняет весь набор, а --cov-fail-under не даёт покрытию
+        # ядра тихо просесть.
+        run: |
+          python -m pytest tests -q \
+            --cov=zere --cov-report=term-missing:skip-covered \
+            --cov-fail-under=70
 
   csharp:
     name: C# (сборка + контракт панели)
