@@ -208,7 +208,6 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
             value: draft.ttsEngine,
             options: [
               { value: "pocket", label: t("pocket — клонирование голоса") },
-              { value: "chattts", label: t("chattts — реалистичный голос, без клонирования") },
               { value: "silero", label: t("silero — русский голос: ударения, цифры и английские слова") },
             ],
             onChange: (v) => {
@@ -219,7 +218,7 @@ export const voiceScreen: ScreenFactory = (container): Cleanup => {
           t("Смена движка вступает в силу после перезапуска"),
         ),
         field(
-          t("DSP-обработка озвучки (ChatTTS)"),
+          t("DSP-обработка озвучки"),
           toggle({
             label: t("EQ + мягкая компрессия + нормализация"),
             checked: draft.audioProcessing,

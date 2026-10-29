@@ -59,7 +59,7 @@ if (args.Contains("--panel"))
     var panelEngine = panelServices.GetRequiredService<ZereEngine>();
     var panelMemory = panelServices.GetRequiredService<MemoryRepository>();
 
-    // Ленивые сервисы (Whisper/ChatTTS/Pocket): конструктор только строит пути,
+    // Ленивые сервисы (Whisper/Silero/Pocket): конструктор только строит пути,
     // поэтому панель в режиме --panel получает голос без инициализации звука.
     var panelVoice = new VoiceManager();
 
@@ -188,7 +188,7 @@ if (activePersonality != null)
 // выключенном голосовом выводе: панель умеет тестировать синтез («Озвучить»
 // на экране «Голос»), а Initialize() только проверяет инструментарий — модель
 // грузится при первом синтезе. Иначе панель отвечала 503 «Синтез речи
-// недоступен: ChatTTS доступен (ленивая загрузка модели при первом синтезе)».
+// недоступен: Silero доступен (ленивая загрузка модели при первом синтезе)».
 // Паритет с Python: main.py → zere/voice/voice_bootstrap.py.
 
 // Громкость голосового вывода из config.json (voiceVolume).

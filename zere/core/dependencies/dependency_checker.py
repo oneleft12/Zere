@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import enum
-import importlib.util
 import os
 import subprocess
-import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -69,24 +67,6 @@ def _open_url(url: str) -> None:
         subprocess.Popen([url], shell=True, creationflags=_NO_WINDOW)
 
 
-def _chattts_availability() -> "tuple[bool, str]":
-    """Есть ли ChatTTS с зависимостями — БЕЗ импорта (веса не грузятся).
-
-    Зеркало ChatTTSManager.availability(), но без импорта голосового пакета:
-    проверка зависимостей ядра не должна тянуть голосовой модуль.
-    """
-    missing = [
-        name
-        for name in ("ChatTTS", "torch", "soundfile")
-        if importlib.util.find_spec(name) is None
-    ]
-
-    if missing:
-        return False, "нет модулей: " + ", ".join(missing)
-
-    return True, "ChatTTS доступен"
-
-
 class DependencyChecker:
     def __init__(self, config: ZereConfig, *, cloud_available: bool = False) -> None:
         self._config = config
@@ -118,7 +98,6 @@ class DependencyChecker:
         self._check_model()
         self._check_sqlite()
         self._check_whisper()
-        self._check_chattts()
 
         return list(self._results)
 
@@ -191,7 +170,7 @@ class DependencyChecker:
             r for r in self._results
             if r.status != CheckStatus.Ok
             and not r.critical
-            and ("Whisper" in r.name or "ChatTTS" in r.name)
+            and "Whisper" in r.name
         ]
 
         if len(voice_missing) > 0:
@@ -260,11 +239,11 @@ class DependencyChecker:
         Команда передаётся СТРОКОЙ и с `shell=True` — только так cmd.exe получает
         её дословно. Вариант `subprocess.run(["cmd.exe", "/c", command])` ломается
         на кавычках: Python экранирует внутренние кавычки обратными слэшами, а
-        cmd.exe такого экранирования не понимает. Команда установки ChatTTS
-        (`"<venv>\\python.exe" -m pip install ...`) из-за этого превращалась в
+        cmd.exe такого экранирования не понимает. Команда вида
+        `"<venv>\\python.exe" -m pip install ...` из-за этого превращалась в
         `"\\"<venv>\\python.exe\\" -m pip ..."` и падала с «не является внутренней
         или внешней командой» — воспроизведено и закрыто тестом
-        tests/test_chattts.py::test_command_runner_passes_command_verbatim.
+        tests/test_panel_api.py (команда запускается строкой, а не списком).
         """
         process = subprocess.run(
             command,
@@ -311,8 +290,6 @@ class DependencyChecker:
             self._install_sqlite()
         elif "Whisper" in dep.name:
             self._install_whisper()
-        elif "ChatTTS" in dep.name:
-            self._install_chattts()
         else:
             print(f"  Нет способа автоматической установки: {dep.name}")
 
@@ -487,38 +464,6 @@ class DependencyChecker:
             print("  Модель Whisper установлена.")
         else:
             print("  Ошибка: файл не был скачан.")
-
-    def _install_chattts(self) -> None:
-        """Установка ChatTTS: только pip, бинарников и zip-архивов нет.
-
-        ChatTTS публикуется на PyPI как sdist (сборка из исходников) и тянет
-        torch/torchaudio/numba — это ~2–3 ГБ и несколько минут. Зависимости
-        имеют колёса для Python 3.10–3.14 (проверено по PyPI: torch 2.14,
-        torchaudio 2.11, numba 0.68, pybase16384 0.3.9), поэтому ставим в
-        текущее окружение — тот же интерпретатор, которым запущен ZERE.
-        Веса модели движок скачивает сам при первой загрузке.
-        """
-        print("  ChatTTS (TTS) не найден.")
-        print("  Установка: pip install ChatTTS soundfile")
-        print("  Это ~2–3 ГБ (torch) и несколько минут: ChatTTS собирается из исходников.")
-        print(f"  Окружение: {sys.executable}\n")
-
-        self._execute_command_with_confirmation(
-            f'"{sys.executable}" -m pip install ChatTTS soundfile',
-            "Устанавливаю ChatTTS...",
-        )
-
-        ok, reason = _chattts_availability()
-
-        if ok:
-            print("  ChatTTS установлен.")
-            return
-
-        print(f"  ChatTTS всё ещё недоступен: {reason}")
-        print("  Если pip не смог собрать зависимости — поставьте движок отдельным")
-        print("  окружением через uv (Python 3.12, системный Python не трогается):")
-        print('    tools\\uv.exe run --python 3.12 --with ChatTTS --with soundfile python -c "import ChatTTS"')
-        print("  Подробности: https://github.com/2Noise/ChatTTS\n")
 
     @staticmethod
     def _find_project_root() -> Optional[str]:
@@ -706,51 +651,11 @@ class DependencyChecker:
                 )
             )
 
-    def _check_chattts(self) -> None:
-        """ChatTTS (TTS) — замена Piper: бинарников нет, только pip-пакет.
-
-        critical=False: без TTS ZERE работает в текстовом режиме. Проверка
-        дешёвая — `importlib.find_spec` без импорта, веса не грузятся.
-        """
-        if not self._config.VoiceEnabled:
-            self._results.append(
-                DependencyResult(
-                    name="ChatTTS (TTS)",
-                    status=CheckStatus.Ok,
-                    critical=False,
-                    message="Отключен в конфиге.",
-                )
-            )
-            return
-
-        ok, reason = _chattts_availability()
-
-        if ok:
-            self._results.append(
-                DependencyResult(
-                    name="ChatTTS (TTS)",
-                    status=CheckStatus.Ok,
-                    critical=False,
-                    message="Голос ChatTTS доступен (модель грузится при первом синтезе).",
-                )
-            )
-            return
-
-        self._results.append(
-            DependencyResult(
-                name="ChatTTS (TTS)",
-                status=CheckStatus.Missing,
-                critical=False,
-                message=f"{reason} (нужно: pip install ChatTTS soundfile — ~2–3 ГБ)",
-                install_url="https://github.com/2Noise/ChatTTS",
-            )
-        )
-
     def offer_voice_install(self) -> None:
         voice_missing = [
             r for r in self._results
             if r.status != CheckStatus.Ok
-            and ("Whisper" in r.name or "ChatTTS" in r.name)
+            and "Whisper" in r.name
         ]
 
         if len(voice_missing) == 0:

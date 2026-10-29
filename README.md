@@ -4,7 +4,7 @@
 
 ## Возможности
 
-- **Голосовой ввод/вывод** — GigaAM-v3 (STT, откат на Whisper) + TTS: Silero v5 (русский, ударения и омографы), ChatTTS (китайский/английский), PocketTTS (клонирование голоса, C#-версия)
+- **Голосовой ввод/вывод** — GigaAM-v3 (STT, откат на Whisper) + TTS: Silero v5 (русский, ударения и омографы) + PocketTTS (клонирование голоса, C#-версия)
 - **Локальная LLM** — Ollama с русско-ориентированной моделью T-lite 2.1 (8B, Apache-2.0): отвечает только по-русски, умеет tool calling; на слабом ПК можно переключиться на qwen3.5:4b/2b — [docs/LOCAL_MODELS_RESEARCH.md](docs/LOCAL_MODELS_RESEARCH.md)
 - **Свой API-ключ** — облачная модель через любой OpenAI-совместимый API (OpenAI, DeepSeek, OpenRouter, Groq): режим «Авто» использует ключ, если он есть, иначе локальную модель — [docs/AI_PROVIDERS.md](docs/AI_PROVIDERS.md)
 - **Управление компьютером** — запуск приложений, процессы, файлы, громкость
@@ -30,7 +30,7 @@
   [docs/AI_PROVIDERS.md](docs/AI_PROVIDERS.md)
 - **Для C#-версии:** [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - **Для Python-версии:** Python 3.12+ и `pip install -r requirements.txt`
-- **Опционально:** Whisper (модель ggml-base.bin); TTS — Silero v5 (русский, модель 145 МБ качается сама), PocketTTS (клонирование голоса) или ChatTTS (нужен `tools/uv.exe`)
+- **Опционально:** Whisper (модель ggml-base.bin); TTS — Silero v5 (русский, модель 145 МБ качается сама; для C#-редакции нужен `tools/uv.exe`) или PocketTTS (клонирование голоса)
 
 ## Установка (Windows)
 
@@ -51,7 +51,7 @@ powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1
 блокируется как неизвестный exe).
 
 ```powershell
-# полная установка: Python-окружение, Ollama + модель, Whisper + uv (для ChatTTS), ярлыки
+# полная установка: Python-окружение, Ollama + модель, Whisper + uv (для Silero), ярлыки
 powershell -ExecutionPolicy Bypass -File installer\install.ps1
 
 # только проверка, ничего не меняет
@@ -95,13 +95,12 @@ python main.py            # консоль + панель в браузере
 python main.py --desktop  # тот же режим приложения, без лаунчера
 ```
 
-Требуется Python 3.12+. Пакет ChatTTS ставится из исходников (sdist) и тянет
-`torch`/`torchaudio`/`numba` — это ~2–3 ГБ и несколько минут; колёса этих
-зависимостей есть для Python 3.10–3.14. Если ChatTTS не установлен, ZERE
-работает в текстовом режиме без ошибок. C#-редакция поднимает движок в
-отдельном окружении через `tools/uv.exe` с `--python 3.12`.
+Требуется Python 3.12+. TTS — Silero v5: модель (145 МБ) качается сама, а
+torch ставится в отдельное окружение `uv` при первом синтезе (~2 ГБ). Если
+torch/модели нет, ZERE работает в текстовом режиме без ошибок. C#-редакция
+поднимает движок в отдельном окружении через `tools/uv.exe` с `--python 3.12`.
 Структура: пакет `zere/` (ai, core, memory, tools, voice), точка входа `main.py`.
-Спецификация порта: `docs/PYTHON_PORT_SPEC.md`. Движки TTS: русский — [docs/TTS_SILERO.md](docs/TTS_SILERO.md), ChatTTS — [docs/TTS_CHATTTS.md](docs/TTS_CHATTTS.md).
+Спецификация порта: `docs/PYTHON_PORT_SPEC.md`. TTS: [docs/TTS_SILERO.md](docs/TTS_SILERO.md). ChatTTS удалён в версии 1.9.0.
 
 ### C#-версия (.NET 10)
 
@@ -162,7 +161,7 @@ ZERE.Core            — ядро: engine, обработчики, плагин�
 ZERE.AI              — клиент Ollama
 ZERE.Memory          — SQLite-память
 ZERE.Tools           — инструменты: приложения, файлы, процессы
-ZERE.Voice           — голос: GigaAM/Whisper (STT) + Silero/ChatTTS/PocketTTS (TTS)
+ZERE.Voice           — голос: GigaAM/Whisper (STT) + Silero/PocketTTS (TTS)
 ZERE.Speaker         — C#-хелпер озвучки (DSP + вывод звука)
 panel/               — web-панель (Vite + TypeScript)
 docs/UPDATE.md       — обновление из GitHub (проверка, применение, откат)

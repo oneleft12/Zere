@@ -1,16 +1,16 @@
-"""Тесты Silero TTS — русского движка синтеза (замена ChatTTS для русского).
+"""Тесты Silero TTS — русского движка синтеза (единственный TTS проекта).
 
 Проверяется то, что ломается при рефакторинге и что нельзя поймать «на слух»:
 
 - ленивая загрузка: `initialize()` не трогает torch и не грузит модель; файл
   модели качается только при первом синтезе (и ровно один раз на процесс);
-- контракт, идентичный ChatTtsService, — на него опирается VoiceManager;
-- «санитайзинг» голоса: профиль ChatTTS (`zere-standard`) в конфиге не роняет
+- общий контракт TTS (initialize/speak/set_voice), на него опирается VoiceManager;
+- «санитайзинг» голоса: старое значение (`zere-standard`) в конфиге не роняет
   Silero, а подменяется дефолтным голосом движка;
 - разбивка на предложения и тишина `sentenceSilence` между ними;
-- частота 24 кГц (как у ChatTTS, поэтому DSP и сайдкар не меняются);
-- маршрутизация VoiceManager по ключу `ttsEngine` (chattts | silero) и честная
-  возможность «темп речи» (у Silero v5 его нет);
+- частота 24 кГц (под неё настроены DSP и сайдкар);
+- маршрутизация VoiceManager: любое значение `ttsEngine` ведёт в Silero,
+  а «темп речи» честно недоступен (у Silero v5 его нет);
 - нормализация текста под русскую модель: цифры/дроби/даты/годы/единицы
   прописью, латиница практической транскрипцией, символы, которых нет в наборе
   символов модели, и гарантия «на выходе нет латиницы и цифр» (именно их
@@ -277,7 +277,7 @@ def test_availability_reports_missing_modules() -> None:
 
 
 def test_voice_is_sanitized_to_builtin() -> None:
-    """Профиль ChatTTS из конфига не роняет Silero — берётся дефолтный голос."""
+    """Старый профиль из конфига не роняет Silero — берётся дефолтный голос."""
     manager = SileroManager("zere-standard")
 
     assert manager.current_voice == DEFAULT_VOICE
@@ -291,7 +291,7 @@ def test_voice_is_sanitized_to_builtin() -> None:
 
 
 def test_available_voices_are_named_silero_voices() -> None:
-    """У Silero голоса именованные (в отличие от «зёрен» ChatTTS)."""
+    """У Silero именованные голоса — их список отдаётся панели."""
     manager = SileroManager()
 
     assert manager.available_voices() == list(BUILTIN_VOICES)
@@ -450,7 +450,7 @@ def test_other_warnings_from_model_stay_visible() -> None:
 
 
 def test_synthesize_writes_wav_at_24khz() -> None:
-    """WAV пишется на 24 кГц — как у ChatTTS, чтобы DSP/сайдкар не менялись."""
+    """WAV пишется на 24 кГц — под эту частоту настроены DSP/сайдкар."""
     reset_fakes()
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -498,7 +498,7 @@ def test_synthesize_rejects_empty_text() -> None:
                 raise AssertionError("ожидался ValueError")
 
 
-# ── Сервис (контракт ChatTtsService) ────────────────────────────────
+# ── Сервис (общий контракт TTS) ─────────────────────────────────────
 
 
 def test_service_initialize_does_not_load_model() -> None:
@@ -590,8 +590,12 @@ def _import_voice_manager() -> Any:
     return VoiceManager
 
 
-def test_voice_manager_routes_tts_by_engine() -> None:
-    """ttsEngine=silero → Silero, chattts (и «pocket» из C#) → ChatTTS."""
+def test_voice_manager_routes_tts_to_silero() -> None:
+    """В Python-редакции TTS один: любое значение ttsEngine ведёт в Silero.
+
+    chattts удалён, pocket — движок C#-редакции (клонирование голоса).
+    Старые значения общего конфига не должны ронять старт.
+    """
     VoiceManager = _import_voice_manager()
 
     with mock.patch.object(
@@ -607,20 +611,18 @@ def test_voice_manager_routes_tts_by_engine() -> None:
         assert manager.initialize("Casual") is True
         assert manager._active_tts.current_voice == "kseniya", "стиль → голос Silero"
 
+        # Старые значения из общего config.json не ломают Python-редакцию.
         manager.config.tts_engine = "chattts"
-        assert manager.tts_engine == "chattts"
-        assert manager._active_tts.__class__.__name__ == "ChatTtsService"
-        assert manager.supports_speech_speed is True
-
-        # «pocket» — движок C#-редакции: в Python он означает ChatTTS.
+        assert manager.tts_engine == "silero"
         manager.config.tts_engine = "pocket"
-        assert manager.tts_engine == "chattts"
+        assert manager.tts_engine == "silero"
+        assert manager._active_tts.__class__.__name__ == "SileroTtsService"
 
     manager.close()
 
 
 def test_voice_manager_silero_reason_is_honest() -> None:
-    """Панель получает причину недоступности активного движка, а не ChatTTS."""
+    """Панель получает причину недоступности Silero, а не общее «недоступен»."""
     VoiceManager = _import_voice_manager()
 
     with mock.patch.object(

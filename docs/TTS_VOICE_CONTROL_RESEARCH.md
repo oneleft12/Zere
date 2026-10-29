@@ -1,7 +1,7 @@
 # Ресерч: лучший TTS с максимальными регулировками голоса
 
 > **Статус на текущий момент.** Движок Piper заменён на ChatTTS (`zere/voice/chattts/`,
-> `ZERE.Voice/ChatTts/`, сайдкар `tools/zere_chattts_server.py`); актуальное описание — `docs/TTS_CHATTTS.md`.
+> `ZERE.Voice/ChatTts/`, сайдкар `tools/zere_chattts_server.py`); ChatTTS удалён в 1.9.0; актуальный TTS — `docs/TTS_SILERO.md`.
 > Отчёт ниже сохранён как исторический: упоминания Piper и его замеры относятся к Piper-эпохе.
 
 **Дата:** 2026  

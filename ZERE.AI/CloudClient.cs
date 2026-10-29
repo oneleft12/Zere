@@ -36,7 +36,7 @@ public sealed class CloudClient : IDisposable
     /// безликой HTTP-библиотекой) и держит стабильный идентификатор сессии
     /// на процесс — по нему шлюз оптимизирует маршрутизацию и кэш промптов.
     /// </summary>
-    private const string UserAgent = "ZERE/1.8.0";
+    private const string UserAgent = "ZERE/1.9.0";
 
     private const string SessionHeader = "x-opencode-session";
 

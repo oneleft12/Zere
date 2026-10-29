@@ -42,7 +42,6 @@ public class DependencyChecker : IDisposable
         CheckModel();
         CheckSQLite();
         CheckWhisper();
-        CheckChatTts();
 
         return _results;
     }
@@ -124,7 +123,7 @@ public class DependencyChecker : IDisposable
         // Offer to install non-critical voice dependencies
         var voiceMissing = _results.Where(r =>
             r.Status != CheckStatus.Ok && !r.Critical &&
-            (r.Name.Contains("Whisper") || r.Name.Contains("ChatTTS"))).ToList();
+            r.Name.Contains("Whisper")).ToList();
 
         if (voiceMissing.Count > 0)
         {
@@ -254,8 +253,6 @@ public class DependencyChecker : IDisposable
             InstallSQLite();
         else if (dep.Name.Contains("Whisper"))
             InstallWhisper();
-        else if (dep.Name.Contains("ChatTTS"))
-            InstallChatTts();
         else
             Console.WriteLine($"  Нет способа автоматической установки: {dep.Name}");
     }
@@ -519,41 +516,6 @@ public class DependencyChecker : IDisposable
             Console.WriteLine("  Ошибка: файл не был скачан.");
     }
 
-    private void InstallChatTts()
-    {
-        Console.WriteLine("  ChatTTS (TTS) не найден.");
-
-        var root = FindProjectRoot() ?? Path.GetFullPath(
-            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-
-        var uvExe = Path.Combine(root, "tools", "uv.exe");
-        var script = Path.Combine(root, "tools", "zere_chattts_server.py");
-
-        if (!File.Exists(uvExe) || !File.Exists(script))
-        {
-            Console.WriteLine("  Нет инструментария: tools/uv.exe или tools/zere_chattts_server.py.");
-            Console.WriteLine("  Запустите installer\\install.ps1 — он скачает uv; ChatTTS затем ставится сам.");
-            Console.WriteLine();
-            return;
-        }
-
-        // Отдельного «архива движка» у ChatTTS нет: uv сам скачивает пакет
-        // ChatTTS, soundfile и проверенный Python 3.12 для их стека
-        // (torch/torchaudio/numba). То есть установка = первый запуск сайдкара.
-        Console.WriteLine("  ChatTTS ставится сам при первом синтезе:");
-        Console.WriteLine("  uv скачает пакет ChatTTS и Python 3.12 (примерно 2–3 ГБ).");
-        Console.WriteLine();
-
-        if (!AskConfirmation("Прогреть движок сейчас (скачает ~2–3 ГБ)?"))
-            return;
-
-        Console.WriteLine();
-
-        ExecuteCommandWithConfirmation(
-            $"\"{uvExe}\" run --python 3.12 --with ChatTTS --with soundfile python -c \"import ChatTTS\"",
-            "Готовлю ChatTTS...");
-    }
-
     private string? FindProjectRoot()
     {
         var dir = Directory.GetCurrentDirectory();
@@ -773,51 +735,6 @@ public class DependencyChecker : IDisposable
         }
     }
 
-    private void CheckChatTts()
-    {
-        if (!_config.VoiceEnabled)
-        {
-            _results.Add(new DependencyResult
-            {
-                Name = "ChatTTS (TTS)",
-                Status = CheckStatus.Ok,
-                Critical = false,
-                Message = "Отключен в конфиге."
-            });
-            return;
-        }
-
-        var root = FindProjectRoot() ?? Path.GetFullPath(
-            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-
-        var uvExe = Path.Combine(root, "tools", "uv.exe");
-        var script = Path.Combine(root, "tools", "zere_chattts_server.py");
-
-        // ChatTTS — Python-библиотека, поэтому проверяем не «файл модели на
-        // диске», а инструментарий сайдкара (uv + сервер). Веса качает сам
-        // движок при первой загрузке (лениво) — проверка мгновенная.
-        if (File.Exists(uvExe) && File.Exists(script))
-        {
-            _results.Add(new DependencyResult
-            {
-                Name = "ChatTTS (TTS)",
-                Status = CheckStatus.Ok,
-                Critical = false,
-                Message = "Инструментарий на месте; модель грузится при первом синтезе."
-            });
-            return;
-        }
-
-        _results.Add(new DependencyResult
-        {
-            Name = "ChatTTS (TTS)",
-            Status = CheckStatus.Missing,
-            Critical = false,
-            Message = "Нет tools/uv.exe или tools/zere_chattts_server.py — ChatTTS недоступен.",
-            InstallUrl = "https://github.com/2Noise/ChatTTS"
-        });
-    }
-
     private static bool CommandExists(string command)
     {
         try
@@ -852,7 +769,7 @@ public class DependencyChecker : IDisposable
     {
         var voiceMissing = _results.Where(r =>
             r.Status != CheckStatus.Ok &&
-            (r.Name.Contains("Whisper") || r.Name.Contains("ChatTTS"))).ToList();
+            r.Name.Contains("Whisper")).ToList();
 
         if (voiceMissing.Count == 0)
             return;

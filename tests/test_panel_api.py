@@ -966,7 +966,7 @@ def test_config_get_matches_spec() -> None:
         assert_schema(schema("Config"), payload)
         # Единая схема Stage 0: голос уже читается в C#, движок TTS — в Python.
         assert payload["voiceVolume"] == 0.5
-        assert payload["ttsEngine"] == "pocket"
+        assert payload["ttsEngine"] == "silero"
 
 
 def test_config_post_persists_atomically() -> None:
@@ -994,6 +994,10 @@ def test_config_post_persists_atomically() -> None:
 def test_tts_engine_accepts_silero_in_voice_and_config() -> None:
     """Русский движок Silero — легальное значение ttsEngine (панель + конфиг)."""
     with running_panel() as (panel, _):
+        # Уходим с Silero на pocket и обратно: смена движка требует перезапуска.
+        status, _, _ = call(panel, "POST", "/api/voice", body={"ttsEngine": "pocket"})
+        assert status == 200
+
         status, raw, _ = call(panel, "POST", "/api/voice", body={"ttsEngine": "silero"})
         assert status == 200, raw
         applied = json.loads(raw.decode("utf-8"))
@@ -1009,10 +1013,12 @@ def test_tts_engine_accepts_silero_in_voice_and_config() -> None:
         assert status == 200, raw_post
         assert json.loads(raw_post.decode("utf-8"))["ttsEngine"] == "silero"
 
-        # Незнакомый движок по-прежнему отклоняется, а в тексте есть список
-        status, raw_bad, _ = call(panel, "POST", "/api/voice", body={"ttsEngine": "piper"})
-        assert status == 400, raw_bad
-        assert "silero" in error_payload(raw_bad)["message"]
+        # Незнакомый движок отклоняется, ChatTTS удалён, в тексте есть список
+        for engine in ("piper", "chattts"):
+            status, raw_bad, _ = call(panel, "POST", "/api/voice", body={"ttsEngine": engine})
+            assert status == 400, (engine, raw_bad)
+            assert "silero" in error_payload(raw_bad)["message"]
+            assert "chattts" not in error_payload(raw_bad)["message"]
 
 
 def test_config_post_rejects_unknown_key() -> None:
@@ -2378,7 +2384,7 @@ def test_voice_get_matches_spec() -> None:
 
         assert isinstance(data["voiceEnabled"], bool)
         assert data["voiceVolume"] == 0.5
-        assert data["ttsEngine"] == "pocket"
+        assert data["ttsEngine"] == "silero"
         assert isinstance(data["voiceReferencePath"], str)
 
         caps = data["capabilities"]
@@ -2439,7 +2445,7 @@ def test_voice_post_applies_on_restart() -> None:
         initial = json.loads(raw.decode("utf-8"))
 
         # ttsEngine: переключаем и возвращаем исходное (репозиторий/темп чистые)
-        other_engine = "chattts" if initial["ttsEngine"] != "chattts" else "pocket"
+        other_engine = "pocket" if initial["ttsEngine"] != "pocket" else "silero"
 
         status, raw, _ = call(panel, "POST", "/api/voice", body={"ttsEngine": other_engine})
         assert status == 200, raw
@@ -2499,7 +2505,7 @@ def test_voice_post_rejects_bad_payload() -> None:
         status, raw, _ = call(panel, "GET", "/api/voice")
         data = json.loads(raw.decode("utf-8"))
         assert data["voiceVolume"] == 0.5
-        assert data["ttsEngine"] == "pocket"
+        assert data["ttsEngine"] == "silero"
 
 
 def test_voice_test_speaks_or_not_ready() -> None:

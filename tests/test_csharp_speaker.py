@@ -344,22 +344,22 @@ class FakeSpeaker:
         self.closed += 1
 
 
-def _voice_manager_with(speaker: FakeSpeaker, chattts_wav: Path):
-    """VoiceManager с фейковым ChatTTS и подменённым хелпером (без устройств)."""
+def _voice_manager_with(speaker: FakeSpeaker, tts_wav: Path):
+    """VoiceManager с фейковым Silero и подменённым хелпером (без устройств)."""
     from zere.voice.voice_manager import VoiceManager
 
     manager = VoiceManager()
     manager._speaker = speaker  # noqa: SLF001 — подмена тракта озвучки в тесте
-    manager._chattts = mock.Mock()  # noqa: SLF001
-    manager._chattts.is_loaded = True
-    manager._chattts.speak.return_value = str(chattts_wav)
+    manager._silero = mock.Mock()  # noqa: SLF001
+    manager._silero.is_loaded = True
+    manager._silero.speak.return_value = str(tts_wav)
     return manager
 
 
 def test_voice_manager_speaks_through_csharp() -> None:
-    """Основной путь: синтез ChatTTS → озвучка C# (DSP и вывод), Python не играет."""
+    """Основной путь: синтез Silero → озвучка C# (DSP и вывод), Python не играет."""
     with tempfile.TemporaryDirectory() as tmp:
-        wav = write_wav(Path(tmp) / "chattts.wav", rate=24000)
+        wav = write_wav(Path(tmp) / "tts.wav", rate=24000)
         speaker = FakeSpeaker(result=True)
         manager = _voice_manager_with(speaker, wav)
         manager._player = mock.Mock()  # noqa: SLF001
@@ -383,7 +383,7 @@ def test_voice_manager_speaks_through_csharp() -> None:
 def test_voice_manager_falls_back_to_python_player() -> None:
     """Хелпер не сработал — озвучка идёт прежним путём (sounddevice)."""
     with tempfile.TemporaryDirectory() as tmp:
-        wav = write_wav(Path(tmp) / "chattts.wav", rate=24000)
+        wav = write_wav(Path(tmp) / "tts.wav", rate=24000)
         speaker = FakeSpeaker(result=False)
         manager = _voice_manager_with(speaker, wav)
         manager._player = mock.Mock()  # noqa: SLF001

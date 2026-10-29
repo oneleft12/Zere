@@ -48,7 +48,7 @@ $stageZip = Join-Path $PSScriptRoot 'stage.zip'
 $outputDir = Join-Path $PSScriptRoot 'Output'
 
 # --- 1. Версия из config/config.json ---
-$version = '1.8.0'
+$version = '1.9.0'
 $cfgPath = Join-Path $root 'config\config.json'
 if (Test-Path $cfgPath) {
     try {
@@ -165,9 +165,9 @@ Write-Info ('метка сборки: ' + $buildInfo.commit + ' (' + $buildInfo.
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir -Force | Out-Null }
 # VersionInfoVersion: только цифры и точки. Четвёртое поле — номер сборки
 # (число коммитов): две сборки одной версии различимы в свойствах файла,
-# иначе 1.8.0 от 1.8.0 не отличить.
+# иначе 1.9.0 от 1.9.0 не отличить.
 $fileVersion = ($version -replace '[^0-9.]', '').Trim('.')
-if ($fileVersion -eq '') { $fileVersion = '1.8.0' }
+if ($fileVersion -eq '') { $fileVersion = '1.9.0' }
 $parts = @($fileVersion -split '\.')
 while ($parts.Count -lt 3) { $parts += '0' }
 $buildNumber = 0

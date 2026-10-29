@@ -2,10 +2,11 @@
 
 Публичный контракт:
     SileroManager   — ленивая загрузка модели + синтез в WAV;
-    SileroTtsService — адаптер под контракт PiperService/ChatTtsService.
+    SileroTtsService — адаптер под общий контракт TTS.
 
-Движок выбирается ключом `ttsEngine` в config.json: `chattts` (китайский/
-английский, «человечный» тембр) или `silero` (русский, с ударениями).
+Движок задаётся ключом `ttsEngine` в config.json. Python-редакция умеет
+только `silero` (русский, с ударениями); ChatTTS удалён, `pocket`
+(клонирование голоса) есть только в C#-редакции.
 """
 
 from zere.voice.silero.silero_manager import (

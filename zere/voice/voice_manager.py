@@ -1,4 +1,4 @@
-"""Оркестратор STT (GigaAM/Whisper) + TTS (ChatTTS/Silero) (порт ZERE.Voice/VoiceManager.cs).
+"""Оркестратор STT (GigaAM/Whisper) + TTS (Silero) (порт ZERE.Voice/VoiceManager.cs).
 
 Отмена (CancellationToken в C#) → threading.Event.
 """
@@ -19,7 +19,6 @@ from zere.voice.audio.audio_player import AudioPlayer
 from zere.voice.audio.audio_processor import DEFAULT_SAMPLE_RATE, AudioProcessor
 from zere.voice.audio.audio_recorder import AudioRecorder
 from zere.voice.audio.csharp_speaker import CSharpSpeaker
-from zere.voice.chattts.chattts_service import ChatTtsService
 from zere.voice.sherpa.gigaam_service import GigaamService, preload_bundled_onnxruntime
 from zere.voice.silero.silero_service import SileroTtsService
 from zere.voice.voice_config import VoiceConfig
@@ -83,7 +82,6 @@ class VoiceManager:
         self._speaker_fallback_logged = False
         self._whisper = WhisperService()
         self._gigaam = GigaamService()
-        self._chattts = ChatTtsService()
         self._silero = SileroTtsService()
         # Вызывался ли initialize(): в режиме `--panel` голос не инициализируют,
         # и перепроверять доступность TTS там не нужно (503 остаётся честным).
@@ -93,16 +91,6 @@ class VoiceManager:
         # Семафор записи: панель и консоль не должны писать микрофон
         # одновременно (анализ F4).
         self._record_lock = threading.Lock()
-
-        # Профили голоса ChatTTS под стиль личности (паритет с C#, где раньше
-        # были голоса Piper): имя профиля → детерминированный голос ChatTTS.
-        self._personality_voices: dict[str, str] = {
-            "Friendly": "zere-warm",
-            "Formal": "zere-strict",
-            "Sarcastic": "zere-ironic",
-            "Professional": "zere-business",
-            "Casual": "zere-casual",
-        }
 
         # Голоса Silero под тот же стиль (у Silero голоса именованные, поэтому
         # это реальные голоса движка, а не зёрна).
@@ -116,19 +104,18 @@ class VoiceManager:
 
     @property
     def tts_engine(self) -> str:
-        """Активный движок синтеза из config.json (в Python: chattts | silero).
+        """Активный движок синтеза.
 
-        «pocket» — движок C#-редакции (клонирование голоса); здесь он
-        означает ChatTTS, как и до появления выбора движка.
+        В Python-редакции TTS один — Silero (русский). «pocket» (клонирование
+        голоса) есть только в C#-редакции: старое значение из общего конфига
+        молча означает Silero, а не ошибку старта. ChatTTS удалён.
         """
-        engine = (self.config.tts_engine or "chattts").strip().lower()
-
-        return "silero" if engine == "silero" else "chattts"
+        return "silero"
 
     @property
     def _active_tts(self) -> Any:
-        """Сервис активного TTS-движка (ChatTTS или Silero)."""
-        return self._silero if self.tts_engine == "silero" else self._chattts
+        """Сервис активного TTS-движка (Silero)."""
+        return self._silero
 
     @property
     def supports_speech_speed(self) -> bool:
@@ -159,7 +146,7 @@ class VoiceManager:
 
     @property
     def is_tts_available(self) -> bool:
-        """Доступен ли TTS активного движка (ChatTTS или Silero).
+        """Доступен ли TTS (Silero).
 
         После инициализации состояние перепроверяется на каждый запрос: движок
         можно поставить при работающем ZERE, и тогда озвучка начинает работать
@@ -180,31 +167,25 @@ class VoiceManager:
         return self._active_tts.unavailable_reason
 
     def initialize(self, personality_style: str | None = None) -> bool:
-        """Инициализирует TTS активного движка, подбирая голос под стиль.
+        """Инициализирует TTS, подбирая голос под стиль личности.
 
         Модель здесь НЕ загружается: initialize только проверяет окружение, а
-        веса ChatTTS / файл модели Silero поднимаются при первом speak()
-        (ленивая загрузка — старт ZERE не платит за неё временем и памятью).
+        файл модели Silero поднимается при первом speak() (ленивая загрузка —
+        старт ZERE не платит за неё временем и памятью).
         """
         tts = self._active_tts
 
-        if self.tts_engine == "silero":
-            # У Silero голоса именованные: профиль личности → голос движка.
-            # Неизвестное имя (например, профиль ChatTTS из конфига) движок
-            # сам подменит дефолтным.
-            voice_name = (
-                self._silero_voices.get(personality_style)
-                if personality_style is not None
-                else None
-            )
-        else:
-            voice_name = self.config.chattts_voice
+        # У Silero голоса именованные: профиль личности → голос движка.
+        # Неизвестное имя (старый профиль из конфига) движок сам подменит
+        # дефолтным.
+        voice_name = (
+            self._silero_voices.get(personality_style)
+            if personality_style is not None
+            else None
+        )
 
-            if personality_style is not None and personality_style in self._personality_voices:
-                voice_name = self._personality_voices[personality_style]
-
-        # Параметры инференса (темп, пауза после предложения) — до инициализации:
-        # у ChatTTS они уходят в каждый запрос, перезапуск не нужен.
+        # Параметры инференса (пауза после предложения; темп Silero не умеет) —
+        # до инициализации, перезапуск не нужен.
         tts.set_inference_params(
             self.config.speech_speed, self.config.sentence_silence
         )
@@ -222,12 +203,8 @@ class VoiceManager:
         return tts_ready
 
     def set_personality_voice(self, style: str) -> None:
-        """Меняет голос активного движка под стиль личности (SetPersonalityVoice)."""
-        voice = (
-            self._silero_voices.get(style)
-            if self.tts_engine == "silero"
-            else self._personality_voices.get(style)
-        )
+        """Меняет голос Silero под стиль личности (SetPersonalityVoice)."""
+        voice = self._silero_voices.get(style)
 
         if voice is not None:
             self._active_tts.set_voice(voice)
@@ -310,7 +287,7 @@ class VoiceManager:
                 pass
 
     def speak(self, text: str) -> None:
-        """Озвучивает текст активным движком (ChatTTS/Silero, порт SpeakAsync);
+        """Озвучивает текст Silero (порт SpeakAsync);
         без TTS или при ошибке синтеза — печатает текст в консоль (fallback
         «TTS не отвечает → текстовый вывод», ROADMAP 1.1).
         """
@@ -330,7 +307,7 @@ class VoiceManager:
             return
 
         if not wav_file:
-            # Синтез не удался (нет ChatTTS/ошибка инференса) — текстовый вывод
+            # Синтез не удался (нет Silero/ошибка инференса) — текстовый вывод
             print(f"[ZERE] {text}")
             return
 
@@ -368,7 +345,7 @@ class VoiceManager:
 
         try:
             # Профессиональная DSP-обработка: ресемплинг под устройство, EQ,
-            # страховка по пикам. Ресемплинг здесь обязателен: ChatTTS отдаёт
+            # страховка по пикам. Ресемплинг здесь обязателен: TTS отдаёт
             # 24000 Гц, и если отдать их как есть, sounddevice/PortAudio будет
             # конвертировать сам — своим слабым ресемплером, что и даёт
             # «металлический» призвук на выходе.
@@ -608,7 +585,6 @@ class VoiceManager:
         self._recorder.close()
         self._player.close()
         self._speaker.close()
-        self._chattts.close()
         self._silero.close()
         if self._wake_word_detector is not None:
             self._wake_word_detector.close()

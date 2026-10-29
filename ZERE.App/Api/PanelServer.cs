@@ -687,9 +687,9 @@ public sealed class PanelServer : IDisposable
             ? "ok"
             : "missing";
 
-        var engineName = _config.TtsEngine is "pocket" or "chattts" or "silero"
+        var engineName = _config.TtsEngine is "pocket" or "silero"
             ? _config.TtsEngine
-            : "chattts";
+            : "silero";
 
         int count;
 
@@ -835,8 +835,8 @@ public sealed class PanelServer : IDisposable
 
         var engine = supplied["ttsEngine"].GetString();
 
-        if (engine is not ("pocket" or "chattts"))
-            return "Ключ «ttsEngine» допускает только «pocket», «chattts» или «silero».";
+        if (engine is not ("pocket" or "silero"))
+            return "Ключ «ttsEngine» допускает только «pocket» или «silero».";
 
         // Необязательный sttEngine: проверяем только если прислан.
         if (supplied.TryGetValue("sttEngine", out var sttEngine))
@@ -1595,7 +1595,7 @@ public sealed class PanelServer : IDisposable
     {
         recordReference = true,   // запись референса — только в C#-версии
         pocketCloning = true,     // PocketTTS только в C#-версии
-        // ChatTTS получает темп как [speed_N]; у Silero v5 его нет
+        // Silero v5 не умеет менять темп речи
         speechSpeedConfig,
         liveVolumeApply = true,   // Volume читается на каждое воспроизведение
         sttTest = voiceAvailable,
@@ -1778,7 +1778,7 @@ public sealed class PanelServer : IDisposable
             if (!_voice.IsTtsAvailable)
             {
                 // Причина в тексте: иначе пользователь видит «недоступен» без
-                // объяснения (например, не установлен uv или сайдкар ChatTTS).
+                // объяснения (например, не установлен uv или сайдкар Silero).
                 var reason = _voice.TtsUnavailableReason;
                 var message = string.IsNullOrWhiteSpace(reason)
                     ? "Синтез речи недоступен."
@@ -1928,8 +1928,8 @@ public sealed class PanelServer : IDisposable
         }
 
         if (supplied.TryGetValue("ttsEngine", out var engine) &&
-            (engine.ValueKind != JsonValueKind.String || engine.GetString() is not ("pocket" or "chattts")))
-            return "Ключ «ttsEngine» допускает только «pocket», «chattts» или «silero».";
+            (engine.ValueKind != JsonValueKind.String || engine.GetString() is not ("pocket" or "silero")))
+            return "Ключ «ttsEngine» допускает только «pocket» или «silero».";
 
         if (supplied.TryGetValue("voiceReferencePath", out var referencePath) &&
             referencePath.ValueKind != JsonValueKind.String)

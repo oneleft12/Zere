@@ -1421,7 +1421,7 @@ components:
           properties:
             engine:
               type: string
-              enum: [pocket, chattts, silero]
+              enum: [pocket, silero]
             status:
               type: string
               enum: [configured]
@@ -1484,7 +1484,7 @@ components:
           maximum: 120
         ttsEngine:
           type: string
-          enum: [pocket, chattts, silero]
+          enum: [pocket, silero]
         sttEngine:
           type: string
           enum: [gigaam, whisper]
@@ -1498,7 +1498,7 @@ components:
         audioProcessing:
           type: boolean
           description: >-
-            DSP-обработка озвучки ChatTTS (EQ, мягкая компрессия,
+            DSP-обработка озвучки Silero (EQ, мягкая компрессия,
             нормализация); false — «сырой» выход TTS. Необязательный ключ:
             старые клиенты могут его не присылать.
         llmKeepAlive:
@@ -2059,7 +2059,7 @@ components:
         speechSpeedConfig:
           type: boolean
           description: >
-            speechSpeed передаётся в движок: ChatTTS получает темп токеном
+            speechSpeed передаётся в движок; Silero v5 темп не поддерживает
             [speed_N] (1.15 → 4) на каждый запрос, перезапуск не нужен
         liveVolumeApply:
           type: boolean
@@ -2087,13 +2087,13 @@ components:
           maximum: 1
         ttsEngine:
           type: string
-          enum: [pocket, chattts, silero]
+          enum: [pocket, silero]
         voiceReferencePath:
           type: string
         audioProcessing:
           type: boolean
           description: >
-            DSP-обработка озвучки ChatTTS (EQ, мягкая компрессия, нормализация).
+            DSP-обработка озвучки Silero (EQ, мягкая компрессия, нормализация).
             Читается на каждое предложение — переключается без перезапуска;
             false — «сырой» выход TTS
         capabilities:
@@ -2118,7 +2118,7 @@ components:
           maximum: 1
         ttsEngine:
           type: string
-          enum: [pocket, chattts, silero]
+          enum: [pocket, silero]
         voiceReferencePath:
           type: string
         audioProcessing:
@@ -2146,7 +2146,7 @@ components:
           maximum: 1
         ttsEngine:
           type: string
-          enum: [pocket, chattts, silero]
+          enum: [pocket, silero]
         voiceReferencePath:
           type: string
         audioProcessing:

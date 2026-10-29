@@ -32,7 +32,7 @@ def _camel(key: str) -> str:
 
 @dataclass
 class ZereConfig:
-    version: str = "1.8.0"
+    version: str = "1.9.0"
     assistant_name: str = "ZERE"
     language: str = "ru"
     # Русский — обязательное требование: по умолчанию берём русско-ориентированную
@@ -59,11 +59,10 @@ class ZereConfig:
     llm_timeout_seconds: int = 60
 
     # --- TTS (паритет с C# ZereConfig) -------------------
-    # Движок озвучки: "pocket" — xVibePocketTTS (клонирование голоса),
-    # "chattts" — ChatTTS (нейросетевой синтез, замена Piper). У Python-порта
-    # PocketTTS нет, поэтому при любом значении фактически работает ChatTTS
-    # (эквивалент отката pocket→chattts из C#-версии).
-    tts_engine: str = "pocket"
+    # Движок озвучки: "silero" — русский Silero v5, "pocket" — xVibePocketTTS
+    # (клонирование голоса, только C#). ChatTTS удалён. У Python-порта
+    # PocketTTS нет, поэтому при любом значении фактически работает Silero.
+    tts_engine: str = "silero"
 
     # --- STT (паритет с C# ZereConfig, отчёт docs/STT_ENGINE_RESEARCH.md) ---
     # Движок распознавания речи: "gigaam" — GigaAM-v3 punct (sherpa-onnx,
@@ -88,7 +87,7 @@ class ZereConfig:
     wake_cooldown_ms: int = 0
     wake_energy_gate: bool = True
 
-    # DSP-обработка озвучки ChatTTS (EQ + мягкий компрессор + нормализация),
+    # DSP-обработка озвучки (EQ + мягкий компрессор + нормализация),
     # паритет с C# ZereConfig.AudioProcessing. Ключ config.json:
     # audioProcessing. Читается на каждое предложение (VoiceManager), поэтому
     # переключается из панели на лету; false — «сырой» выход TTS.

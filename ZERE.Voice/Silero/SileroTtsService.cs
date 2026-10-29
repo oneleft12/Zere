@@ -9,30 +9,28 @@ using ZERE.Voice.Text;
 namespace ZERE.Voice.Silero;
 
 /// <summary>
-/// TTS на Silero v5 (русский голос) — движок для русского языка БЕЗ смены
-/// архитектуры: публичный контракт повторяет ChatTtsService/PiperService
+/// TTS на Silero v5 (русский голос) — единственный движок проекта
+/// (ChatTTS удалён): публичный контракт повторяет общий интерфейс TTS
 /// (IsLoaded / CurrentVoice / Initialize / RefreshAvailability /
 /// SynthesizeStreamAsync / SetInferenceParams / SetVoice / Dispose).
 ///
-/// Почему появился: ChatTTS официально знает только китайский и английский и на
-/// кириллице фонетически ломается. Silero v5_5_ru — русская модель с
-/// автоматическими ударениями и омографами, на CPU в 10–20 раз быстрее.
+/// Silero v5_5_ru — русская модель с автоматическими ударениями и
+/// омографами; синтез короткой фразы занимает 0.3–1.7 с на CPU.
 ///
-/// Как устроено (тот же приём, что у ChatTTS):
+/// Как устроено:
 ///  - Silero — Python-библиотека (torch-пакет .pt), поэтому тяжёлая часть в
 ///    сайдкаре tools/zere_silero_server.py;
 ///  - сайдкар поднимается uv с `--python 3.12 --with torch --with soundfile`;
-///    torch уже есть в кэше uv от ChatTTS-стека, дополнительно качается только
-///    файл модели (~145 МБ);
+///    дополнительно качается только файл модели (~145 МБ);
 ///  - ЛЕНИВАЯ загрузка: Initialize проверяет инструментарий, сервер и файл
 ///    модели поднимаются при первом синтезе;
-///  - текст идёт ПОПРЕДЛОЖЕННО (как у ChatTTS/Piper): первое предложение
+///  - текст идёт ПОПРЕДЛОЖЕННО: первое предложение
 ///    играет, пока следующее ещё синтезируется;
 ///  - сайдкар отдаёт PCM s16le моно 24 кГц, клиент заворачивает его в WAV —
 ///    дальше обычный тракт: DSP-обработка и воспроизведение.
 ///
 /// Ограничения: темп речи не настраивается (у Silero v5 нет параметра скорости),
-/// веса — CC-NC-BY (как у ChatTTS): для личного использования ок, для
+/// веса — CC-NC-BY: для личного использования ок, для
 /// коммерческого релиза это блокер (docs/TTS_SILERO.md).
 /// </summary>
 public sealed class SileroTtsService : IDisposable
@@ -55,11 +53,11 @@ public sealed class SileroTtsService : IDisposable
 
     /// <summary>
     /// Первый запуск включает скачивание модели (~145 МБ) и подъём torch —
-    /// это может занять минуты, поэтому таймаут такой же, как у ChatTTS.
+    /// это может занять минуты, поэтому таймаут увеличен до 10 минут.
     /// </summary>
     private static readonly TimeSpan StartTimeout = TimeSpan.FromMinutes(10);
 
-    /// <summary>Именованные голоса v5_5_ru (у Silero, в отличие от ChatTTS, они настоящие).</summary>
+    /// <summary>Именованные голоса v5_5_ru.</summary>
     private static readonly string[] BuiltinVoices =
     [
         "baya", "xenia", "kseniya", "aidar", "eugene"
@@ -82,7 +80,7 @@ public sealed class SileroTtsService : IDisposable
 
     public SileroTtsService()
     {
-        // Как и в ChatTtsService/PocketTtsService:
+        // Как и в PocketTtsService:
         // bin/Debug/net10.0/ → 4 уровня вверх → корень решения.
         _root = Path.GetFullPath(
             Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
@@ -159,7 +157,7 @@ public sealed class SileroTtsService : IDisposable
 
     /// <summary>
     /// Синтезирует текст ПОПРЕДЛОЖЕННО и отдаёт путь к WAV каждого предложения,
-    /// как только оно готово (контракт ChatTtsService/PiperService).
+    /// как только оно готово (общий контракт TTS).
     /// </summary>
     public async IAsyncEnumerable<string> SynthesizeStreamAsync(
         string text,
@@ -198,7 +196,7 @@ public sealed class SileroTtsService : IDisposable
 
     /// <summary>
     /// Пауза после предложения. `lengthScale` (темп) принимается ради общего
-    /// контракта с ChatTTS/Piper, но у Silero v5 нет параметра скорости — он
+    /// контракта TTS, но у Silero v5 нет параметра скорости — он
     /// игнорируется (в панели это видно как «скорость речи фиксирована»).
     /// </summary>
     public void SetInferenceParams(float lengthScale, float sentenceSilence)
@@ -218,7 +216,7 @@ public sealed class SileroTtsService : IDisposable
     public List<string> GetAvailableVoices() => BuiltinVoices.ToList();
 
     /// <summary>
-    /// Неизвестное имя голоса → дефолт: так конфиг с профилем ChatTTS
+    /// Неизвестное имя голоса → дефолт: так старый профиль из конфига
     /// («zere-standard») не роняет русский движок.
     /// </summary>
     private static string SanitizeVoice(string voiceName) =>
@@ -305,7 +303,7 @@ public sealed class SileroTtsService : IDisposable
         var uvExe = Path.Combine(_root, "tools", "uv.exe");
         var script = Path.Combine(_root, "tools", "zere_silero_server.py");
 
-        // torch приходит в том же кэше, что и для ChatTTS-стека. num2words не
+        // torch ставится в кэш uv. num2words не
         // нужен: у v5_5_ru в наборе символов нет ни цифр, ни латиницы, поэтому
         // текст раскрывает сам сайдкар — `zere/voice/silero/silero_text.py`
         // (числа по-русски, латиница практической транскрипцией).
@@ -537,7 +535,7 @@ public sealed class SileroTtsService : IDisposable
     private async Task<string> SynthesizeSentenceAsync(string sentence, CancellationToken ct)
     {
         // speed не отправляем: Silero v5 не умеет менять темп (сайдкар его
-        // принимает только ради общего контракта с ChatTTS-сервером).
+        // принимает только ради общего контракта TTS-сервера).
         var payload = JsonSerializer.Serialize(new
         {
             text = sentence,

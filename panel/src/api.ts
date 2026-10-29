@@ -190,7 +190,7 @@ function dispatchSseBlock(block: string, handlers: SseHandlers): void {
 export interface Health {
   ollama: "ok" | "down";
   whisper: "ok" | "missing";
-  tts: { engine: "pocket" | "chattts"; status: "configured" };
+  tts: { engine: "pocket" | "silero"; status: "configured" };
   memory: { count: number };
   version: string;
   branch: string;
@@ -205,7 +205,7 @@ export interface Config {
   voiceVolume: number;
   autoMemory: boolean;
   ollamaTimeoutMinutes: number;
-  ttsEngine: "pocket" | "chattts";
+  ttsEngine: "pocket" | "silero";
   /** Движок STT: gigaam — GigaAM-v3 (основной), whisper — откат. */
   sttEngine: "gigaam" | "whisper";
   voiceReferencePath: string;
@@ -399,9 +399,9 @@ export interface VoiceCapabilities {
 export interface VoiceSettings {
   voiceEnabled: boolean;
   voiceVolume: number;
-  ttsEngine: "pocket" | "chattts";
+  ttsEngine: "pocket" | "silero";
   voiceReferencePath: string;
-  /** DSP-обработка озвучки ChatTTS: применяется сразу, без перезапуска. */
+  /** DSP-обработка озвучки: применяется сразу, без перезапуска. */
   audioProcessing: boolean;
   capabilities: VoiceCapabilities;
 }
@@ -409,7 +409,7 @@ export interface VoiceSettings {
 export interface VoiceSettingsApplied {
   voiceEnabled: boolean;
   voiceVolume: number;
-  ttsEngine: "pocket" | "chattts";
+  ttsEngine: "pocket" | "silero";
   voiceReferencePath: string;
   audioProcessing: boolean;
   appliedOnRestart: boolean;

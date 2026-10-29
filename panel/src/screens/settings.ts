@@ -238,7 +238,6 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
             value: d.ttsEngine,
             options: [
               { value: "pocket", label: t("pocket — клонирование голоса") },
-              { value: "chattts", label: t("chattts — реалистичный голос, без клонирования") },
               { value: "silero", label: t("silero — русский голос: ударения, цифры и английские слова") },
             ],
             onChange: (v) => {

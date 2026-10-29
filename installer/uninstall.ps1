@@ -18,8 +18,8 @@
 .PARAMETER RemoveAssets
     Дополнительно удалить голосовые артефакты:
     ZERE.Voice\Models\*.bin, папку модели GigaAM (sherpa-onnx-*),
-    менеджер Python tools\uv.exe (на нём работают ChatTTS и клонирование),
-    временные WAV синтеза ChatTTS.
+    менеджер Python tools\uv.exe (на нём работают Silero и клонирование),
+    временные WAV старого ChatTTS (наследие).
     Git-трекаемые файлы не удаляются.
 
 .PARAMETER PurgeData
@@ -101,8 +101,8 @@ $plan = @(
     'C#-публикация publish\app'
 )
 if ($RemoveAssets) {
-    $plan += 'Голосовые артефакты: ZERE.Voice\Models\*.bin и sherpa-onnx-*, tools\uv.exe, ZERE.Voice\ChatTts\output_*.wav'
-    $plan += 'Наследие Piper: бинарники и голоса в ZERE.Voice\Piper (движок заменён на ChatTTS)'
+    $plan += 'Голосовые артефакты: ZERE.Voice\Models\*.bin и sherpa-onnx-*, tools\uv.exe, наследие ChatTts\output_*.wav'
+    $plan += 'Наследие Piper: бинарники и голоса в ZERE.Voice\Piper (движок заменён на Silero)'
 }
 if ($PurgeData) {
     $plan += 'Пользовательские данные: zere.db, logs\, backups\, config\panel.token, voice\reference.wav, voice\input\'
@@ -162,7 +162,7 @@ if ($RemoveAssets) {
             if (Test-Path $p) { $null = Remove-ItemSafe -Path $p -Label ('модель GigaAM ' + $gigaam) }
         }
     }
-    # Наследие Piper: движок заменён на ChatTTS (код и модели удалены из
+    # Наследие Piper: движок заменён на Silero (код и модели удалены из
     # репозитория), но у кого Piper стоял раньше — бинарники остались в
     # рабочей копии. Убираем их по флагу -RemoveAssets.
     $legacyPiperDir = Join-Path $Prefix 'ZERE.Voice\Piper'
@@ -179,7 +179,7 @@ if ($RemoveAssets) {
         }
     }
 
-    # Менеджер Python uv (нужен ChatTTS и клонированию голоса) — это скачанный
+    # Менеджер Python uv (нужен Silero и клонированию голоса) — это скачанный
     # установщиком бинарник, не исходник: удаляем вместе с голосовыми артефактами.
     $toolsDir = Join-Path $Prefix 'tools'
     foreach ($tool in @('uv.exe', 'uvx.exe', 'uvw.exe')) {
@@ -187,7 +187,7 @@ if ($RemoveAssets) {
         if (Test-Path $p) { $null = Remove-ItemSafe -Path $p -Label ('tools\' + $tool) }
     }
 
-    # Временные WAV синтеза ChatTTS (создаются и удаляются на лету)
+    # Временные WAV старого ChatTTS (создаются и удаляются на лету)
     $chatTtsDir = Join-Path $Prefix 'ZERE.Voice\ChatTts'
     if (Test-Path $chatTtsDir) {
         Get-ChildItem -LiteralPath $chatTtsDir -Filter 'output_*.wav' -File -ErrorAction SilentlyContinue | ForEach-Object {

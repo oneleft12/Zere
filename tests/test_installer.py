@@ -45,7 +45,7 @@ EXPECTED_ARTIFACTS = {
         "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
         147951465,
     ),
-    # ChatTTS (TTS-движок) отдельным артефактом не скачивается: его ставит uv
+    # Silero (TTS-движок) отдельным артефактом не скачивается: torch ставит uv
     # при первом синтезе. Установщик качает сам менеджер Python — uv.
     "Uv": (
         "75d05de6762778c31ee183398de7dd15093fad0ed90b1f236d8205ea5ec00c90",
@@ -462,7 +462,7 @@ IMPORT_TO_PACKAGE = {
 
 # Осознанно не объявляются в requirements.txt
 IMPORT_EXEMPT = {
-    "torch": "приходит транзитивно с ChatTTS (см. requirements.txt)",
+    "torch": "ставится отдельным окружением uv для Silero (~2 ГБ)",
 }
 
 
@@ -509,7 +509,7 @@ def test_requirements_cover_runtime_imports() -> None:
     """Каждый импорт рантайма объявлен в requirements.txt.
 
     numpy не был объявлен: он приезжал «попутно» с onnxruntime/sherpa-onnx/
-    ChatTTS, и там, где pip не дошёл до них, ZERE падал на `import numpy as np`
+    soundfile, и там, где pip не дошёл до них, ZERE падал на `import numpy as np`
     в zere/voice/audio/.
     """
     declared = {n.lower().replace("_", "-") for n in _requirements_packages()}

@@ -4,6 +4,41 @@
 версии — [Semantic Versioning](https://semver.org/lang/ru/). Версия проекта
 живёт в `config/config.json` и оттуда попадает в установщик.
 
+## [1.9.0] — 2026-10-29
+
+Русская речь — один движок: Silero. ChatTTS удалён.
+
+### Удалено
+
+- **ChatTTS** целиком: `zere/voice/chattts/`, сайдкар
+  `tools/zere_chattts_server.py`, `ZERE.Voice/ChatTts/ChatTtsService.cs`,
+  проверки и установка в зависимостях/установщике, `tests/test_chattts.py`,
+  `docs/TTS_CHATTTS.md`. Пакет `ChatTTS` больше не ставится (из
+  `requirements.txt` убран; `soundfile` остался для Silero).
+- Переключатель движков в панели: только `silero` (Python) и `pocket`
+  (клонирование, C#). Старые значения `chattts`/`pocket` в общем
+  `config.json` не роняют старт — Python-редакция трактует их как Silero.
+
+### Изменено
+
+- `ttsEngine` по умолчанию — `silero` (Python `ZereConfig`/`VoiceConfig`,
+  C# `ZereConfig`), шаблон `install.ps1` и валидация API
+  (`pocket`|`silero`; `chattts` теперь 400).
+- Инициализация TTS в `VoiceManager` (Python/C#) упрощена до Silero;
+  откат PocketTTS при сбое идёт на Silero.
+- Установщик больше не проверяет ChatTTS и не упоминает его в отчёте;
+  `uv` остаётся нужен для Silero (torch) и клонирования голоса.
+- `THIRD-PARTY-NOTICES`, README, ARCHITECTURE, INSTALL, AGENTS обновлены;
+  из OpenAPI убран `chattts` из перечня движков.
+- Версия проекта — 1.9.0.
+
+### Исправлено
+
+- Типы панели (`panel/src/api.ts`) признали `silero`: раньше TypeScript
+  разрешал только `pocket`/`chattts`, хотя Silero уже был движком по умолчанию.
+- Валидация C#-панели принимала `chattts` и отвергала `silero` — приведена
+  к общему контракту.
+
 ## [1.8.0] — 2026-10-29
 
 Релиз приложения: ZERE запускается окном, ставится одним exe.
@@ -71,4 +106,5 @@
 - Тесты ядра: обработчики команд, `ZereEngine`, сборка сервисов,
   `SafeActionManager`, `ProcessService`, `FileManager` — раньше покрытие 0 %.
 
+[1.9.0]: https://github.com/oneleft12/Jarvis/releases/tag/v1.9.0
 [1.8.0]: https://github.com/oneleft12/Jarvis/releases/tag/v1.8.0

@@ -9,7 +9,7 @@
       2. Установка зависимостей из requirements.txt
       3. Установка/запуск Ollama и загрузка модели из config/config.json (по умолчанию русская T-lite-it-2.1)
       4. Загрузка голосовых артефактов: GigaAM-v3 (основной STT), Whisper ggml-base.bin,
-         uv (менеджер Python для ChatTTS и клонирования голоса)
+         uv (менеджер Python для Silero и клонирования голоса)
          (все скачивания проверяются по SHA-256)
       5. Опционально: .NET SDK 10 + dotnet publish C#-версии (-Edition dotnet|both)
       6. Сборка web-панели (npm), если отсутствует panel/dist
@@ -85,13 +85,13 @@ $Artifacts = @{
         Url    = 'https://github.com/astral-sh/uv/releases/download/0.12.23/uv-x86_64-pc-windows-msvc.zip'
         Sha256 = '75d05de6762778c31ee183398de7dd15093fad0ed90b1f236d8205ea5ec00c90'
         Size   = 18043715
-        Label  = 'менеджер Python uv (~18 МБ; нужен для ChatTTS и клонирования)'
+        Label  = 'менеджер Python uv (~18 МБ; нужен для Silero и клонирования)'
     }
 }
 
 $DefaultConfigJson = @'
 {
-  "version": "1.8.0",
+  "version": "1.9.0",
   "assistantName": "ZERE",
   "language": "ru",
   "model": "t-tech/T-lite-it-2.1:q4_K_M",
@@ -99,7 +99,7 @@ $DefaultConfigJson = @'
   "voiceVolume": 0.5,
   "autoMemory": true,
   "ollamaTimeoutMinutes": 10,
-  "ttsEngine": "chattts",
+  "ttsEngine": "silero",
   "sttEngine": "gigaam",
   "voiceReferencePath": "",
   "audioProcessing": true,
@@ -372,7 +372,7 @@ function Write-Utf8NoBom {
 # Зависимости Python: требование requirements.txt -> имя импортируемого модуля.
 # Раньше «зависимости установлены» означало «pip show faster-whisper и
 # sherpa-onnx прошли». Если pip падал в середине списка (numpy, onnxruntime,
-# ChatTTS), эти два пакета уже стояли — и шаг установки зависимостей
+# soundfile), эти два пакета уже стояли — и шаг установки зависимостей
 # пропускался целиком: в отчёте «всё создано», а ZERE падал с
 # «No module named ...». Поэтому проверяется весь список, а не два пакета.
 # Тест tests/test_installer.py сверяет таблицу с requirements.txt.
@@ -394,7 +394,6 @@ $RequiredModules = @(
 # Необязательные: без них ZERE стартует (текстовый режим / откат движка).
 # Их отсутствие попадает в отчёт предупреждением, но установку не срывает.
 $OptionalModules = @(
-    @{ Package = 'ChatTTS'; Module = 'ChatTTS' },
     # pypdf нужен только конспектору и только для PDF; без него конспект
     # просит .md/.txt (zere/core/conspect/text.py).
     @{ Package = 'pypdf';   Module = 'pypdf' },
@@ -734,9 +733,9 @@ function Install-VoiceAssets {
         }
     }
 
-    # 2. uv — менеджер Python: на нём работают ChatTTS (TTS-движок) и
+    # 2. uv — менеджер Python: на нём работают Silero (TTS-движок) и
     # клонирование голоса (xVibePocketTTS). Отдельного «архива движка TTS»
-    # больше нет: ChatTTS uv скачивает сам при первом синтезе (~2–3 ГБ с torch).
+    # нет: torch для Silero uv скачивает сам при первом синтезе (~2 ГБ).
     $uvExe = Join-Path $toolsDir 'uv.exe'
     if (Test-Path -LiteralPath $uvExe) {
         Write-Info 'uv уже установлен'
@@ -1117,7 +1116,7 @@ $ollamaState = Get-OllamaState -WantedModel $Model
 $whisperPath = Join-Path $Prefix 'ZERE.Voice\Models\ggml-base.bin'
 $uvExePath = Join-Path $Prefix 'tools\uv.exe'
 $whisperOk = Test-FileIntegrity -Path $whisperPath -Size $Artifacts.Whisper.Size -Sha256 $Artifacts.Whisper.Sha256
-# uv — менеджер Python: без него не работают ни ChatTTS (TTS), ни клонирование голоса
+# uv — менеджер Python: без него не работают ни Silero (TTS), ни клонирование голоса
 $uvOk = Test-Path -LiteralPath $uvExePath
 
 $dotnetExe = Get-DotnetExe
@@ -1183,7 +1182,7 @@ if ($CheckOnly) {
         _line $whisperOk ('Whisper ggml-base.bin: ' + $(if ($whisperOk) { 'SHA-256 совпал' } else { 'не установлен или битый' }))
         _line $uvOk ('uv (tools\uv.exe): ' + $(if ($uvOk) { 'на месте' } else { 'не установлен' }))
         if ($needWhisper -or $needUv) { Write-Info '=> потребуется скачивание голосовых артефактов (~165 МБ)' }
-        Write-Info 'ChatTTS (TTS-движок) uv скачает сам при первом синтезе (~2–3 ГБ)'
+        Write-Info 'Silero (TTS-движок) uv скачает torch сам при первом синтезе (~2 ГБ)'
     }
     if (($Edition -eq 'dotnet') -or ($Edition -eq 'both')) {
         _line $dotnetOk ('.NET SDK 10: ' + $(if ($dotnetOk) { 'найден' } else { 'не найден' }))
@@ -1284,8 +1283,8 @@ if (-not $failedCritical) {
             if ($vres.Optional.Count -gt 0) {
                 $opt = ($vres.Optional -join ', ')
                 $okDetail = ($okDetail + '; необязательные не встали: ' + $opt)
-                Write-Warn2 ('необязательные пакеты не установились: ' + $opt + ' — ChatTTS недоступен, ZERE работает в текстовом режиме')
-                Add-Result -Name ('Необязательные пакеты (' + $opt + ')') -Status warn -Detail 'ChatTTS недоступен — озвучка не работает, текстовая работа не затронута'
+                Write-Warn2 ('необязательные пакеты не установились: ' + $opt + ' — часть функций недоступна, ZERE работает в текстовом режиме')
+                Add-Result -Name ('Необязательные пакеты (' + $opt + ')') -Status warn -Detail 'часть функций недоступна — текстовая работа не затронута'
             }
             Finish -Ok $true -Name '.venv и зависимости' -OkDetail $okDetail
         } else {

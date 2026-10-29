@@ -4,7 +4,7 @@ namespace ZERE.Core.Configuration;
 
 public class ZereConfig
 {
-    public string Version { get; set; } = "1.8.0";
+    public string Version { get; set; } = "1.9.0";
     public string AssistantName { get; set; } = "ZERE";
     public string Language { get; set; } = "ru";
     public string Model { get; set; } = "t-tech/T-lite-it-2.1:q4_K_M";
@@ -41,16 +41,16 @@ public class ZereConfig
     public int LlmTimeoutSeconds { get; set; } = 60;
 
     // ── TTS (Etap 2: klonirovanie golosa) ─────────────────
-    // Движок озвучки: "pocket" — xVibePocketTTS (клонирование, потоковый PCM),
-    // "chattts" — ChatTTS (нейросетевой синтез, замена Piper; ленивая загрузка).
-    // При сбое pocket всегда откат на chattts.
-    public string TtsEngine { get; set; } = "pocket";
+    // Движок озвучки: "silero" — русский Silero v5 (по умолчанию),
+    // "pocket" — xVibePocketTTS (клонирование голоса, потоковый PCM).
+    // ChatTTS удалён; при сбое pocket откат на Silero.
+    public string TtsEngine { get; set; } = "silero";
 
     // ── STT (отчёт docs/STT_ENGINE_RESEARCH.md, §5) ───────
     // Движок распознавания речи: "gigaam" — GigaAM-v3 punct (sherpa-onnx,
     // основной; модель качается установщиком или при первой предзагрузке),
     // "whisper" — откат на Whisper (ggml). При сбое gigaam всегда откат
-    // на whisper — зеркало отката TTS-движков (pocket→chattts).
+    // на whisper — зеркало отката TTS-движков (pocket→silero).
     public string SttEngine { get; set; } = "gigaam";
 
     // Путь к WAV-референсу голоса пользователя (пусто = встроенный голос).
@@ -77,7 +77,7 @@ public class ZereConfig
     // модель не запускается вовсе (в тихой комнате — ноль работы).
     public bool WakeEnergyGate { get; set; } = true;
 
-    // DSP-обработка озвучки ChatTTS (EQ + мягкий компрессор + нормализация).
+    // DSP-обработка озвучки (EQ + мягкий компрессор + нормализация).
     // Ключ config.json: audioProcessing. Читается на каждое предложение
     // (VoiceManager), поэтому переключается на лету из панели; false —
     // «сырой» выход TTS без единого фильтра.

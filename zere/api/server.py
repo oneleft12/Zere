@@ -36,7 +36,7 @@ from zere.core.logging.log_service import log_error, redact_secrets
 from zere.core.plugins.plugin_config import PluginConfig
 from zere.core.update.updater import UpdateBusyError, UpdateService
 # Только раннер: он тянет лишь log_error/threading — сервер панели
-# по-прежнему собирается без тяжёлых голосовых зависимостей (Whisper/ChatTTS).
+# по-прежнему собирается без тяжёлых голосовых зависимостей (Whisper/Silero).
 from zere.voice.voice_mode import VoiceModeRunner
 # Только enum: сам SafeActionManager тянет psutil (ProcessService),
 # а сервер панели обязан собираться без голосовых/системных зависимостей.
@@ -47,7 +47,7 @@ _MAX_BODY_BYTES = 64 * 1024
 _MAX_TEXT_LENGTH = 4000
 
 _ALLOWED_HOSTS = frozenset({"127.0.0.1", "localhost"})
-_ALLOWED_TTS_ENGINES = ("pocket", "chattts", "silero")
+_ALLOWED_TTS_ENGINES = ("pocket", "silero")
 # STT: gigaam — GigaAM-v3 (основной), whisper — откат
 # (отчёт docs/STT_ENGINE_RESEARCH.md, §5).
 _ALLOWED_STT_ENGINES = ("gigaam", "whisper")
@@ -602,7 +602,7 @@ class _PanelHandler(BaseHTTPRequestHandler):
 
         engine_name = config.tts_engine
         if engine_name not in _ALLOWED_TTS_ENGINES:
-            engine_name = "chattts"
+            engine_name = "silero"
 
         try:
             count = len(self.panel.memory.get_all())
@@ -1099,7 +1099,7 @@ class _PanelHandler(BaseHTTPRequestHandler):
             # Python-порт не записывает референс: у VoiceManager нет метода
             "recordReference": hasattr(voice, "record_voice_reference"),
             "pocketCloning": False,  # PocketTTS только в C#-версии
-            # ChatTTS получает темп как [speed_N]; у Silero v5 его нет.
+            # Silero v5 не умеет менять темп речи.
             "speechSpeedConfig": bool(getattr(voice, "supports_speech_speed", True)),
             "liveVolumeApply": True,  # громкость читается на каждое воспроизведение
             "sttTest": bool(getattr(voice, "is_voice_available", False)),
@@ -1235,7 +1235,7 @@ class _PanelHandler(BaseHTTPRequestHandler):
 
         if not getattr(voice, "is_tts_available", False):
             # Причина в тексте ответа: иначе пользователь видел «недоступен» без
-            # объяснения (например, ChatTTS не установлен — нужен pip install).
+            # объяснения (например, Silero не установлен — нужен torch).
             reason = getattr(voice, "tts_unavailable_reason", "")
             message = "Синтез речи недоступен."
             if reason:
@@ -1564,7 +1564,7 @@ class _PanelHandler(BaseHTTPRequestHandler):
             self._write_event("done", {"answer": answer})
 
             # Панель читает ответ голосом, если голосовой вывод включён:
-            # тот же тракт ChatTTS, что в консоли, но фоном — `done` уже
+            # тот же тракт Silero, что в консоли, но фоном — `done` уже
             # отправлен, и озвучка не держит SSE-соединение.
             self._speak_answer_background(answer)
 
@@ -2420,7 +2420,7 @@ def _validate_config_payload(payload: Any) -> Optional[str]:
         return "Ключ «language» допускает только «ru» или «en»."
 
     if payload["ttsEngine"] not in _ALLOWED_TTS_ENGINES:
-        return "Ключ «ttsEngine» допускает только «pocket», «chattts» или «silero»."
+        return "Ключ «ttsEngine» допускает только «pocket» или «silero»."
 
     if "sttEngine" in payload and payload["sttEngine"] not in _ALLOWED_STT_ENGINES:
         return "Ключ «sttEngine» допускает только «gigaam» или «whisper»."
@@ -2522,7 +2522,7 @@ def _validate_voice_payload(payload: Any) -> Optional[str]:
             return "Ключ «voiceVolume» должен быть в диапазоне 0…1."
 
     if "ttsEngine" in payload and payload["ttsEngine"] not in _ALLOWED_TTS_ENGINES:
-        return "Ключ «ttsEngine» допускает только «pocket», «chattts» или «silero»."
+        return "Ключ «ttsEngine» допускает только «pocket» или «silero»."
 
     if "voiceReferencePath" in payload and not isinstance(payload["voiceReferencePath"], str):
         return "Ключ «voiceReferencePath» должен быть строкой."

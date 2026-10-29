@@ -189,7 +189,7 @@ def main() -> int:
     # Движок распознавания речи из config.json (sttEngine, дефолт gigaam)
     voice_manager.config.stt_engine = str(config.stt_engine)
 
-    # Движок синтеза речи из config.json (ttsEngine: chattts | silero).
+    # Движок синтеза речи из config.json (ttsEngine: silero; pocket — только C#).
     # Смена движка в панели требует перезапуска — как и написано на экране.
     voice_manager.config.tts_engine = str(config.tts_engine)
 
@@ -249,7 +249,7 @@ def main() -> int:
 
     # Режим приложения: окно открывается сразу, а голос и прогрев модели —
     # после старта GUI (pywebview зовёт on_ready в своём потоке). Иначе
-    # пользователь ждёт загрузку ChatTTS/STT, глядя на пустой рабочий стол.
+    # пользователь ждёт загрузку TTS/STT, глядя на пустой рабочий стол.
     if desktop:
         def _on_ready() -> None:
             try:

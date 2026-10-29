@@ -4,7 +4,7 @@ requests>=2.32
 # zere/voice/audio/*.py (recorder, player, processor, preprocessor) делают
 # `import numpy as np` на уровне модуля, поэтому без него ZERE не стартует.
 # Раньше пакет не был объявлен и приезжал «попутно» с onnxruntime/sherpa-onnx/
-# ChatTTS: неудачная установка любого из них оставляла окружение без numpy,
+# torch: неудачная установка любого из них оставляла окружение без numpy,
 # а установщик считал зависимости установленными (см. installer/install.ps1).
 numpy>=1.26
 
@@ -25,15 +25,12 @@ wmi>=1.5.1; sys_platform == "win32"
 # самое делает пакет Microsoft.ML.OnnxRuntime (ZERE.Voice.csproj).
 onnxruntime>=1.16
 
-# ── TTS: ChatTTS (замена Piper) ─────────────────────────────────────
-# Ставится из исходников (на PyPI только sdist) и тянет torch/torchaudio/
-# numba: ~2–3 ГБ и несколько минут. Зависимости имеют колёса для Python
-# 3.10–3.14 (проверено по PyPI: torch 2.14, torchaudio 2.11, numba 0.68,
-# pybase16384 0.3.9), поэтому маркеров по версии Python нет. Для C#-редакции
-# то же окружение поднимает tools/uv.exe с `--python 3.12`
-# (см. ZERE.Voice/ChatTts/ChatTtsService.cs). Если ChatTTS нет — ZERE
-# работает в текстовом режиме, старт не ломается.
-ChatTTS>=0.2.5
+# ── TTS: Silero v5 (русский) ─────────────────────────────────────────
+# Сам движок ставится в отдельное окружение uv (torch, ~2 ГБ): Python-редакция
+# поднимает его через zere/voice/silero, C#-редакция — через сайдкар
+# tools/zere_silero_server.py. Здесь — только soundfile: он нужен менеджеру
+# Silero для записи WAV и проверяется в SileroManager.availability().
+# ChatTTS удалён из проекта (русская речь и так шла через Silero).
 soundfile>=0.12
 
 # ── Конспектор: PDF как источник ────────────────────────────────────

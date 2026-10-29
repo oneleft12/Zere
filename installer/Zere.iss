@@ -21,12 +21,12 @@
   #define Edition "both"
 #endif
 #ifndef FileVersion
-  #define FileVersion "1.8.0.0"
+  #define FileVersion "1.9.0.0"
 #endif
 ; Версию задаёт build-setup.ps1 (/DMyAppVersion из config/config.json) —
 ; иначе она расходилась бы с версией в конфиге и в свойствах файла.
 #ifndef MyAppVersion
-  #define MyAppVersion "1.8.0"
+  #define MyAppVersion "1.9.0"
 #endif
 
 #define MyAppName "ZERE"

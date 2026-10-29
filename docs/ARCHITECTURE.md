@@ -20,7 +20,7 @@ App (zere.exe / main.py / ZERE.App)
  ├── Tools (zere/tools, ZERE.Tools)        — приложения, файлы, процессы,
  │                                           громкость, игры, рисование
  └── Voice (zere/voice, ZERE.Voice)        — STT (GigaAM→Whisper), TTS
-                                             (Silero/ChatTTS/Pocket), KWS
+                                             (Silero/Pocket), KWS
 ```
 
 ## Конвейер обработчиков
@@ -72,13 +72,14 @@ MemoryHandler → MemoryQueryHandler → ConversationHandler → ProcessHandler
 
 - **STT:** GigaAM-v3 (sherpa-onnx, русский с пунктуацией) → откат Whisper
   (faster-whisper). Модель GigaAM качается при установке/первом запуске.
-- **TTS:** Silero v5 (русский), ChatTTS (китайский/английский), PocketTTS
-  (клонирование). C#-хелпер `ZERE.Speaker` делает DSP и вывод звука; при его
-  отсутствии Python озвучивает сам.
+- **TTS:** Silero v5 (русский, единственный движок Python-редакции) и
+  PocketTTS (клонирование голоса, C#). ChatTTS удалён в 1.9.0. C#-хелпер
+  `ZERE.Speaker` делает DSP и вывод звука; при его отсутствии Python
+  озвучивает сам.
 - **Слово-триггер:** стриминговый KWS на ONNX (`wake_*.onnx`) → откат на
   прежний детектор (VAD + STT). `docs/WAKE_WORD.md`.
-- Тяжёлые части ChatTTS/Silero вынесены в HTTP-сайдкары (`tools/*_server.py`)
-  и поднимаются через `uv`.
+- Тяжёлая часть Silero вынесена в HTTP-сайдкар (`tools/zere_silero_server.py`)
+  и поднимается через `uv`.
 
 ## ИИ
 

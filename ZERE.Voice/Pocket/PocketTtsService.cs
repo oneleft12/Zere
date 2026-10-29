@@ -17,7 +17,7 @@ namespace ZERE.Voice.Pocket;
 ///    через StreamPlayer первый звук не ждёт окончания генерации (~200–500 мс);
 ///  - референс пользователя (голос) кодируется в .safetensors один раз
 ///    и кэшируется на диске (tools/voice_cache);
-///  - при любой ошибке инициализации вызывающий код откатывается на ChatTTS.
+///  - при любой ошибке инициализации вызывающий код откатывается на Silero.
 /// </summary>
 public sealed class PocketTtsService : IDisposable
 {
@@ -43,7 +43,7 @@ public sealed class PocketTtsService : IDisposable
 
     public PocketTtsService()
     {
-        // Как и в ChatTtsService: bin/Debug/net10.0/ → 4 уровня вверх → корень решения.
+        // bin/Debug/net10.0/ → 4 уровня вверх → корень решения.
         _root = Path.GetFullPath(
             Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
 
@@ -116,7 +116,7 @@ public sealed class PocketTtsService : IDisposable
     /// Помечает движок недоступным и запускает фоновое восстановление.
     /// Анализ F2: раньше сбой после Initialize оставлял Pocket «мёртвым»
     /// до конца сессии — каждый следующий ответ уходил в текст; теперь
-    /// сервер перезапускается в фоне, а до этого озвучка идёт через ChatTTS.
+    /// сервер перезапускается в фоне, а до этого озвучка идёт через Silero.
     /// </summary>
     public void MarkUnavailableAndRecover()
     {
@@ -132,7 +132,7 @@ public sealed class PocketTtsService : IDisposable
         if (string.IsNullOrEmpty(_uvExe))
         {
             // Параметры запуска неизвестны (сервер подключался чужой) —
-            // восстановиться не можем, остаёмся на ChatTTS.
+            // восстановиться не можем, остаёмся на Silero.
             Interlocked.Exchange(ref _recovering, 0);
             return;
         }
@@ -155,7 +155,7 @@ public sealed class PocketTtsService : IDisposable
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Pocket] Восстановление не удалось: {ex.Message}. Остаёмся на ChatTTS.");
+                Console.WriteLine($"[Pocket] Восстановление не удалось: {ex.Message}. Остаёмся на Silero.");
                 StopProcess();
                 IsAvailable = false;
             }

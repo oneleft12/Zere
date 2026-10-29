@@ -1,4 +1,4 @@
-"""Адаптер Silero TTS под контракт PiperService/ChatTtsService.
+"""Адаптер Silero TTS под общий контракт TTS (PiperService).
 
 Контракт сохранён 1:1 — VoiceManager и остальной код не замечают подмены
 движка (маршрутизация живёт в VoiceManager и зависит только от `ttsEngine`):
@@ -34,7 +34,7 @@ from zere.voice.silero.silero_manager import (
 
 
 class SileroTtsService:
-    """Сервис TTS на Silero v5 (порт контракта ChatTtsService/PiperService)."""
+    """Сервис TTS на Silero v5 (общий контракт TTS)."""
 
     def __init__(self) -> None:
         # Папка вывода: ZERE.Voice/Silero (там же лежит сама модель).
@@ -76,7 +76,7 @@ class SileroTtsService:
 
         self.is_loaded = available
 
-        # Голос мог быть неизвестным (например, профиль ChatTTS из конфига) —
+        # Голос мог быть неизвестным (старый профиль из конфига) —
         # менеджер уже подменил его дефолтным, синхронизируем отображаемое имя.
         self._current_voice = self._manager.current_voice
 

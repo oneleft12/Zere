@@ -1,10 +1,8 @@
 """Silero TTS v5 (русский): менеджер нейросетевого синтеза речи.
 
-Почему Silero, а не ChatTTS: ChatTTS официально знает только китайский и
-английский, на кириллице он фонетически ломается («found invalid characters»),
-поэтому русская речь звучит плохо. Silero `v5_5_ru` — русская модель с
-автоматическими ударениями и омографами, в 10–20 раз быстрее ChatTTS на CPU
-(замер: 0.3–1.7 с синтеза на фразу 4.7 с).
+Silero `v5_5_ru` — русская модель с автоматическими ударениями и
+омографами; синтез короткой фразы занимает 0.3–1.7 с на CPU. Это единственный
+TTS Python-редакции (ChatTTS удалён).
 
 Модуль СОЗНАТЕЛЬНО не импортирует тяжёлые зависимости на уровне модуля:
 `torch`, `soundfile` и `numpy` подтягиваются внутри методов. Благодаря этому
@@ -13,11 +11,10 @@
 роняет приложение, а даёт понятную ошибку `SileroUnavailable`.
 
 Модель: `v5_5_ru` (~145 МБ) с `https://models.silero.ai`, качается при первом
-синтезе в `ZERE.Voice/Silero/`. Веса — CC-NC-BY (как у ChatTTS): для личного
-использования ок, для коммерческого релиза это блокер (docs/TTS_SILERO.md).
+синтезе в `ZERE.Voice/Silero/`. Веса — CC-NC-BY: для личного использования
+ок, для коммерческого релиза это блокер (docs/TTS_SILERO.md).
 
-Голоса у Silero именованные (`baya`, `xenia`, `kseniya`, `aidar`, `eugene`) —
-в отличие от ChatTTS, где «профиль голоса» это лишь зерно эмбеддинга.
+Голоса именованные: `baya`, `xenia`, `kseniya`, `aidar`, `eugene`.
 """
 
 from __future__ import annotations
@@ -33,8 +30,8 @@ from zere import paths
 from zere.voice.silero.silero_text import normalize
 from zere.voice.speech_text import split_sentences, strip_emotions
 
-# 24 кГц: столько же, сколько отдаёт ChatTTS, поэтому DSP/ресемплинг под
-# устройство и сайдкар C#-редакции не меняются. v5 умеет 8/24/48 кГц.
+# 24 кГц: под эту частоту настроены DSP/ресемплинг под устройство и сайдкар
+# C#-редакции. v5 умеет 8/24/48 кГц.
 SAMPLE_RATE = 24000
 
 # Голоса v5_5_ru (docs: models.yml). baya — женский, «нейтральный» дефолт.
@@ -109,9 +106,9 @@ class SileroManager:
     ) -> None:
         """Пауза после предложения; темп у Silero не настраивается.
 
-        `length_scale` принимается ради общего контракта с ChatTTS/Piper, но
-        игнорируется: у Silero v5 нет параметра скорости (это честное
-        ограничение движка, оно видно в панели как «скорость фиксирована»).
+        `length_scale` принимается ради общего контракта TTS, но игнорируется:
+        у Silero v5 нет параметра скорости (честное ограничение движка, оно
+        видно в панели как «скорость фиксирована»).
         """
         try:
             silence = float(sentence_silence)
@@ -144,8 +141,8 @@ class SileroManager:
             return False, (
                 "нет модулей: "
                 + ", ".join(missing)
-                + " (нужно: pip install torch soundfile — torch уже приходит "
-                "с ChatTTS; C#-редакция поднимает движок через uv)"
+                + " (нужно: pip install torch soundfile; C#-редакция "
+                "поднимает движок через uv)"
             )
 
         return True, (
@@ -338,8 +335,8 @@ class SileroManager:
     def _sanitize_voice(voice: str) -> str:
         """Неизвестное имя голоса → дефолт.
 
-        Так конфиг с профилем ChatTTS (`zere-standard`) не роняет Silero: у
-        движков разные пространства голосов, а ключ voice в конфиге общий.
+        Так старый профиль голоса из конфига (`zere-standard`) не роняет
+        Silero: ключ voice общий, а пространства голосов разные.
         """
         return voice if voice in BUILTIN_VOICES else DEFAULT_VOICE
 

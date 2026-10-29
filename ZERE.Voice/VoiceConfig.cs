@@ -20,13 +20,6 @@ public class VoiceConfig
     /// </summary>
     public string SttEngine { get; set; } = "gigaam";
 
-    /// <summary>
-    /// Профиль голоса ChatTTS. У ChatTTS нет именованных голосов: профиль —
-    /// детерминированное зерно эмбеддинга говорящего (crc32 имени), поэтому
-    /// один профиль всегда звучит одинаково. Паритет с Python VoiceConfig.
-    /// </summary>
-    public string ChatTtsVoice { get; set; } = "zere-standard";
-
     public int MicrophoneIndex { get; set; } = 0;
 
     public float Volume { get; set; } = 1.0f;
@@ -46,13 +39,13 @@ public class VoiceConfig
     /// <summary>
     /// Множитель скорости речи (1.0 = норма, меньше = быстрее, больше = медленнее).
     /// 1.15 — медленная, уверенная подача для кинематографичного стиля.
-    /// Передаётся ChatTTS как токен [speed_N] (дискретная шкала 1…9): 1.15 → 4.
+    /// Silero v5 темп не умеет — значение принимается ради общего контракта.
     /// </summary>
     public float SpeechSpeed { get; set; } = 1.15f;
 
     /// <summary>
     /// Пауза (в секундах) после каждого предложения во время синтеза:
-    /// сервер ChatTTS дописывает эту тишину в конец WAV-предложения.
+    /// сайдкар дописывает эту тишину в конец WAV-предложения.
     /// Меньше — отзывчивее.
     /// </summary>
     public float SentenceSilence { get; set; } = 0.2f;

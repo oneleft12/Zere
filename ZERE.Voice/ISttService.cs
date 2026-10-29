@@ -4,7 +4,7 @@ namespace ZERE.Voice;
 /// Контракт STT-движка (распознавания речи). Реализации:
 /// <see cref="Sherpa.GigaAmService"/> — GigaAM-v3 (основной) и
 /// <see cref="Whisper.WhisperService"/> — Whisper (откат),
-/// роутинг — VoiceManager.ConfigureStt (паритет роутинга TTS pocket→chattts).
+/// роутинг — VoiceManager.ConfigureStt (паритет роутинга TTS pocket→silero).
 /// </summary>
 public interface ISttService : IDisposable
 {

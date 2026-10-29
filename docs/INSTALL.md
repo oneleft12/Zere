@@ -1,7 +1,7 @@
 # Установка ZERE на Windows
 
 Установщик полностью готовит окружение: Python-зависимости, Ollama с моделью,
-голосовые компоненты (GigaAM/Whisper + uv для ChatTTS), ярлыки и лаунчер. Все
+голосовые компоненты (GigaAM/Whisper + uv для Silero), ярлыки и лаунчер. Все
 скачиваемые артефакты проверяются по **SHA-256**.
 
 ## Способы установки
@@ -94,8 +94,8 @@ powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1 -WorkingTree 
 коммитов git). Поэтому две сборки одной версии различимы в свойствах файла:
 
 ```
-FileVersion    1.8.0.118      ← версия из конфига + номер сборки
-ProductVersion 1.8.0
+FileVersion    1.9.0.118      ← версия из конфига + номер сборки
+ProductVersion 1.9.0
 ```
 
 Версия дублируется ещё в пяти местах (значения по умолчанию): `build-setup.ps1`,
@@ -130,8 +130,9 @@ uv-x86_64-pc-windows-msvc.zip
                             75d05de6762778c31ee183398de7dd15093fad0ed90b1f236d8205ea5ec00c90
 ```
 
-Сам ChatTTS отдельным артефактом не скачивается: `uv` приносит его при первом
-синтезе (~2–3 ГБ с torch) — см. [docs/TTS_CHATTTS.md](TTS_CHATTTS.md).
+Сам Silero отдельным артефактом не скачивается: модель (145 МБ) качается при
+первом синтезе, а torch ставит `uv` в своё окружение — см.
+[docs/TTS_SILERO.md](TTS_SILERO.md).
 
 Silero (русский голос) отдельным артефактом тоже не скачивается: 145 МБ модели
 `v5_5_ru.pt` качаются при первом синтезе в `ZERE.Voice/Silero/` —
@@ -146,7 +147,7 @@ Silero (русский голос) отдельным артефактом то�
 `pip install -r requirements.txt` запускается **всегда**, а не только при
 создании `.venv`: иначе частично установленное окружение считалось готовым, и
 ZERE падал на старте с `No module named ...`, хотя установщик отчитался об
-успехе. Исключение — `ChatTTS`: без него ZERE работает в текстовом режиме.
+успехе. Исключение — `torch` для Silero и модель TTS: без них ZERE работает в текстовом режиме.
 
 Полный вывод установщика (в том числе pip) пишется в
 `installer\install-log.txt` — файл переживает закрытие окна консоли, и по нему
@@ -240,7 +241,7 @@ installer/
 | `ZereInstaller.exe` не запускается: «Политика ограничила приложение» | Windows 11 Smart App Control блокирует неподписанный Setup.exe от Inno Setup. Используйте `ZereSetup.exe` (собран системным `csc.exe`, этот фильтр его пропускает), `installer\Install-Zere.bat` или подпишите установщик сертификатом |
 | `ZereSetup.exe` запустился, но установка падает | Откройте `installer\install-log.txt` в папке установки: мастер только распаковывает файлы и запускает `install.ps1`, вся настройка — там |
 | `[FAIL] .venv и зависимости — нет: ...` | В отчёте перечислены отсутствующие модули: обычно это обрыв сети на PyPI или отсутствие колеса под выбранную версию Python; ставьте `pip install -r requirements.txt` вручную и смотрите хвост ошибки в логе |
-| Голос не работает | `python -m compileall main.py zere`; проверьте `ttsEngine` в `config\config.json`; для ChatTTS — `tools\uv.exe` (первый синтез тянет ~2–3 ГБ с torch), для Silero — `torch` в окружении и 145 МБ модели в `ZERE.Voice\Silero` |
+| Голос не работает | `python -m compileall main.py zere`; проверьте `ttsEngine` в `config\config.json` (допустимо `silero` или `pocket` для C#); для Silero — `tools\uv.exe` и `torch` в его окружении, 145 МБ модели в `ZERE.Voice\Silero` |
 | Панель не отвечает | Она запускается вместе с ZERE на `http://127.0.0.1:8080` |
 | `zere.exe`: «ZERE уже запущен», а окна нет | Остался процесс `pythonw.exe` от прошлого запуска: завершите его в диспетчере задач и запустите снова |
 | `zere.exe` открыл панель в браузере | Нет pywebview или WebView2 Runtime: `pip install pywebview`, поставьте «Microsoft Edge WebView2 Runtime»; подробности — `logs\desktop.log` |
