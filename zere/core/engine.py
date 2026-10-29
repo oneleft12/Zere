@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 from zere.core.handlers.handler_pipeline import HandlerPipeline
 from zere.core.handlers.memory_extractor import MemoryExtractor
 from zere.core.logging.log_service import log_error
@@ -22,6 +24,15 @@ class ZereEngine:
         self._plugin_manager = plugin_manager
         self._conversations = conversations
 
+        # Конвейер вызывается из трёх потоков: консоль, панель (поток на
+        # запрос) и цикл голосового режима. Состояние обработчиков
+        # (GameTracker, DrawingService, ожидающее подтверждение) не рассчитано
+        # на одновременный вход, а «да», сказанное в другом окне, могло
+        # выполнить чужую команду. Сериализуем реплику целиком.
+        # RLock: подтверждённая команда роутера исполняется внутри обработки
+        # и может снова позвать engine.process в том же потоке.
+        self._process_lock = threading.RLock()
+
     @property
     def plugin_manager(self) -> PluginManager:
         return self._plugin_manager
@@ -37,6 +48,10 @@ class ZereEngine:
         return self._pipeline
 
     def process(self, message: str) -> str:
+        with self._process_lock:
+            return self._process_unlocked(message)
+
+    def _process_unlocked(self, message: str) -> str:
         try:
             self._extractor.try_extract(message)
 

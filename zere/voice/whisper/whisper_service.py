@@ -16,12 +16,14 @@ import os
 import threading
 import time
 from pathlib import Path
-
-from faster_whisper import WhisperModel
+from typing import TYPE_CHECKING
 
 from zere import paths
 from zere.core.logging.log_service import log_error
 from zere.voice.audio.audio_preprocessor import AudioPreprocessor
+
+if TYPE_CHECKING:  # только для аннотаций: пакет необязательный
+    from faster_whisper import WhisperModel
 
 # Размеры моделей, которые умеет загружать faster-whisper по имени
 _MODEL_SIZES = ("tiny", "base", "small", "medium", "large-v1", "large-v2", "large-v3", "large")
@@ -122,13 +124,26 @@ class WhisperService:
         # либо модели уже скачаны (ggml-файлы в Models/ как в C#)
         return self._model_size in _MODEL_SIZES or self._base_model_path.exists() or self._medium_model_path.exists()
 
-    def _get_model(self) -> WhisperModel:
+    def _get_model(self) -> "WhisperModel":
         """Ленивая загрузка модели (аналог Lazy<WhisperFactory>.Value)
         c auto-reconnect: при ошибке загрузки — одна повторная попытка
         с чистым состоянием (ROADMAP 1.1).
         """
         if self._model is not None:
             return self._model
+
+        # Импорт внутри: faster-whisper тянет ctranslate2/onnxruntime и грузится
+        # несколько секунд. При импорте на уровне модуля отсутствие пакета
+        # ломало ВСЁ приложение (VoiceManager импортирует WhisperService), а не
+        # только STT, — и тесты без faster-whisper не собирались вовсе.
+        try:
+            from faster_whisper import WhisperModel
+        except ImportError as ex:
+            raise RuntimeError(
+                "faster-whisper не установлен: распознавание Whisper недоступно. "
+                "Установите пакет из requirements.txt (pip install faster-whisper) "
+                "или используйте sttEngine=gigaam."
+            ) from ex
 
         last_error: Exception | None = None
 

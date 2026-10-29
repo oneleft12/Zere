@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import inspect
-from typing import Any, Callable, Dict, Optional, Type, TypeVar
+from typing import Any, Callable, Dict, List, Optional, Type, TypeVar, get_type_hints
 
 from zere.ai.ai_service import AiService
 from zere.ai.ollama_client import OllamaClient
@@ -32,7 +32,7 @@ from zere.core.handlers.process_handler import ProcessHandler
 from zere.core.handlers.plugin_handler import PluginCommandHandler
 from zere.core.handlers.volume_handler import VolumeHandler
 from zere.core.handlers.windows_handler import WindowsHandler
-from zere.core.logging.log_service import LogService
+from zere.core.logging.log_service import LogService, log_error
 from zere.core.plugins.plugin_config import PluginConfig
 from zere.core.plugins.plugin_manager import PluginManager
 from zere.memory.database.conversation_repository import ConversationRepository
@@ -50,6 +50,35 @@ from zere.tools.windows.volume.volume_service import VolumeService
 T = TypeVar("T")
 
 Factory = Callable[["ServiceContainer"], Any]
+
+
+def _factory_return_type(factory: Callable[..., Any]) -> Optional[Type[Any]]:
+    """Тип сервиса из аннотации возврата фабрики (или None).
+
+    `get_type_hints` обязателен: при `from __future__ import annotations`
+    (он есть во всех модулях проекта) `inspect.signature` отдаёт строку
+    "OllamaClient", а не класс — прежняя проверка `isinstance(..., type)`
+    молча не находила тип. Заодно `inspect.Signature.empty` — это класс,
+    поэтому фабрика без аннотации регистрировалась под служебным ключом
+    и никогда не находилась; теперь это честная ошибка.
+    """
+    annotation: Any = None
+
+    try:
+        annotation = get_type_hints(factory).get("return")
+    except Exception:  # noqa: BLE001 - имя из чужого пространства имён
+        annotation = None
+
+    if annotation is None:
+        try:
+            annotation = inspect.signature(factory).return_annotation
+        except (TypeError, ValueError):
+            return None
+
+    if annotation is inspect.Signature.empty:
+        return None
+
+    return annotation if isinstance(annotation, type) else None
 
 
 class ServiceContainer:
@@ -76,12 +105,7 @@ class ServiceContainer:
         key: Optional[Type[Any]] = service_type
 
         if key is None:
-            try:
-                return_annotation = inspect.signature(factory).return_annotation
-            except (TypeError, ValueError):
-                return_annotation = inspect.Signature.empty
-            if isinstance(return_annotation, type):
-                key = return_annotation
+            key = _factory_return_type(factory)
 
         if key is None:
             raise ValueError(
@@ -138,6 +162,29 @@ class ServiceContainer:
             return self.get(service_type)
         except LookupError:
             return None
+
+
+def _create_jev_handler(
+    sp: ServiceContainer, local_handlers: List[IZereHandler]
+) -> Optional[Any]:
+    """Собирает обёртку роутера Jev; сбой настроек не мешает старту."""
+    try:
+        # Импорт внутри функции: без роутера (обычный случай) модуль
+        # не загружается вовсе.
+        from zere.core.handlers.jev_routing_handler import build_jev_handler
+        from zere.core.routing.jev_router import LocalCatalog
+
+        return build_jev_handler(
+            local_handlers=local_handlers,
+            catalog=LocalCatalog(
+                sp.get(ApplicationLauncher), sp.get(ProcessService)
+            ),
+            safe_actions=sp.get(SafeActionManager),
+            log=sp.get(LogService),
+        )
+    except Exception as ex:
+        log_error("Services", f"роутер интентов Jev не подключён: {ex}")
+        return None
 
 
 def create_services(config: ZereConfig) -> ServiceContainer:
@@ -359,28 +406,6 @@ def create_services(config: ZereConfig) -> ServiceContainer:
         from zere.core.handlers.jev_routing_handler import arrange_handlers
 
         return HandlerPipeline(arrange_handlers(local_handlers, ai_handler, jev_handler))
-
-    def _create_jev_handler(
-        sp: ServiceContainer, local_handlers: List[IZereHandler]
-    ) -> Optional[Any]:
-        """Собирает обёртку роутера Jev; сбой настроек не мешает старту."""
-        try:
-            # Импорт внутри функции: без роутера (обычный случай) модуль
-            # не загружается вовсе.
-            from zere.core.handlers.jev_routing_handler import build_jev_handler
-            from zere.core.routing.jev_router import LocalCatalog
-
-            return build_jev_handler(
-                local_handlers=local_handlers,
-                catalog=LocalCatalog(
-                    sp.get(ApplicationLauncher), sp.get(ProcessService)
-                ),
-                safe_actions=sp.get(SafeActionManager),
-                log=sp.get(LogService),
-            )
-        except Exception as ex:
-            log_error("Services", f"роутер интентов Jev не подключён: {ex}")
-            return None
 
     services.add_singleton_factory(_create_handler_pipeline, HandlerPipeline)
 

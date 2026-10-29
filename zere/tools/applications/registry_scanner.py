@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import os
-import winreg
 from pathlib import Path
+
+try:  # Windows-only: модуль импортируется и на Linux (тесты, CI)
+    import winreg
+except ImportError:  # pragma: no cover - зависит от платформы
+    winreg = None  # type: ignore[assignment]
 
 from zere.tools.applications.app_alias_provider import AppAliasProvider
 from zere.tools.applications.indexing.app_info import AppInfo
@@ -26,6 +30,9 @@ class RegistryScanner(IAppScanner):
     """Читает ключи Uninstall в HKLM/HKCU (Microsoft.Win32 → winreg)."""
 
     def scan(self) -> list[AppInfo]:
+        if winreg is None:  # не Windows — реестра нет
+            return []
+
         apps: dict[str, AppInfo] = {}
 
         self._scan_hive(

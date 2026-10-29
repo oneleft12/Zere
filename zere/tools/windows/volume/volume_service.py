@@ -7,7 +7,10 @@ C# использует P/Invoke/COM CoreAudio (IMMDeviceEnumerator, IAudioEndpo
 
 from __future__ import annotations
 
-from pycaw.pycaw import AudioUtilities
+try:  # Windows-only (COM): на Linux пакета нет — сервис просто вернёт False
+    from pycaw.pycaw import AudioUtilities
+except Exception:  # noqa: BLE001 - ImportError и ошибки загрузки COM
+    AudioUtilities = None  # type: ignore[assignment]
 
 # Шаг ±громкости: в C# VolumeUp/VolumeDown посылали один APPCOMMAND
 # (системный шаг Windows, ≈2%); здесь — эквивалентный scalar-шаг pycaw.
@@ -19,6 +22,10 @@ class VolumeService:
     def _endpoint_volume():
         # C#: MMDeviceEnumerator → GetDefaultAudioEndpoint(DataFlow.Render,
         # Role.Multimedia) → IAudioEndpointVolume
+        if AudioUtilities is None:
+            raise RuntimeError(
+                "pycaw недоступен: управление громкостью работает только в Windows"
+            )
         device = AudioUtilities.GetSpeakers()
         return device.EndpointVolume
 

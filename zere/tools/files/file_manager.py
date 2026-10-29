@@ -76,6 +76,9 @@ class FileManager:
         if path.is_file():
             return f'Файл "{name}" уже существует.'
 
+        # «создай файл папка/note.txt»: промежуточные папки создаём сами —
+        # иначе write_text падал FileNotFoundError и команда не работала.
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("", encoding="utf-8")
         self._last_file = path
 

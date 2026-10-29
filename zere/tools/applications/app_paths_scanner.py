@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-import winreg
 from pathlib import Path
+
+try:  # Windows-only: модуль импортируется и на Linux (тесты, CI)
+    import winreg
+except ImportError:  # pragma: no cover - зависит от платформы
+    winreg = None  # type: ignore[assignment]
 
 from zere.tools.applications.app_alias_provider import AppAliasProvider
 from zere.tools.applications.indexing.app_info import AppInfo
@@ -16,6 +20,9 @@ class AppPathsScanner(IAppScanner):
     """HKLM/HKCU -> SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths."""
 
     def scan(self) -> list[AppInfo]:
+        if winreg is None:  # не Windows — реестра нет
+            return []
+
         apps: list[AppInfo] = []
 
         self._scan_hive(winreg.HKEY_LOCAL_MACHINE, apps)
