@@ -96,6 +96,8 @@ namespace ZereSetup
         public bool Silent;
         public bool NoLaunch;
         public bool NoShortcuts;
+        /// <summary>Не ставить Ollama: ZERE работает через облачный ключ.</summary>
+        public bool SkipOllama;
         public bool Uninstall;
         public bool PurgeData;
         public bool Help;
@@ -125,6 +127,10 @@ namespace ZereSetup
                 else if (upper == "/NOSHORTCUTS")
                 {
                     options.NoShortcuts = true;
+                }
+                else if (upper == "/SKIPOLLAMA" || upper == "/NOOLLAMA" || upper == "/WITHOUTOLLAMA")
+                {
+                    options.SkipOllama = true;
                 }
                 else if (upper == "/UNINSTALL" || upper == "/REMOVE")
                 {
@@ -349,6 +355,12 @@ namespace ZereSetup
             {
                 arguments.Append(" -SkipShortcuts");
             }
+            if (options.SkipOllama)
+            {
+                // ZERE работает без локальной модели: облачный ключ вводится в
+                // панели (экран «ИИ»). Ollama не ставим и не трогаем.
+                arguments.Append(" -SkipOllama");
+            }
 
             ProcessStartInfo startInfo = new ProcessStartInfo();
             startInfo.FileName = PowerShellPath();
@@ -359,7 +371,9 @@ namespace ZereSetup
             startInfo.UseShellExecute = !options.Silent;
             startInfo.CreateNoWindow = options.Silent;
 
-            Report(log, "Настройка окружения: Python, зависимости, Ollama, голосовые модели…");
+            Report(log, options.SkipOllama
+                ? "Настройка окружения: Python, зависимости, голосовые модели (без Ollama)…"
+                : "Настройка окружения: Python, зависимости, Ollama, голосовые модели…");
             Report(log, "Подробный журнал: " + Path.Combine(prefix, "installer", "install-log.txt"));
 
             try
@@ -639,6 +653,8 @@ namespace ZereSetup
         private readonly Options _options;
         private readonly TextBox _pathBox;
         private readonly CheckBox _desktopShortcut;
+        private readonly CheckBox _skipOllama;
+        private readonly Label _ollamaHint;
         private readonly CheckBox _launchApp;
         private readonly TextBox _log;
         private readonly ProgressBar _progress;
@@ -653,7 +669,7 @@ namespace ZereSetup
             _options = options;
 
             Text = "Установка ZERE";
-            ClientSize = new Size(620, 470);
+            ClientSize = new Size(620, 484);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -700,15 +716,30 @@ namespace ZereSetup
             _desktopShortcut.Location = new Point(22, 146);
             Controls.Add(_desktopShortcut);
 
+            _skipOllama = new CheckBox();
+            _skipOllama.Text = "Установить без Ollama";
+            _skipOllama.Checked = options.SkipOllama;
+            _skipOllama.AutoSize = true;
+            _skipOllama.Location = new Point(22, 170);
+            _skipOllama.CheckedChanged += OnSkipOllamaChanged;
+            Controls.Add(_skipOllama);
+
+            _ollamaHint = new Label();
+            _ollamaHint.AutoSize = true;
+            _ollamaHint.ForeColor = Color.DimGray;
+            _ollamaHint.Location = new Point(40, 192);
+            _ollamaHint.Text = "ZERE запустится без локальной модели: нужен облачный ключ (панель → «ИИ»).";
+            Controls.Add(_ollamaHint);
+
             _launchApp = new CheckBox();
             _launchApp.Text = "Запустить ZERE после установки";
             _launchApp.Checked = true;
             _launchApp.AutoSize = true;
-            _launchApp.Location = new Point(22, 170);
+            _launchApp.Location = new Point(22, 216);
             Controls.Add(_launchApp);
 
             _progress = new ProgressBar();
-            _progress.Location = new Point(22, 202);
+            _progress.Location = new Point(22, 248);
             _progress.Width = 572;
             _progress.Height = 18;
             _progress.Style = ProgressBarStyle.Marquee;
@@ -720,24 +751,26 @@ namespace ZereSetup
             _log.ReadOnly = true;
             _log.ScrollBars = ScrollBars.Vertical;
             _log.BackColor = Color.White;
-            _log.Location = new Point(22, 228);
-            _log.Size = new Size(572, 170);
+            _log.Location = new Point(22, 274);
+            _log.Size = new Size(572, 160);
             _log.Text = "Нажмите «Установить». Займёт несколько минут: скачиваются модели и зависимости.";
             Controls.Add(_log);
 
             _installButton = new Button();
             _installButton.Text = "Установить";
-            _installButton.Location = new Point(416, 412);
+            _installButton.Location = new Point(416, 442);
             _installButton.Width = 90;
             _installButton.Click += OnInstall;
             Controls.Add(_installButton);
 
             _cancelButton = new Button();
             _cancelButton.Text = "Отмена";
-            _cancelButton.Location = new Point(512, 412);
+            _cancelButton.Location = new Point(512, 442);
             _cancelButton.Width = 84;
             _cancelButton.DialogResult = DialogResult.Cancel;
             Controls.Add(_cancelButton);
+
+            OnSkipOllamaChanged(null, EventArgs.Empty);
 
             AcceptButton = _installButton;
             CancelButton = _cancelButton;
@@ -789,6 +822,7 @@ namespace ZereSetup
 
             _options.Prefix = prefix;
             _options.NoShortcuts = !_desktopShortcut.Checked;
+            _options.SkipOllama = _skipOllama.Checked;
 
             SetBusy(true);
             Append("Папка установки: " + prefix);
@@ -815,6 +849,7 @@ namespace ZereSetup
                 _installButton.Text = "Закрыть";
                 _pathBox.Enabled = false;
                 _desktopShortcut.Enabled = false;
+                _skipOllama.Enabled = false;
                 _launchApp.Enabled = false;
                 Append("Готово. Запуск ZERE — ярлык ZERE или zere.exe в папке установки.");
 
@@ -843,8 +878,16 @@ namespace ZereSetup
             _installButton.Enabled = !busy;
             _pathBox.Enabled = !busy && !_installed;
             _desktopShortcut.Enabled = !busy && !_installed;
+            _skipOllama.Enabled = !busy && !_installed;
             _launchApp.Enabled = !busy && !_installed;
             Cursor = busy ? Cursors.WaitCursor : Cursors.Default;
+        }
+
+        private void OnSkipOllamaChanged(object sender, EventArgs e)
+        {
+            // Пояснение показываем только когда галочка стоит: иначе строка
+            // «нужен облачный ключ» пугает тех, кто ставит Ollama.
+            _ollamaHint.Visible = _skipOllama.Checked;
         }
 
         private void Append(string line)

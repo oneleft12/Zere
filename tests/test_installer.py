@@ -209,6 +209,39 @@ def test_csharp_installer_runs_app_not_browser() -> None:
     assert "Smart App" in cs and "WDAC" in cs, "нет пояснения, зачем свой установщик"
 
 
+def test_installer_can_skip_ollama() -> None:
+    """Галочка «Установить без Ollama»: ZERE работает без локальной модели.
+
+    Ставить Ollama и 5 ГБ модели нужно не всем: с облачным ключом ZERE
+    отвечает без локали. Галочка мастера и ключ /SKIPOLLAMA для тихой
+    установки должны доходить до install.ps1 как -SkipOllama.
+    """
+    cs = _read("ZereSetup.cs")
+    assert 'Text = "Установить без Ollama"' in cs, "нет галочки «Установить без Ollama»"
+    assert '"/SKIPOLLAMA"' in cs, "нет ключа тихой установки /SKIPOLLAMA"
+    assert 'arguments.Append(" -SkipOllama")' in cs, "галочка не передаёт -SkipOllama"
+    assert "облачный ключ" in cs, "нет пояснения, чем заменить Ollama"
+
+    ps1 = _read("install.ps1")
+    assert "[switch]$SkipOllama" in ps1, "install.ps1 не принимает -SkipOllama"
+    assert "пропущено (-SkipOllama)" in ps1, "установщик не помечает Ollama пропущенной"
+
+
+def test_app_starts_without_ollama_message() -> None:
+    """«Все зависимости в порядке» не печатается, когда ИИ не настроен.
+
+    Без Ollama и без облачного ключа ZERE всё равно запускается (режим
+    приложения), но безусловный print говорил «всё в порядке» сразу после
+    «Ollama недоступна» — противоречие в журнале запуска.
+    """
+    text = (ROOT / "main.py").read_text(encoding="utf-8")
+    assert re.search(
+        r"if checker\.all_critical_passed\(\):\s*\n\s*print\(\"Все зависимости в порядке",
+        text,
+    ), "печать «всё в порядке» не привязана к проверке зависимостей"
+    assert "ИИ не настроен" in text, "нет честного сообщения для запуска без Ollama"
+
+
 def test_cs_installer_source_is_utf8_bom() -> None:
     """Кириллица в мастере: csc читает UTF-8 без BOM как ANSI."""
     data = (INSTALLER / "ZereSetup.cs").read_bytes()
