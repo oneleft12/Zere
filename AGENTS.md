@@ -9,8 +9,11 @@
 
 ## Описание проекта
 
-**ZERE** — персональный AI-ассистент для Windows, написанный на C# (.NET 10).  
-Работает через консоль, подключается к локальной LLM (Ollama) и управляет компьютером голосом или текстом.
+**ZERE** — персональный AI-ассистент для Windows. Две редакции: **Python**
+(`zere/`, `main.py`; ведущая — новые подсистемы появляются только здесь) и
+**C#** (.NET 10; поддерживается: сборка, панель, ИИ, голос). Работает локально
+с Ollama или облачным ключом пользователя, управляет компьютером голосом или
+текстом, запускается окном `zere.exe`.
 
 ### Структура решения (ZERE.slnx)
 
@@ -308,8 +311,15 @@ Pipeline обработки команд (порядок важен):
 - Данные не трогаются: `config/`, `zere.db`, `logs/`, голосовые модели.
   Грязная рабочая копия и расхождение веток — отказ с причиной, не pull.
 - После применения нужен перезапуск ZERE (процесс не перезапускается сам).
-- Подробности: `docs/UPDATE.md`; тесты — `tests/test_updater.py`
-  и контрактные `/api/update*` в `tests/test_panel_api.py`.
+- **Установленная сборка без `.git`** (Setup.exe): метка коммита в
+  `config/build-info.json` (пишут `build-installer.ps1`/`build-setup.ps1`)
+  сравнивается с HEAD ветки через GitHub API, обновление накладывается
+  zipball'ом; данные (`config/`, `data/`, `logs/`, `voice/`, `*.db`) не
+  перезаписываются. Переопределение репозитория/ветки — `ZERE_UPDATE_REPO`,
+  `ZERE_UPDATE_BRANCH`.
+- Подробности: `docs/UPDATE.md`; тесты — `tests/test_updater.py`,
+  `tests/test_updater_archive.py` и контрактные `/api/update*` в
+  `tests/test_panel_api.py`.
 
 ## Роутер интентов на Jev (только Python-редакция)
 
@@ -393,10 +403,12 @@ One, `~typesafe/jev-latest` через OpenRouter) за 70–500 мс выбир
   OpenAI-совместимый сервер; по умолчанию — русско-ориентированная
   `t-tech/T-lite-it-2.1:q4_K_M` (8B, Apache-2.0, tool calling), для слабых ПК
   предлагаются `qwen3.5:4b/2b/0.8b` Q4-тегами; тяжёлые (12B+) не предлагаются.
-- Русский язык обязателен: правило «ЯЗЫК ОТВЕТА» добавляется к промпту ЛЮБОЙ
-  личности (`AIHandler._LANGUAGE_RULE` в обеих редакциях) — промпты личностей
-  про язык не говорят ничего; `think: false` гасит reasoning-трейс на английском.
-  Разбор — `docs/LOCAL_MODELS_RESEARCH.md`, §7.
+- Язык ответа — ключ `language` в `config/config.json` (`ru`|`en`). Правило
+  языка добавляется к промпту ЛЮБОЙ личности (`AIHandler._LANGUAGE_RULES` в
+  Python, `LanguageRule()` в C#): при `en` — английское правило и английские
+  заголовки блоков промпта, при `ru` — русское. Раньше настройка была
+  декоративной. `think: false` гасит reasoning-трейс на английском.
+  Разбор — `docs/LOCAL_MODELS_RESEARCH.md`, §7; тесты — `tests/test_ai_language.py`.
 - Если настроен облачный ключ, Ollama перестаёт быть критической
   зависимостью (`zere/core/dependencies/dependency_checker.py`,
   `cloud_available=True`) — ZERE стартует и отвечает через облако.
@@ -565,7 +577,17 @@ Zere/
 │   └── build-setup.ps1           # Сборка Inno Setup.exe (git archive + ISCC)
 ├── tests/
 │   ├── conftest.py               # Изоляция: журнал ZERE уводится в tmp (logs/ не засоряется)
-│   ├── test_panel_api.py         # Контрактные тесты панели (123, по OpenAPI)
+│   ├── test_panel_api.py         # Контрактные тесты панели (131, по OpenAPI)
+│   ├── test_core_handlers.py     # Обработчики команд: память, процессы, файлы,
+│   │                             #   громкость, игры, Windows, конвейер (раньше 0 %)
+│   ├── test_core_engine.py       # ZereEngine: история, сбои, сериализация реплик
+│   ├── test_core_services.py     # Мини-DI, фабрики, откат роутера Jev (регрессия NameError)
+│   ├── test_file_manager.py      # Файлы на рабочем столе + path traversal
+│   ├── test_safe_actions.py      # Подтверждения, TTL, питание/kill/удаление
+│   ├── test_process_service.py   # Список/поиск/kill, denylist системных процессов
+│   ├── test_ai_language.py       # Язык ответа ru/en в промпте и подписях
+│   ├── test_log_rotation.py      # Ротация журналов и errors.log
+│   ├── test_updater_archive.py   # Обновление сборки без .git (GitHub API + zipball)
 │   ├── test_installer.py         # Тесты установщика (BOM, CRLF, SHA-256, связность,
 │   │                             #   покрытие зависимостей, лог, код возврата Setup)
 │   ├── test_stt_engine.py        # Тесты STT GigaAM (константы, роутинг, живое распознавание)

@@ -1,198 +1,132 @@
-# Контекст для архитектора — ZERE
+# Архитектура ZERE
 
-## Обзор
+Документ описывает **обе редакции** проекта — Python (`zere/`, `main.py`) и
+C# (.NET 10, `ZERE.*`). Ведущая редакция — **Python**: в ней появляются новые
+подсистемы (конспектор, рисование, MCP-плагины, роутер Jev, обновление,
+голосовой режим), она же запускается приложением `zere.exe`. C#-редакция
+поддерживается (сборка, контракт панели, ИИ, голос), новые подсистемы в неё не
+портируются.
 
-**ZERE** — персональный AI-ассистент для Windows на C# (.NET 10).  
-Консольное приложение, работает с локальной LLM (Ollama), управляет компьютером через текстовые команды.
-
----
-
-## Архитектурные паттерны
-
-### 1. Pipeline Pattern (Цепочка обработчиков)
-Каждая команда пользователя проходит через список обработчиков. Первый, кто вернул `true` в `CanHandle()`, обрабатывает команду.
+## Слои
 
 ```
-User Input → MemoryHandler → MemoryQueryHandler → ConversationHandler 
-         → ProcessHandler → WindowsHandler → FileHandler 
-         → GameHandler → VolumeHandler → AIHandler (fallback)
+App (zere.exe / main.py / ZERE.App)
+ ├── Desktop (zere/desktop)                — окно pywebview, stdio, диалоги
+ ├── API (zere/api, ZERE.App/Api)          — локальная панель, HTTP-контракт
+ ├── Core (zere/core, ZERE.Core)           — engine, конвейер, плагины, MCP,
+ │                                           конспектор, роутер Jev, обновление
+ ├── AI (zere/ai, ZERE.AI)                 — облачный ключ или локальная модель
+ ├── Memory (zere/memory, ZERE.Memory)     — SQLite: память и история
+ ├── Tools (zere/tools, ZERE.Tools)        — приложения, файлы, процессы,
+ │                                           громкость, игры, рисование
+ └── Voice (zere/voice, ZERE.Voice)        — STT (GigaAM→Whisper), TTS
+                                             (Silero/ChatTTS/Pocket), KWS
 ```
 
-### 2. Router Pattern (Маршрутизация)
-Внутри обработчиков команды парсятся через `*CommandRouter` классы:
-- `WindowsCommandRouter` → `WindowsCommandType` (Shutdown, Restart, Sleep)
-- `FileCommandRouter` → `FileCommandType` (CreateFolder, CreateFile, FindFile, DeleteFile)
-- `ProcessCommandRouter` → `ProcessCommandType` (List, Search, Kill)
-- `VolumeCommandRouter` → `VolumeCommandType` (SetVolume, VolumeUp, VolumeDown, Mute, UnMute)
+## Конвейер обработчиков
 
-### 3. Repository Pattern (Доступ к данным)
-SQLite база через репозитории:
-- `MemoryRepository` — CRUD для воспоминаний (Key-Value)
-- `ConversationRepository` — история диалогов
-
-### 4. Plugin Pattern (Плагинная система)
-Разные реализации одного функционала загружаются как плагины:
-- **IPlugin** — базовый интерфейс
-- **IPersonalityPlugin** — плагины личности (System Prompt + параметры)
-- **ICommandHandlerPlugin** — плагины обработчиков команд
-- Внешние плагины загружаются из `./plugins/*.dll`
-- Встроенные плагины загружаются из сборки
-
----
-
-## Межпроектные зависимости
+Порядок важен: локальные команды обрабатывает код, и только неизвестное
+уходит в LLM.
 
 ```
-ZERE.App
-  └── ZERE.Core
-        ├── ZERE.AI
-        ├── ZERE.Memory
-        ├── ZERE.Tools
-        │     ├── Applications
-        │     ├── Files
-        │     ├── Gaming
-        │     ├── Windows
-        │     └── System
-        └── ZERE.Voice
-              ├── Whisper (STT)
-              └── ChatTts (TTS)
-
-ZERE.Core/Plugins/
-  ├── Interfaces/
-  │   ├── IPlugin.cs
-  │   ├── IPersonalityPlugin.cs
-  │   └── ICommandHandlerPlugin.cs
-  ├── BasePlugin.cs
-  ├── PluginManager.cs
-  ├── PluginConfig.cs
-  ├── BuiltIn/
-  │   └── Personality/
-  │       └── PersonalityPlugin.cs
-  └── Settings/
-      └── SettingsMenu.cs
-
-./plugins/  (внешние плагины)
-  └── *.dll
+MemoryHandler → MemoryQueryHandler → ConversationHandler → ProcessHandler
+→ WindowsHandler → FileHandler → ConspectHandler → GameHandler → VolumeHandler
+→ DrawingHandler → [JevRouter] → PluginCommandHandler → AIHandler (fallback)
 ```
 
----
+- Обработчик объявляет `can_handle()` и возвращает ответ из `handle()`;
+  `None` означает «я не смог» → следующий обработчик (например, вопрос к
+  памяти без ответа уходит в LLM).
+- Сбой одного обработчика логируется и не останавливает конвейер
+  (`HandlerPipeline`).
+- Роутер Jev встаёт между локальными обработчиками и LLM и только при
+  настроенном ключе (`docs/JEV_ROUTER.md`).
+- `ZereEngine.process()` — единственная точка входа реплики: извлечение
+  фактов, конвейер, сохранение истории. Вызывается из консоли, панели и
+  голосового режима; доступ сериализован блокировкой.
+
+## Панель
+
+- HTTP только на `127.0.0.1`, проверка `Host`/`Origin`, заголовок
+  `X-ZERE-Token` из `config/panel.token` (`hmac.compare_digest`).
+- Контракт — `docs/api/openapi.yaml`, 32 маршрута Python-редакции.
+  C#-редакция реализует 27 (без `/api/update*` и `/api/plugins/mcp*`).
+- Необратимые действия (питание, kill, удаление файла) — двухшаговые:
+  `SafeActionManager` с TTL 60 с и одноразовыми челленджами.
+- Фронтенд — `panel/src` (Vite + TypeScript), сборка `panel/dist`
+  коммитится, CI проверяет её свежесть. Фронтенд определяет возможности
+  бэкенда на лету (старая сборка скрывает пункты меню).
+
+## Данные
+
+| Что | Где |
+|---|---|
+| Память и история | `zere.db` (SQLite; старая `jarvis.db` переименовывается) |
+| Настройки | `config/config.json`, `config/plugins.json` |
+| Секреты | `config/ai.json`, `config/router.json`, `config/panel.token` (0600/`icacls`, в API — только маска) |
+| Журналы | `logs/` (ключи маскируются `redact_secrets`) |
+| Модели и голос | `ZERE.Voice/Models`, `ZERE.Voice/Silero`, `voice/` |
+| Данные приложения | `data/` (профиль WebView2 и т. п.) |
+
+## Голос
+
+- **STT:** GigaAM-v3 (sherpa-onnx, русский с пунктуацией) → откат Whisper
+  (faster-whisper). Модель GigaAM качается при установке/первом запуске.
+- **TTS:** Silero v5 (русский), ChatTTS (китайский/английский), PocketTTS
+  (клонирование). C#-хелпер `ZERE.Speaker` делает DSP и вывод звука; при его
+  отсутствии Python озвучивает сам.
+- **Слово-триггер:** стриминговый KWS на ONNX (`wake_*.onnx`) → откат на
+  прежний детектор (VAD + STT). `docs/WAKE_WORD.md`.
+- Тяжёлые части ChatTTS/Silero вынесены в HTTP-сайдкары (`tools/*_server.py`)
+  и поднимаются через `uv`.
+
+## ИИ
+
+`AiService` выбирает провайдера на каждый запрос: облачный ключ пользователя
+(любой OpenAI-совместимый API) или локальная модель (Ollama). Режимы —
+`auto | cloud | local`. Ключ в панели показывается маской, права файла сужены,
+секреты вычищаются из логов. Язык ответа (`ru|en`) берётся из
+`config/config.json` и меняет правило системного промпта и заголовки блоков.
+`docs/AI_PROVIDERS.md`.
+
+## Безопасность
+
+- Только loopback, токен панели, TTL-подтверждения, denylist системных
+  процессов, path traversal закрыт в файловых операциях и статике.
+- MCP-серверы — подпроцессы с правами пользователя (не песочница): allowlist
+  инструментов и точная команда запуска в `docs/MCP_PLUGINS.md`.
+- Обновление — только `git pull --ff-only` в чистой копии; данные не
+  перезаписываются.
 
 ## Точки расширения
 
-### Добавить новый обработчик:
-1. Создать класс в `ZERE.Core/Handlers/`
-2. Реализовать `IZereHandler`
-3. Зарегистрировать в `ZereEngine.cs` (pipeline)
+**Новый обработчик (Python):** класс с `can_handle`/`handle` в
+`zere/core/handlers/`, регистрация в `zere/core/services.py`
+(`_create_handler_pipeline`), тест в `tests/test_core_handlers.py`.
 
-### Добавить новый тип команды:
-1. Добавить значение в enum `*CommandType`
-2. Обновить `*CommandRouter.Parse()`
-3. Обработать в switch-case обработчика
+**Новый тип команды:** значение в `*CommandType`, разбор в `*CommandRouter`,
+ветка в обработчике.
 
-### Добавить новый инструмент:
-1. Создать класс в `ZERE.Tools/`
-2. Вызвать из соответствующего обработчика
+**Новый инструмент:** модуль в `zere/tools/<область>/`, вызов из обработчика,
+тест без Windows-зависимостей (фейки вместо реестра/COM).
 
-### Добавить плагин личности:
-1. Создать .dll проект
-2. Реализовать `IPersonalityPlugin`
-3. Положить .dll в `./plugins/`
-4. Перезагрузить плагины через настройки
+**Плагин:** `ICommandHandlerPlugin` — `.py` в `plugins/` (Python) или `.dll`
+(C#); MCP-сервер — запись в `config/mcp.json` без правки кода.
 
-### Добавить плагин обработчика команд:
-1. Создать .dll проект
-2. Реализовать `ICommandHandlerPlugin`
-3. Положить .dll в `./plugins/`
-4. Плагин автоматически добавится в pipeline
+**C#-паритет:** при изменении контракта панели обновите
+`ZERE.App/Api/PanelServer.cs` и `docs/api/openapi.yaml`; контрактные тесты
+гоняются против обеих редакций в CI.
 
----
+## Тесты и CI
 
-## Ключевые интерфейсы
+- `pytest tests` — 890+ тестов, тяжёлые пакеты подменяются фейками;
+  достаточно `requirements-dev.txt`.
+- Покрытие контролируется `--cov-fail-under` в CI.
+- `scripts/check_port.py` — AST-контракт порта C# → Python.
+- CI: панель (typecheck + сборка + свежесть `dist`), Playwright E2E, Python
+  (ruff, compileall, check_port, весь pytest с покрытием), C# (сборка +
+  контракт панели на фейковом провайдере).
 
-```csharp
-// Интерфейс обработчика
-public interface IZereHandler
-{
-    bool CanHandle(string message);
-    Task<string> HandleAsync(string message);
-}
-
-// Интерфейс плагина
-public interface IPlugin
-{
-    string Id { get; }
-    string Name { get; }
-    string Description { get; }
-    string Version { get; }
-    PluginType Type { get; }
-    void Initialize();
-    void Dispose();
-}
-
-// Интерфейс плагина личности
-public interface IPersonalityPlugin : IPlugin
-{
-    string SystemPrompt { get; }
-    float Temperature { get; }
-    PersonalityStyle Style { get; }
-    string[] GetAvailableStyles();
-    void SetStyle(string styleName);
-}
-
-// Интерфейс плагина обработчика команд
-public interface ICommandHandlerPlugin : IPlugin
-{
-    string[] SupportedCommands { get; }
-    bool CanHandle(string message);
-    Task<string> HandleAsync(string message);
-}
-```
-
----
-
-## Конфигурация
-
-### config/config.json
-- `model` — имя модели Ollama
-- `voice.enabled` — включён ли голос
-- `autoMemory` — автоизвлечение фактов
-- `debugMode` — подробные логи
-
-### config/plugins.json
-- `ActivePersonalityId` — ID активного плагина личности
-- `PluginSettings` — пользовательские настройки плагинов
-
----
-
-## Внешние зависимости
-
-| Компонент | Зависимость | Назначение |
-|---|---|---|
-| Ollama | HTTP localhost:11434 | Генерация ответов LLM |
-| SQLite | Microsoft.Data.Sqlite | Хранение данных |
-| Whisper | ggml-base.bin | Распознавание речи |
-| ChatTTS | модель ChatTTS + сайдкар `tools/zere_chattts_server.py` (поднимает uv) | Синтез речи |
-
----
-
-## Паттерны данных
-
-### Memory (воспоминания)
-```json
-{ "key": "имя", "value": "Dan", "category": "User" }
-```
-
-### Conversation (история)
-```json
-{ "userMessage": "привет", "zereResponse": "Здравствуйте!", "timestamp": "..." }
-```
-
----
-
-## Рекомендации по развитию
-
-1. **Web-панель** — HTTP-интерфейс для настроек (план: `docs/WEB_PANEL_PLAN.md`)
-2. **API** — REST API для интеграции с другими приложениями
-3. **Мультиязычность** — переключение языка интерфейса
-4. **Голос** — режим всегда слушающего (wake word detection)
-5. **GUI** — WPF/MAUI оболочка вместо консоли
+Подробности по подсистемам — в `docs/` (`CONSPECT.md`, `MCP_PLUGINS.md`,
+`JEV_ROUTER.md`, `DRAWING.md`, `TTS_SILERO.md`, `WAKE_WORD.md`, `UPDATE.md`,
+`AI_PROVIDERS.md`, `DESKTOP_APP.md`, `INSTALL.md`).
