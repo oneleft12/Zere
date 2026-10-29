@@ -1,8 +1,14 @@
 # Обновление ZERE из GitHub
 
-ZERE обновляется **из своего git-репозитория**: приложение проверяет ветку на
-GitHub и по кнопке делает fast-forward (`git pull --ff-only`). Никаких
-сред слияния, перезаписи конфигов или удаления данных: обновляется только код.
+ZERE обновляется **из своего репозитория на GitHub** в двух режимах:
+
+1. **git-копия** (клон репозитория) — проверка ветки и fast-forward
+   (`git pull --ff-only`), без слияний.
+2. **установленная сборка** (`ZereSetup.exe`, `.git` нет) — GitHub API отдаёт
+   HEAD ветки, сборка несёт `config/build-info.json` с коммитом, обновление
+   накладывается zipball'ом ветки. Данные пользователя не перезаписываются.
+
+Никаких слияний, перезаписи конфигов или удаления данных: обновляется только код.
 
 Реализация — `zere/core/update/updater.py` (`UpdateService`).
 
@@ -51,7 +57,7 @@ GitHub и по кнопке делает fast-forward (`git pull --ff-only`). Н
 | `есть незакоммиченные изменения` | В репозитории есть локальные правки отслеживаемых файлов | Зафиксировать (`git stash` / `git commit`) и повторить |
 | `ветки разошлись` | Локальная ветка ушла вперёд origin | Разобрать вручную: `git log --oneline origin/<ветка>..HEAD` |
 | `git fetch не удался` | Нет сети, нет доступа к репозиторию, ключ просит пароль | Проверить `git fetch` в терминале от того же пользователя |
-| `нет git-репозитория` | Установка без `.git` (архив, Setup.exe) | Обновление только через git-копию репозитория |
+| `нет метки сборки` | Установка без `.git` и без `config/build-info.json` (старый Setup.exe) | Обновить установщиком один раз; дальше обновления идут из панели |
 | `нет git` | `git` не найден в `PATH` | Установить [Git для Windows](https://git-scm.com/download/win) |
 
 Приватный репозиторий читается теми же ключами, что и обычный `git`:
@@ -60,14 +66,51 @@ GitHub и по кнопке делает fast-forward (`git pull --ff-only`). Н
 ошибке, а не к «зависшей» панели. Подходит ключ без парольной фразы либо
 credential helper git.
 
+## Установленная сборка (без `.git`)
+
+`ZereSetup.exe` ставит архив кода (`git archive`), поэтому `.git` в каталоге
+нет. Для неё работает второй канал:
+
+```
+панель «Обновления»
+   │ 1. GET https://api.github.com/repos/oneleft12/Jarvis/commits/<ветка>
+   │    → sha HEAD и сообщение
+   │ 2. сравнение с конфигом build-info.json (commit)
+   │ 3. «Обновить сейчас»:
+   │    GET https://codeload.github.com/oneleft12/Jarvis/zip/<sha>
+   │    → безопасная распаковка (без .. и абсолютных путей)
+   │    → копирование кода поверх установки
+   │    → pip install, если изменился requirements.txt
+   │    → запись нового коммита в build-info.json
+```
+
+- **Метка сборки.** `installer/build-installer.ps1` и `build-setup.ps1`
+  пишут `config/build-info.json`: `repository`, `branch`, `commit`,
+  `version`, `builtAt`. Файл попадает в дистрибутив, но не в git
+  (`.gitignore`).
+- **Что копируется.** Только код и ресурсы. Пропускаются `config/`, `data/`,
+  `logs/`, `backups/`, `voice/`, `publish/`, `.venv`, `node_modules`,
+  `__pycache__`, `installer/Output`, `tools/xVibePocketTTS`, `panel/test-results`
+  и файлы баз/медиа (`*.db`, `*.wav`, `*.mp3`, `*.mp4`, `*.onnx`, `*.pt`,
+  `*.bin`).
+- **Версия.** Из `config.json` архива берётся `version` и обновляется в
+  локальном `config.json` (остальные ключи не трогаются).
+- **Сеть.** Только `api.github.com` и `codeload.github.com`, без токена
+  (публичный репозиторий; лимит GitHub — 60 запросов в час на IP).
+- **Переопределение.** `ZERE_UPDATE_REPO` и `ZERE_UPDATE_BRANCH` (форк или
+  другая ветка) — для разработки.
+- **Ограничение.** Удалённые файлы не удаляются: обновление накладывается
+  поверх. Для чистой установки используйте Setup.exe.
+
 ## Что не перезаписывается
 
 Обновляется только то, что лежит в git. Личные данные и артефакты установки
 игнорируются или не входят в репозиторий:
 
-- `config/` — `config.json`, `plugins.json`, `panel.token`;
+- `config/` — `config.json`, `plugins.json`, `panel.token`, `build-info.json`
+  (последний обновляется самим updater'ом при установке без `.git`);
 - `zere.db` — память и история разговоров;
-- `logs/`, `backups/`;
+- `logs/`, `backups/`, `data/`;
 - `voice/Models/` — GigaAM, Whisper `ggml-base.bin`;
 - `tools/xVibePocketTTS/`, `.venv/`, `node_modules/`.
 

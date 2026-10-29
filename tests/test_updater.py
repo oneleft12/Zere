@@ -318,7 +318,13 @@ def test_failed_dependencies_do_not_roll_back_code() -> None:
 # ── Ошибки окружения ──────────────────────────────────────────────
 
 
-def test_not_a_git_repository_is_reported() -> None:
+def test_installed_build_without_metadata_is_reported() -> None:
+    """Без .git работает release-канал; без build-info он честно отказывает.
+
+    Раньше любой каталог без .git получал «Обновление через git недоступно»
+    и обновиться было нельзя вовсе. Теперь установленная сборка идёт через
+    GitHub API/zipball, а каталог без метки версии просит установщик.
+    """
     with tempfile.TemporaryDirectory() as td:
         service = UpdateService(root=Path(td))
         state = service.status()
@@ -327,11 +333,13 @@ def test_not_a_git_repository_is_reported() -> None:
         assert state["available"] is False
         assert state["updateAvailable"] is False
         assert state["canUpdate"] is False
-        assert ".git не найден" in state["error"]
+        assert state["remote"] == "github"
+        assert state["remoteUrl"] == "https://github.com/oneleft12/Jarvis"
 
         outcome = service.apply()
         _assert_outcome(outcome)
         assert outcome["ok"] is False
+        assert "метки версии" in outcome["message"]
         assert outcome["pulled"] == 0
         assert outcome["restartRequired"] is False
 

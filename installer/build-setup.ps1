@@ -36,6 +36,11 @@ $ErrorActionPreference = 'Stop'
 function Write-Info([string]$Msg) { Write-Host ('   ' + $Msg) -ForegroundColor Gray }
 function Write-Fail2([string]$Msg) { Write-Host ('   [X]  ' + $Msg) -ForegroundColor Red }
 
+function Write-Utf8NoBom {
+    param([string]$Path, [string]$Text)
+    [System.IO.File]::WriteAllText($Path, $Text, (New-Object System.Text.UTF8Encoding($false)))
+}
+
 $root = Split-Path -Parent $PSScriptRoot
 $issPath = Join-Path $PSScriptRoot 'Zere.iss'
 $stageDir = Join-Path $PSScriptRoot 'stage'
@@ -125,6 +130,36 @@ if (-not (Test-Path (Join-Path $stageDir 'installer\Zere.iss'))) {
 }
 $staged = @(Get-ChildItem -LiteralPath $stageDir -Recurse -File).Count
 Write-Info ('файлов в stage: ' + $staged)
+
+# --- 2.1. Метка сборки (config/build-info.json) -----------------------------
+# Установленная сборка не имеет .git (дистрибутив собран `git archive`),
+# поэтому панель → «Обновления» не может сравнить её с веткой. Метка хранит
+# коммит, ветку и репозиторий: UpdateService без .git идёт в GitHub API и
+# накладывает zipball ветки, не трогая config/, data/, logs/ и базы.
+$repoCommit = ''
+$repoBranch = ''
+Push-Location $root
+try {
+    $repoCommit = (& git rev-parse HEAD 2>$null | Select-Object -First 1)
+    $repoBranch = (& git rev-parse --abbrev-ref HEAD 2>$null | Select-Object -First 1)
+} catch {
+    Write-Info 'git rev-parse не удался — сборка будет без метки версии'
+} finally {
+    Pop-Location
+}
+$buildInfoPath = Join-Path $stageDir 'config\build-info.json'
+$buildInfoDir = Split-Path $buildInfoPath -Parent
+if (-not (Test-Path -LiteralPath $buildInfoDir)) { New-Item -ItemType Directory -Path $buildInfoDir -Force | Out-Null }
+$buildInfo = [ordered]@{
+    repository = 'oneleft12/Jarvis'
+    branch     = ([string]$repoBranch).Trim()
+    commit     = ([string]$repoCommit).Trim()
+    version    = $version
+    builtAt    = (Get-Date).ToUniversalTime().ToString('o')
+}
+Write-Utf8NoBom -Path $buildInfoPath -Text ($buildInfo | ConvertTo-Json)
+Write-Info ('метка сборки: ' + $buildInfo.commit + ' (' + $buildInfo.branch + ')')
+
 
 # --- 4. Компиляция ---
 if (-not (Test-Path $outputDir)) { New-Item -ItemType Directory -Path $outputDir -Force | Out-Null }

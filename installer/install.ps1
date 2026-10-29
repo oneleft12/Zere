@@ -116,6 +116,21 @@ $DefaultPluginsJson = @'
 }
 '@
 
+# Версия в шаблоне конфига — из config/config.json дистрибутива (единый
+# источник версии), а не второй захардкоженной строкой. Шаблон нужен только
+# при первой установке, если своего config.json ещё нет.
+$payloadConfig = Join-Path $PSScriptRoot 'config\config.json'
+if (Test-Path -LiteralPath $payloadConfig) {
+    try {
+        $payloadCfg = Get-Content -LiteralPath $payloadConfig -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($payloadCfg.version) {
+            $DefaultConfigJson = $DefaultConfigJson -replace '"version":\s*"[^"]*"', ('"version": "' + [string]$payloadCfg.version + '"')
+        }
+    } catch {
+        Write-Host 'Версия из config/config.json не разобрана — шаблон остаётся с версией по умолчанию.'
+    }
+}
+
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 # ---------------------------------------------------------------------------

@@ -20,11 +20,18 @@ zere.db, logs/, backups/, голосовые модели) в git не вход�
 from __future__ import annotations
 
 import copy
+import hashlib
+import io
+import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
+import urllib.request
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -40,6 +47,35 @@ _PULL_TIMEOUT = 180.0  # сам pull (перемотка большого дер
 _DEPS_TIMEOUT = 900.0  # pip install -r requirements.txt
 _VERSION_TIMEOUT = 10.0
 _MAX_COMMITS = 30
+
+# ── Обновление установленной сборки (без .git) ─────────────────────
+# Setup.exe ставит git archive — репозитория в каталоге нет, и прежний
+# UpdateService отказывал. Второй канал: GitHub API отдаёт HEAD ветки,
+# сборка несёт config/build-info.json с коммитом, обновление — zipball
+# ветки. Данные пользователя (config/, data/, logs/, voice/, *.db)
+# не перезаписываются.
+_DEFAULT_REPOSITORY = "oneleft12/Jarvis"
+_DEFAULT_BRANCH = "python-port"
+_BUILD_INFO_PATH = Path("config") / "build-info.json"
+_MAX_API_BYTES = 1_000_000
+_MAX_ARCHIVE_BYTES = 200 * 1024 * 1024
+_ARCHIVE_PROTECTED_TOP = frozenset(
+    {
+        ".git",
+        ".venv",
+        "config",
+        "data",
+        "logs",
+        "backups",
+        "voice",
+        "publish",
+        "node_modules",
+        "installer/Output",
+        "tools/xVibePocketTTS",
+    }
+)
+_ARCHIVE_PROTECTED_ANY = frozenset({"node_modules", "__pycache__", ".pytest_cache"})
+_ARCHIVE_PROTECTED_SUFFIXES = (".db", ".wav", ".mp3", ".mp4", ".onnx", ".pt", ".bin")
 
 # Разделитель полей в --format: не встречается ни в именах, ни в темах
 # коммитов, поэтому разбор не зависит от локали git.
@@ -167,6 +203,11 @@ class UpdateService:
         self._op_lock = threading.Lock()
         self._state: dict[str, Any] = self._empty_state()
 
+        # Установленная сборка (git archive) не имеет .git — для неё работает
+        # второй канал обновления по GitHub API и метке коммита в build-info.
+        self._git_available = (self._root / ".git").exists()
+        self._build_info = self._load_build_info()
+
         # Локальное состояние (ветка, коммит, грязная копия) читается сразу:
         # панель показывает его, даже если сеть ещё не отвечала.
         self._inspect(fetch=False)
@@ -204,6 +245,10 @@ class UpdateService:
 
         try:
             self._set(applying=True)
+
+            if not self._git_available:
+                return self._apply_archive(install_dependencies=install_dependencies)
+
             self._inspect(fetch=True)
             state = self.status()
 
@@ -351,7 +396,10 @@ class UpdateService:
         state["checkedAt"] = datetime.now().astimezone().isoformat(timespec="seconds")
 
         try:
-            error, blocked = self._inspect_repository(state, fetch=fetch)
+            if self._git_available:
+                error, blocked = self._inspect_repository(state, fetch=fetch)
+            else:
+                error, blocked = self._inspect_archive(state, fetch=fetch)
         except Exception as ex:  # noqa: BLE001 — панель не должна падать
             error, blocked = f"Сбой проверки обновлений: {ex}", "сбой проверки"
 
@@ -446,6 +494,315 @@ class UpdateService:
             return (None, "ветки разошлись")
 
         return (None, None)
+
+    # ── Обновление сборки без .git (zipball ветки) ─────────────────
+
+    def _load_build_info(self) -> dict[str, Any]:
+        """Метка установленной сборки: config/build-info.json (пишет сборщик)."""
+        info: dict[str, Any] = {}
+        path = self._root / _BUILD_INFO_PATH
+
+        try:
+            if path.is_file():
+                loaded = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    info = loaded
+        except (OSError, ValueError):
+            info = {}
+
+        return {
+            "repository": os.environ.get("ZERE_UPDATE_REPO")
+            or str(info.get("repository") or _DEFAULT_REPOSITORY),
+            "branch": os.environ.get("ZERE_UPDATE_BRANCH")
+            or str(info.get("branch") or _DEFAULT_BRANCH),
+            "commit": str(info.get("commit") or "").strip(),
+            "version": str(info.get("version") or ""),
+            "builtAt": str(info.get("builtAt") or ""),
+        }
+
+    def _api_commit_url(self) -> str:
+        from urllib.parse import quote
+
+        repository = self._build_info["repository"]
+        branch = quote(self._build_info["branch"], safe="")
+        return f"https://api.github.com/repos/{repository}/commits/{branch}"
+
+    def _zip_url(self, revision: str) -> str:
+        from urllib.parse import quote
+
+        repository = self._build_info["repository"]
+        return (
+            "https://codeload.github.com/"
+            f"{repository}/zip/{quote(revision, safe='')}"
+        )
+
+    def _http_get(self, url: str, *, limit: int) -> bytes:
+        """GET без кэша и без авторизации. Вынесен, чтобы тесты подменяли сеть."""
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "ZERE-updater",
+                "Accept": "application/vnd.github+json",
+            },
+        )
+
+        with urllib.request.urlopen(request, timeout=self._timeout) as response:
+            status = getattr(response, "status", 200)
+            data = response.read(limit + 1)
+
+        if status != 200:
+            raise RuntimeError(f"HTTP {status}")
+
+        if len(data) > limit:
+            raise RuntimeError("ответ больше допустимого размера")
+
+        return data
+
+    def _inspect_archive(
+        self, state: dict[str, Any], *, fetch: bool
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Состояние установленной сборки: локальная метка против HEAD ветки."""
+        info = self._build_info
+        state["branch"] = info["branch"]
+        state["remote"] = "github"
+        state["remoteUrl"] = f"https://github.com/{info['repository']}"
+
+        commit = info["commit"]
+        if commit:
+            state["current"] = {
+                "hash": commit,
+                "short": commit[:7],
+                "subject": f"установленная сборка {info['version']}".strip(),
+                "author": "",
+                "date": info["builtAt"],
+            }
+
+        if not fetch:
+            return (None, None)
+
+        try:
+            raw = self._http_get(self._api_commit_url(), limit=_MAX_API_BYTES)
+            payload = json.loads(raw.decode("utf-8"))
+            remote = str(payload.get("sha") or "")
+            if not remote:
+                raise RuntimeError("GitHub не вернул коммит")
+            commit_info = payload.get("commit") or {}
+            message = str(commit_info.get("message") or "").strip().splitlines()
+            author = (commit_info.get("author") or {}).get("name") or ""
+            date = (commit_info.get("committer") or {}).get("date") or ""
+        except Exception as ex:  # noqa: BLE001 — сеть, JSON, лимит
+            return (
+                f"Нет связи с GitHub (обновление сборки): {ex}",
+                "нет связи с GitHub",
+            )
+
+        # Без метки сборки обновлять нечего: иначе повторим ту же версию.
+        state["available"] = bool(commit)
+        state["target"] = {
+            "hash": remote,
+            "short": remote[:7],
+            "subject": message[0] if message else "обновление ветки",
+            "author": str(author),
+            "date": str(date),
+        }
+
+        if not commit:
+            return (
+                "В этой сборке нет метки версии (config/build-info.json) — "
+                "обновите её установщиком ZereSetup.exe.",
+                "нет метки сборки",
+            )
+
+        if remote == commit:
+            state["behind"] = 0
+            state["commits"] = []
+        else:
+            state["behind"] = 1
+            state["commits"] = [state["target"]]
+
+        return (None, None)
+
+    def _apply_archive(self, *, install_dependencies: bool) -> dict[str, Any]:
+        """Скачать zipball HEAD ветки и наложить код поверх установки."""
+        if not self._build_info["commit"]:
+            return self._outcome(
+                False,
+                "В этой сборке нет метки версии (config/build-info.json) — "
+                "обновите её установщиком ZereSetup.exe, а следующие обновления "
+                "пойдут уже из панели.",
+            )
+
+        self._inspect(fetch=True)
+        state = self.status()
+
+        if state["error"]:
+            return self._outcome(False, state["error"])
+
+        if not state["updateAvailable"] or state["target"] is None:
+            current = state["current"]
+            short = current["short"] if current else "?"
+            return self._outcome(
+                False,
+                f"Обновлений нет: сборка {short} совпадает с веткой {state['branch']}.",
+            )
+
+        revision = state["target"]["hash"]
+        from_hash = self._build_info["commit"]
+
+        try:
+            raw = self._http_get(self._zip_url(revision), limit=_MAX_ARCHIVE_BYTES)
+            copied, deps_changed, remote_version = self._extract_archive(raw)
+        except Exception as ex:  # noqa: BLE001 — сеть, zip, файлы
+            return self._outcome(False, f"Не удалось применить обновление: {ex}")
+
+        if copied == 0:
+            return self._outcome(False, "В архиве обновления нечего применять.")
+
+        dependencies = DEPENDENCIES_NOT_NEEDED
+        if deps_changed:
+            dependencies = (
+                self._install_dependencies()
+                if install_dependencies
+                else DEPENDENCIES_SKIPPED
+            )
+
+        self._write_build_info(revision, remote_version)
+        self._update_local_version(remote_version)
+        self._inspect(fetch=False)
+
+        return self._outcome(
+            True,
+            f"Сборка обновлена до {revision[:7]} (файлов: {copied}). "
+            "Перезапустите ZERE.",
+            from_hash=from_hash,
+            pulled=1,
+            dependencies=dependencies,
+        )
+
+    def _extract_archive(self, raw: bytes) -> tuple[int, bool, str]:
+        """Распаковка и копирование кода. Возвращает (файлов, deps, версия)."""
+        with tempfile.TemporaryDirectory(prefix="zere-update-") as tmp:
+            folder = Path(tmp)
+
+            with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+                broken = archive.testzip()
+                if broken is not None:
+                    raise RuntimeError(f"повреждённый архив: {broken}")
+
+                for name in archive.namelist():
+                    candidate = Path(name)
+                    if candidate.is_absolute() or ".." in candidate.parts:
+                        raise RuntimeError(f"недопустимый путь в архиве: {name}")
+
+                archive.extractall(folder)
+
+            entries = list(folder.iterdir())
+            source = (
+                entries[0]
+                if len(entries) == 1 and entries[0].is_dir()
+                else folder
+            )
+
+            remote_version = self._read_archive_version(source)
+            before = self._requirements_digest()
+            copied = 0
+
+            for file in source.rglob("*"):
+                if not file.is_file():
+                    continue
+
+                relative = file.relative_to(source)
+                if self._is_protected(relative):
+                    continue
+
+                destination = self._root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(file, destination)
+                copied += 1
+
+            after = self._requirements_digest()
+
+        return copied, before != after, remote_version
+
+    @staticmethod
+    def _is_protected(relative: Path) -> bool:
+        """Данные пользователя и артефакты установки обновление не трогает."""
+        parts = relative.parts
+        if not parts:
+            return True
+
+        if parts[0] in _ARCHIVE_PROTECTED_TOP:
+            return True
+
+        if any(part in _ARCHIVE_PROTECTED_ANY for part in parts):
+            return True
+
+        posix = relative.as_posix()
+        if posix.startswith(
+            ("installer/Output/", "tools/xVibePocketTTS/", "panel/test-results/")
+        ):
+            return True
+
+        return relative.name.endswith(_ARCHIVE_PROTECTED_SUFFIXES)
+
+    @staticmethod
+    def _read_archive_version(source: Path) -> str:
+        try:
+            payload = json.loads(
+                (source / "config" / "config.json").read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError):
+            return ""
+        return str(payload.get("version") or "") if isinstance(payload, dict) else ""
+
+    def _requirements_digest(self) -> str:
+        try:
+            data = (self._root / "requirements.txt").read_bytes()
+        except OSError:
+            return ""
+        return hashlib.sha256(data).hexdigest()
+
+    def _write_build_info(self, revision: str, version: str) -> None:
+        info = dict(self._build_info)
+        info["commit"] = revision
+        info["builtAt"] = datetime.now().astimezone().isoformat(timespec="seconds")
+        if version:
+            info["version"] = version
+
+        path = self._root / _BUILD_INFO_PATH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(info, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(path)
+        self._build_info = info
+
+    def _update_local_version(self, version: str) -> None:
+        """Версия в config.json — не пользовательские данные, её обновляем."""
+        if not version:
+            return
+
+        path = self._root / "config" / "config.json"
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+
+        if not isinstance(payload, dict) or payload.get("version") == version:
+            return
+
+        payload["version"] = version
+        temporary = path.with_suffix(".tmp")
+        try:
+            temporary.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            temporary.replace(path)
+        except OSError:
+            pass
 
     # ── Команды git ───────────────────────────────────────────────
 
