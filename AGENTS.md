@@ -46,8 +46,11 @@ UI не переписан: в окне живёт та же панель (`pane
   `launcher/ZereLauncher.cs` (исходник `zere.exe`).
 - **`python main.py --desktop`** — то же без лаунчера; `python main.py` —
   консольный режим отладки (панель в браузере, команды текстом).
-- Ярлыки установщика ведут на `zere.exe`; `ZERE.bat` остаётся запасным
-  путём. Профиль WebView2 (тема/язык) — `data/webview/` (gitignored).
+- Ярлыки установщика ведут на `zere.exe`; при включённом Smart App Control
+  (Windows 11) — на подписанный `pythonw.exe main.py --desktop`, потому что
+  новый неподписанный exe блокируется. `ZERE.bat` делает так же (проверяет
+  `VerifiedAndReputablePolicyState`). Профиль WebView2 (тема/язык) —
+  `data/webview/` (gitignored).
 - Подробности: `docs/DESKTOP_APP.md`; тесты — `tests/test_desktop.py`.
 
 ## Tools (инструменты)

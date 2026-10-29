@@ -221,7 +221,7 @@ def test_run_desktop_reports_busy_port() -> None:
 
     assert code == EXIT_ALREADY_RUNNING
     assert ui.window_calls == []
-    assert ui.errors and "8080" in ui.errors[0][1]
+    assert ui.errors and "8099" in ui.errors[0][1], "в тексте должен быть реальный порт"
     assert logger.errors
 
 

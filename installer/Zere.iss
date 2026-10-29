@@ -32,7 +32,9 @@
 #define MyAppName "ZERE"
 #define MyAppPublisher "ZERE Project"
 #define MyAppURL "https://github.com/oneleft12/Zere"
-#define MyAppExeName "zere.exe"
+; Ярлык Inno создаётся до install.ps1 (он перезапишет его на zere.exe или
+; pythonw при Smart App Control). ZERE.bat — безопасный стартовый путь.
+#define MyAppExeName "ZERE.bat"
 
 [Setup]
 AppId={{5E7A1C42-93B8-4F6D-A2E1-7C4D0B9F3A55}

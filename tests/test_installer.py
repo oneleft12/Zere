@@ -110,6 +110,26 @@ def test_install_references_launcher_template() -> None:
         assert f"${pname}" in text, f"install.ps1 нет параметра ${pname}"
 
 
+def test_launcher_handles_smart_app_control() -> None:
+    """Неподписанный zere.exe блокируется Smart App Control (Windows 11).
+
+    В этом режиме лаунчер и ярлык запускают подписанный pythonw.exe с
+    `main.py --desktop` — окно то же, консоли нет. Иначе пользователь видел бы
+    «Компонент заблокирован политикой Device Guard» вместо приложения.
+    """
+    ps1 = _read("install.ps1")
+    assert "function Test-SmartAppControl" in ps1, "нет определения SAC"
+    assert "VerifiedAndReputablePolicyState" in ps1, "SAC определяется не по реестру"
+    assert "main.py --desktop" in ps1, "ярлык не умеет запускать pythonw с --desktop"
+
+    bat = (INSTALLER / "ZereLauncher.bat").read_bytes().decode("ascii")
+    assert "VerifiedAndReputablePolicyState" in bat, "лаунчер не проверяет SAC"
+    assert "pythonw.exe" in bat, "лаунчер не умеет запускать приложение через pythonw"
+    assert 'if "%SAC%"=="0" if exist "zere.exe"' in bat, (
+        "zere.exe должен запускаться только при выключенном SAC"
+    )
+
+
 def test_launcher_prefers_app() -> None:
     """Лаунчер начинает с zere.exe, затем .venv, затем .NET."""
     data = (INSTALLER / "ZereLauncher.bat").read_bytes().decode("ascii")

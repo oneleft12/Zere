@@ -806,6 +806,21 @@ function Test-WebView2Runtime {
     return $false
 }
 
+function Test-SmartAppControl {
+    <# Windows 11 Smart App Control (WDAC) блокирует новые неподписанные exe:
+       только что собранный zere.exe запускается с «заблокирован системой
+       Device Guard». Python (pythonw.exe) подписан и разрешён, поэтому
+       ярлык в этом режиме запускает main.py --desktop напрямую.
+       Значение: 1 — включён, 0 — выключен, 2 — режим оценки. #>
+    try {
+        $value = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' `
+                -Name 'VerifiedAndReputablePolicyState' -ErrorAction Stop).VerifiedAndReputablePolicyState
+        return ($value -eq 1)
+    } catch {
+        return $false
+    }
+}
+
 function Build-ZereExe {
     <# zere.exe — лаунчер приложения (zere/desktop/launcher/ZereLauncher.cs).
        Собирается системным csc.exe из .NET Framework 4.x: он есть в любой
@@ -905,9 +920,25 @@ function New-Shortcuts {
     param([string]$Root)
     $bat = Join-Path $Root 'ZERE.bat'
     if (-not (Test-Path $bat)) { return $false }
-    # Ярлык ведёт в приложение; ZERE.bat — запасной путь для отладки.
+
     $exe = Join-Path $Root 'zere.exe'
-    $target = $(if (Test-Path $exe) { $exe } else { $bat })
+    $pythonw = Join-Path $Root '.venv\Scripts\pythonw.exe'
+    $icon = Join-Path $Root 'assets\zere.ico'
+
+    # Ярлык ведёт в приложение. Smart App Control блокирует неподписанный
+    # zere.exe, поэтому при включённом SAC или отсутствии exe ярлык запускает
+    # подписанный pythonw.exe с main.py --desktop — окно то же, консоли нет.
+    $target = $bat
+    $arguments = ''
+    if ((Test-Path $exe) -and -not (Test-SmartAppControl)) {
+        $target = $exe
+    } elseif (Test-Path $pythonw) {
+        $target = $pythonw
+        $arguments = 'main.py --desktop'
+    } elseif (Test-Path $exe) {
+        $target = $exe
+    }
+
     $shell = New-Object -ComObject WScript.Shell
     $desktop = [Environment]::GetFolderPath('Desktop')
     $startMenu = [Environment]::GetFolderPath('StartMenu')
@@ -917,8 +948,10 @@ function New-Shortcuts {
     foreach ($dir in @($desktop, $smDir)) {
         $lnk = $shell.CreateShortcut((Join-Path $dir 'ZERE.lnk'))
         $lnk.TargetPath = $target
+        if ($arguments -ne '') { $lnk.Arguments = $arguments }
         $lnk.WorkingDirectory = $Root
         $lnk.Description = 'Персональный AI-ассистент ZERE'
+        if (Test-Path $icon) { $lnk.IconLocation = ($icon + ',0') }
         $lnk.Save()
     }
 
@@ -940,6 +973,7 @@ function Write-InstallManifest {
         venv        = (Test-Path (Join-Path $Root '.venv\Scripts\python.exe'))
         launcher    = (Test-Path (Join-Path $Root 'ZERE.bat'))
         app         = (Test-Path (Join-Path $Root 'zere.exe'))
+        smartAppControl = $sacOk
         shortcuts   = @(
             (Join-Path ([Environment]::GetFolderPath('Desktop')) 'ZERE.lnk'),
             (Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\ZERE')
@@ -1079,6 +1113,7 @@ $panelDistOk = Test-Path (Join-Path $Prefix 'panel\dist\index.html')
 $launcherOk = Test-Path (Join-Path $Prefix 'ZERE.bat')
 $zereExeOk = Test-Path (Join-Path $Prefix 'zere.exe')
 $webview2Ok = Test-WebView2Runtime
+$sacOk = Test-SmartAppControl
 
 $needPython = -not $pyState.Ok
 $needVenv = (-not $venvState.Venv) -or (-not $depsOk)
@@ -1141,6 +1176,9 @@ if ($CheckOnly) {
     _line $launcherOk ('Лаунчер ZERE.bat: ' + $(if ($launcherOk) { 'есть' } else { 'нет' }))
     if (-not $webview2Ok) {
         Write-Info '=> WebView2 Runtime не найден: zere.exe откроет панель в браузере (поставьте Edge WebView2)'
+    }
+    if ($sacOk) {
+        Write-Info 'Smart App Control включён: неподписанный zere.exe может блокироваться — ярлык запускает pythonw.exe main.py --desktop'
     }
 
     $problems = @()

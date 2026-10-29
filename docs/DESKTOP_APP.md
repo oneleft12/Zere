@@ -133,6 +133,15 @@ main.py --desktop
   Установщик проверяет его и предупреждает, если нет.
 - **.NET Framework 4.x** — только для `zere.exe`; он предустановлен в
   Windows 10/11, отдельного рантайма не требует.
+- **Smart App Control (Windows 11)** — блокирует *новые* неподписанные exe:
+  только что собранный `zere.exe` запускается с «заблокирован политикой
+  Device Guard вашей организации». Коммитнутая сборка может быть разрешена
+  по репутации конкретного хэша, но пересборка получает новый хэш и блок.
+  Поэтому установщик проверяет `VerifiedAndReputablePolicyState` и в этом
+  режиме делает ярлыки на подписанный `pythonw.exe` с аргументами
+  `main.py --desktop` (окно то же, консоли нет); `ZERE.bat` делает так же.
+  Совсем отключить SAC можно только в Windows Security (обратно без
+  переустановки Windows не включается) — решение пользователя.
 - **onnxruntime из System32 (Windows 11)** — `C:\Windows\System32\onnxruntime.dll`
   (1.17.1, Windows ML) перехватывает загрузку у sherpa-onnx (собран против
   1.28): предзагрузка GigaAM падала с access violation, и приложение
@@ -152,13 +161,16 @@ powershell -ExecutionPolicy Bypass -File scripts\build-zere-exe.ps1
 
 Установщик (`installer\install.ps1`) собирает `zere.exe`, если его нет,
 ставит `pywebview` из `requirements.txt`, проверяет WebView2 и создаёт
-ярлыки на `zere.exe` (а не на `ZERE.bat`).
+ярлыки на `zere.exe` (а не на `ZERE.bat`); при включённом Smart App Control —
+на `pythonw.exe` с аргументами `main.py --desktop`.
 
 ## 10. Проверка
 
 - `python tests/test_desktop.py` — stdio pythonw, разбор `--desktop`/`--port`,
   сценарий «панель → окно → остановка» на фейках, коды 2/3, артефакты.
 - `python main.py --desktop` — живая проверка окна.
+- `ZERE.bat` — проверка запасного пути: при включённом SAC он запускает
+  `pythonw.exe main.py --desktop` (подписанный бинарник, блокировки нет).
 - `zere.exe` — проверка лаунчера, единственного экземпляра и журнала.
 
 ## 11. Ограничения

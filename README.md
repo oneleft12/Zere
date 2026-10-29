@@ -60,6 +60,11 @@ powershell -ExecutionPolicy Bypass -File installer\install.ps1 -CheckOnly
 Окно рисует pywebview поверх WebView2 (Edge). Если WebView2 Runtime нет,
 панель откроется в браузере, а причина будет показана окном. Пересобрать
 `zere.exe` после правок лаунчера — `scripts\build-zere-exe.ps1`.
+
+На Windows 11 со включённым **Smart App Control** новый неподписанный
+`zere.exe` блокируется («заблокирован политикой Device Guard»); ярлык ZERE в
+этом режиме запускает подписанный `pythonw.exe main.py --desktop` — окно и
+поведение те же. Подробности и обход — [docs/DESKTOP_APP.md](docs/DESKTOP_APP.md).
 Подробности: [docs/DESKTOP_APP.md](docs/DESKTOP_APP.md).
 
 ### Python-редакция (консоль, отладка)

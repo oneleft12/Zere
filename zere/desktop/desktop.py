@@ -39,13 +39,15 @@ EXIT_OK = 0
 EXIT_WINDOW_UNAVAILABLE = 2
 EXIT_ALREADY_RUNNING = 3
 
-_ALREADY_RUNNING_TEXT = (
-    "ZERE не запустился: порт 8080 занят.\n\n"
-    "Скорее всего, ZERE уже работает — закройте его окно (или завершите "
-    "процесс pythonw.exe) и запустите снова.\n\n"
-    "Если порт занят другой программой, укажите другой порт: "
-    "zere.exe --desktop --port 8081"
-)
+def _already_running_text(port: int) -> str:
+    """Текст про занятый порт — с тем портом, который реально не поднялся."""
+    return (
+        f"ZERE не запустился: порт {port} занят.\n\n"
+        "Скорее всего, ZERE уже работает — закройте его окно (или завершите "
+        "процесс pythonw.exe) и запустите снова.\n\n"
+        "Если порт занят другой программой, укажите другой порт: "
+        f"zere.exe --desktop --port {port + 1}"
+    )
 
 _WINDOW_UNAVAILABLE_TEXT = (
     "Окно приложения не открылось.\n\n"
@@ -117,7 +119,7 @@ def run_desktop(
         panel.start()
     except OSError as ex:
         logger.error(f"PanelServer: {ex}")
-        ui.error("ZERE", _ALREADY_RUNNING_TEXT)
+        ui.error("ZERE", _already_running_text(panel.port))
         return EXIT_ALREADY_RUNNING
 
     url = f"http://127.0.0.1:{panel.port}"

@@ -132,7 +132,8 @@ ZERE падал на старте с `No module named ...`, хотя устан�
 - `zere.exe` — приложение: окно без консоли (ярлыки ведут сюда)
 - `ZERE.bat` в корне — запасной лаунчер (приложение → `.venv`, иначе
   `publish\app\ZERE.App.exe`, иначе системный `python`)
-- Ярлыки `ZERE.lnk` на рабочем столе и в меню «Пуск» — на `zere.exe`;
+- Ярлыки `ZERE.lnk` на рабочем столе и в меню «Пуск» — на `zere.exe` (при
+  включённом Smart App Control — на `pythonw.exe main.py --desktop`);
   `ZERE - panel.url` (web-панель `http://127.0.0.1:8080`)
 - `logs\desktop.log` — журнал запуска приложения (вывод Python без консоли)
 - `data\webview\` — профиль WebView2: тема и язык панели (gitignored)
@@ -191,6 +192,7 @@ installer/
 | `zere.exe` открыл панель в браузере | Нет pywebview или WebView2 Runtime: `pip install pywebview`, поставьте «Microsoft Edge WebView2 Runtime»; подробности — `logs\desktop.log` |
 | `zere.exe` ничего не делает | Смотрите `logs\desktop.log`: лаунчер пишет туда старт и последние ошибки, а при падении первых 7 секунд показывает окно с концом журнала |
 | Нужна консоль для отладки | `zere.exe --console` или `python main.py` (панель — в браузере) |
+| `zere.exe`: «заблокирован политикой Device Guard» | Windows 11 Smart App Control блокирует неподписанный exe. Ярлык ZERE и `ZERE.bat` в этом режиме запускают `pythonw.exe main.py --desktop`; отключение SAC — в «Безопасность Windows» (обратно без переустановки не включается) |
 
 Логи самого ZERE: `logs\`. Логи панели и контрактные тесты — см.
 `docs/WEB_PANEL_PLAN.md`.
