@@ -382,7 +382,10 @@ $OptionalModules = @(
     @{ Package = 'ChatTTS'; Module = 'ChatTTS' },
     # pypdf нужен только конспектору и только для PDF; без него конспект
     # просит .md/.txt (zere/core/conspect/text.py).
-    @{ Package = 'pypdf';   Module = 'pypdf' }
+    @{ Package = 'pypdf';   Module = 'pypdf' },
+    # pywebview рисует окно приложения (WebView2). Без пакета zere.exe честно
+    # открывает панель в браузере, поэтому установку он не срывает.
+    @{ Package = 'pywebview'; Module = 'webview' }
 )
 
 function Get-PythonCandidates {
@@ -786,6 +789,57 @@ function Publish-Speaker {
     return (Test-Path (Join-Path $out 'ZERE.Speaker.exe'))
 }
 
+function Test-WebView2Runtime {
+    <# WebView2 Runtime нужен окну приложения (pywebview → EdgeChromium).
+       Есть в Windows 11 и вместе с Edge в Windows 10; отсутствие не ошибка —
+       панель тогда откроется в браузере, поэтому только предупреждение. #>
+    $candidates = @()
+    if (${env:ProgramFiles(x86)}) {
+        $candidates += (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\EdgeWebView\Application')
+    }
+    if ($env:ProgramFiles) {
+        $candidates += (Join-Path $env:ProgramFiles 'Microsoft\EdgeWebView\Application')
+    }
+    foreach ($path in $candidates) {
+        if (Test-Path -LiteralPath $path) { return $true }
+    }
+    return $false
+}
+
+function Build-ZereExe {
+    <# zere.exe — лаунчер приложения (zere/desktop/launcher/ZereLauncher.cs).
+       Собирается системным csc.exe из .NET Framework 4.x: он есть в любой
+       Windows 10/11, поэтому для окна не нужен dotnet SDK. #>
+    param([string]$Root)
+    $source = Join-Path $Root 'zere\desktop\launcher\ZereLauncher.cs'
+    if (-not (Test-Path -LiteralPath $source)) {
+        Write-Fail2 ('нет исходника лаунчера: ' + $source)
+        return $false
+    }
+    $csc = $null
+    foreach ($candidate in @(
+            (Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'),
+            (Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe'))) {
+        if (Test-Path -LiteralPath $candidate) { $csc = $candidate; break }
+    }
+    if ($null -eq $csc) {
+        Write-Fail2 'не найден csc.exe из .NET Framework 4.x'
+        return $false
+    }
+    $out = Join-Path $Root 'zere.exe'
+    $icon = Join-Path $Root 'assets\zere.ico'
+    $cscArgs = @(
+        '/nologo', '/target:winexe', '/platform:anycpu', '/optimize+',
+        ('/out:' + $out),
+        '/r:System.dll', '/r:System.Windows.Forms.dll', '/r:System.Drawing.dll'
+    )
+    if (Test-Path -LiteralPath $icon) { $cscArgs += ('/win32icon:' + $icon) }
+    $cscArgs += $source
+    Write-Info ('csc -> ' + $out)
+    $r = Invoke-Native -FilePath $csc -Arguments $cscArgs
+    return ($r.ExitCode -eq 0 -and (Test-Path -LiteralPath $out))
+}
+
 function Build-Panel {
     param([string]$Root)
     $dist = Join-Path $Root 'panel\dist\index.html'
@@ -851,6 +905,9 @@ function New-Shortcuts {
     param([string]$Root)
     $bat = Join-Path $Root 'ZERE.bat'
     if (-not (Test-Path $bat)) { return $false }
+    # Ярлык ведёт в приложение; ZERE.bat — запасной путь для отладки.
+    $exe = Join-Path $Root 'zere.exe'
+    $target = $(if (Test-Path $exe) { $exe } else { $bat })
     $shell = New-Object -ComObject WScript.Shell
     $desktop = [Environment]::GetFolderPath('Desktop')
     $startMenu = [Environment]::GetFolderPath('StartMenu')
@@ -859,7 +916,7 @@ function New-Shortcuts {
 
     foreach ($dir in @($desktop, $smDir)) {
         $lnk = $shell.CreateShortcut((Join-Path $dir 'ZERE.lnk'))
-        $lnk.TargetPath = $bat
+        $lnk.TargetPath = $target
         $lnk.WorkingDirectory = $Root
         $lnk.Description = 'Персональный AI-ассистент ZERE'
         $lnk.Save()
@@ -882,6 +939,7 @@ function Write-InstallManifest {
         python      = $PythonExe
         venv        = (Test-Path (Join-Path $Root '.venv\Scripts\python.exe'))
         launcher    = (Test-Path (Join-Path $Root 'ZERE.bat'))
+        app         = (Test-Path (Join-Path $Root 'zere.exe'))
         shortcuts   = @(
             (Join-Path ([Environment]::GetFolderPath('Desktop')) 'ZERE.lnk'),
             (Join-Path ([Environment]::GetFolderPath('StartMenu')) 'Programs\ZERE')
@@ -919,7 +977,7 @@ function Invoke-SmokeTest {
     }
     if ($missing.Optional.Count -gt 0) {
         $opt = ($missing.Optional -join ', ')
-        $detail = 'main.py + zere компилируются; необязательные не встали: ' + $opt + ' (озвучка ChatTTS недоступна)'
+        $detail = 'main.py + zere компилируются; необязательные не встали: ' + $opt + ' (голос/окно — с откатом)'
         return @{ Ok = $true; Detail = $detail }
     }
     $allOk = 'main.py + zere компилируются, все ' + $missing.All + ' модулей на месте'
@@ -1019,6 +1077,8 @@ $speakerOk = Test-Path $speakerExe
 
 $panelDistOk = Test-Path (Join-Path $Prefix 'panel\dist\index.html')
 $launcherOk = Test-Path (Join-Path $Prefix 'ZERE.bat')
+$zereExeOk = Test-Path (Join-Path $Prefix 'zere.exe')
+$webview2Ok = Test-WebView2Runtime
 
 $needPython = -not $pyState.Ok
 $needVenv = (-not $venvState.Venv) -or (-not $depsOk)
@@ -1032,6 +1092,7 @@ $needPublish = (($Edition -eq 'dotnet') -or ($Edition -eq 'both')) -and (-not $p
 $needSpeaker = $dotnetOk -and (-not $speakerOk)
 $needPanel = -not $panelDistOk
 $needLauncher = -not $launcherOk
+$needZereExe = -not $zereExeOk
 $needShortcuts = (-not $SkipShortcuts)
 
 if ($needPython)   { $script:PythonExe = $null } else { $script:PythonExe = $pyState.Exe }
@@ -1076,7 +1137,11 @@ if ($CheckOnly) {
     }
     _line $speakerOk ('C#-озвучка publish\speaker\ZERE.Speaker.exe: ' + $(if ($speakerOk) { 'есть' } else { 'нет (озвучка на Python)' }))
     _line $panelDistOk ('Web-панель panel\dist: ' + $(if ($panelDistOk) { 'собрана' } else { 'не собрана' }))
+    _line $zereExeOk ('Приложение zere.exe: ' + $(if ($zereExeOk) { 'есть' } else { 'нет' }))
     _line $launcherOk ('Лаунчер ZERE.bat: ' + $(if ($launcherOk) { 'есть' } else { 'нет' }))
+    if (-not $webview2Ok) {
+        Write-Info '=> WebView2 Runtime не найден: zere.exe откроет панель в браузере (поставьте Edge WebView2)'
+    }
 
     $problems = @()
     if ($needPython) { $problems += 'Python' }
@@ -1086,6 +1151,7 @@ if ($CheckOnly) {
     if ($needWhisper -or $needUv) { $problems += 'голос' }
     if ($needDotnetSdk -or $needPublish) { $problems += '.NET/публикация' }
     if ($needPanel) { $problems += 'панель' }
+    if ($needZereExe) { $problems += 'zere.exe' }
     if ($needLauncher) { $problems += 'лаунчер' }
     Write-Host ''
     if ($problems.Count -eq 0) {
@@ -1110,6 +1176,7 @@ if ($needDotnetSdk) { $plan += 'Установить .NET SDK 10 (winget)' }
 if ($needPublish)  { $plan += 'Опубликовать C#-версию (dotnet publish)' }
 if ($needSpeaker)  { $plan += 'Опубликовать C#-озвучку (dotnet publish ZERE.Speaker)' }
 if ($needPanel)    { $plan += 'Собрать web-панель (npm)' }
+if ($needZereExe)  { $plan += 'Собрать zere.exe (окно приложения, csc)' }
 
 if ($plan.Count -eq 0) {
     Write-Info 'Все компоненты уже установлены.'
@@ -1304,7 +1371,20 @@ if ($cfgMade) {
     Skip-Result -Name 'Конфигурация' -Detail 'config/*.json на месте'
 }
 
-# --- 8. Лаунчер и ярлыки ---
+# --- 8. Приложение zere.exe ---
+Write-Step 'Приложение zere.exe'
+if ($needZereExe) {
+    $zOk = Build-ZereExe -Root $Prefix
+    Finish -Ok $zOk -Name 'Приложение zere.exe' -OkDetail 'собран: окно без консоли' -FailDetail 'не собрался — запуск через ZERE.bat (консоль)'
+    if ($zOk) { $zereExeOk = $true }
+} else {
+    Skip-Result -Name 'Приложение zere.exe' -Detail 'zere.exe уже на месте'
+}
+if ($zereExeOk -and -not $webview2Ok) {
+    Write-Warn2 'WebView2 Runtime не найден: окно откроет панель в браузере'
+}
+
+# --- 9. Лаунчер и ярлыки ---
 Write-Step 'Лаунчер и ярлыки'
 $lnOk = Install-Launcher -Root $Prefix
 Finish -Ok $lnOk -Name 'Лаунчер ZERE.bat' -OkDetail 'создан ZERE.bat в корне' -FailDetail 'шаблон ZereLauncher.bat не найден'

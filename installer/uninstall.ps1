@@ -95,6 +95,7 @@ if (Test-Path $manifestPath) {
 Write-Step 'Что будет удалено'
 $plan = @(
     'Ярлыки: рабочий стол (ZERE.lnk, ZERE - panel.url) и меню «Пуск»\ZERE',
+    'Приложение zere.exe',
     'Лаунчер ZERE.bat',
     'Виртуальное окружение .venv',
     'C#-публикация publish\app'
@@ -134,6 +135,7 @@ $null = Remove-ItemSafe -Path (Join-Path $startMenu 'Programs\ZERE') -Label 'п�
 # --- 2. Лаунчер ---
 Write-Step 'Лаунчер'
 $null = Remove-ItemSafe -Path (Join-Path $Prefix 'ZERE.bat') -Label 'ZERE.bat'
+$null = Remove-ItemSafe -Path (Join-Path $Prefix 'zere.exe') -Label 'zere.exe'
 
 # --- 3. Окружение и публикация ---
 Write-Step 'Окружение и сборки'

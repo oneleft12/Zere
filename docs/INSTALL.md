@@ -69,6 +69,8 @@ ProductVersion 1.8.0
 | Whisper `ggml-base.bin` (~141 МБ, откат STT) | HuggingFace `ggerganov/whisper.cpp` | SHA-256 + размер |
 | Менеджер Python `uv` (~18 МБ) | GitHub `astral-sh/uv` release 0.12.23 | SHA-256 + размер |
 | Web-панель | `panel/dist` (сборка npm, если dist отсутствует) | наличие `dist/index.html` |
+| Окно приложения `zere.exe` | компиляция `zere/desktop/launcher/ZereLauncher.cs` системным `csc.exe` (если exe нет) | наличие `zere.exe` |
+| Окно (pywebview + WebView2) | `requirements.txt` + Runtime Edge WebView2 (есть в Windows 11/с Edge) | `import webview`, каталог `EdgeWebView\Application` |
 | .NET SDK 10 + C#-сборка | winget + `dotnet publish` (только `-Edition dotnet/both`) | `publish\app\ZERE.App.exe` |
 | Лаунчер, ярлыки, манифест | генерируются | — |
 
@@ -127,10 +129,13 @@ ZERE падал на старте с `No module named ...`, хотя устан�
 ## Что создаётся
 
 - `.venv\` — виртуальное окружение Python
-- `ZERE.bat` в корне — лаунчер (Python-редакция → `.venv`, иначе
+- `zere.exe` — приложение: окно без консоли (ярлыки ведут сюда)
+- `ZERE.bat` в корне — запасной лаунчер (приложение → `.venv`, иначе
   `publish\app\ZERE.App.exe`, иначе системный `python`)
-- Ярлыки `ZERE.lnk` на рабочем столе и в меню «Пуск», `ZERE - panel.url`
-  (web-панель `http://127.0.0.1:8080`)
+- Ярлыки `ZERE.lnk` на рабочем столе и в меню «Пуск» — на `zere.exe`;
+  `ZERE - panel.url` (web-панель `http://127.0.0.1:8080`)
+- `logs\desktop.log` — журнал запуска приложения (вывод Python без консоли)
+- `data\webview\` — профиль WebView2: тема и язык панели (gitignored)
 - `installer\install-manifest.json` — манифест установки (читается
   деинсталлятором)
 - `installer\install-log.txt` — полный лог установки (перезаписывается при
@@ -182,6 +187,10 @@ installer/
 | `[FAIL] .venv и зависимости — нет: ...` | В отчёте перечислены отсутствующие модули: обычно это обрыв сети на PyPI или отсутствие колеса под выбранную версию Python; ставьте `pip install -r requirements.txt` вручную и смотрите хвост ошибки в логе |
 | Голос не работает | `python -m compileall main.py zere`; проверьте `ttsEngine` в `config\config.json`; для ChatTTS — `tools\uv.exe` (первый синтез тянет ~2–3 ГБ с torch), для Silero — `torch` в окружении и 145 МБ модели в `ZERE.Voice\Silero` |
 | Панель не отвечает | Она запускается вместе с ZERE на `http://127.0.0.1:8080` |
+| `zere.exe`: «ZERE уже запущен», а окна нет | Остался процесс `pythonw.exe` от прошлого запуска: завершите его в диспетчере задач и запустите снова |
+| `zere.exe` открыл панель в браузере | Нет pywebview или WebView2 Runtime: `pip install pywebview`, поставьте «Microsoft Edge WebView2 Runtime»; подробности — `logs\desktop.log` |
+| `zere.exe` ничего не делает | Смотрите `logs\desktop.log`: лаунчер пишет туда старт и последние ошибки, а при падении первых 7 секунд показывает окно с концом журнала |
+| Нужна консоль для отладки | `zere.exe --console` или `python main.py` (панель — в браузере) |
 
 Логи самого ZERE: `logs\`. Логи панели и контрактные тесты — см.
 `docs/WEB_PANEL_PLAN.md`.

@@ -32,7 +32,7 @@
 #define MyAppName "ZERE"
 #define MyAppPublisher "ZERE Project"
 #define MyAppURL "https://github.com/oneleft12/Zere"
-#define MyAppExeName "ZERE.bat"
+#define MyAppExeName "zere.exe"
 
 [Setup]
 AppId={{5E7A1C42-93B8-4F6D-A2E1-7C4D0B9F3A55}
@@ -124,6 +124,8 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; \
 [UninstallDelete]
 ; Всё, что создали мы (могло быть создано install.ps1 вне журнала Inno)
 Type: files; Name: "{app}\ZERE.bat"
+; install.ps1 мог собрать приложение уже после копирования файлов
+Type: files; Name: "{app}\zere.exe"
 Type: files; Name: "{app}\installer\install-manifest.json"
 Type: filesandordirs; Name: "{app}\.venv"
 Type: filesandordirs; Name: "{app}\publish"

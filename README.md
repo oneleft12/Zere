@@ -45,11 +45,29 @@ powershell -ExecutionPolicy Bypass -File installer\install.ps1 -CheckOnly
 
 ## Запуск
 
-### Python-версия (ветка `python-port`)
+### Приложение — `zere.exe`
+
+Двойной клик по `zere.exe` (или ярлык «ZERE»): открывается окно ассистента,
+консоли и вкладки браузера нет. Тот же exe — единственная видимая точка
+входа; внутри он запускает Python-редакцию в фоне (`main.py --desktop`) и
+держит журнал запуска.
+
+```powershell
+.\zere.exe                 # приложение (окно)
+.\zere.exe --console       # отладка: обычная консоль Python
+```
+
+Окно рисует pywebview поверх WebView2 (Edge). Если WebView2 Runtime нет,
+панель откроется в браузере, а причина будет показана окном. Пересобрать
+`zere.exe` после правок лаунчера — `scripts\build-zere-exe.ps1`.
+Подробности: [docs/DESKTOP_APP.md](docs/DESKTOP_APP.md).
+
+### Python-редакция (консоль, отладка)
 
 ```bash
 pip install -r requirements.txt
-python main.py
+python main.py            # консоль + панель в браузере
+python main.py --desktop  # тот же режим приложения, без лаунчера
 ```
 
 Требуется Python 3.12+. Пакет ChatTTS ставится из исходников (sdist) и тянет
@@ -95,6 +113,10 @@ dotnet run --project ZERE.App
 ## Структура
 
 ```
+zere.exe             — приложение: лаунчер (окно, без консоли)
+zere/desktop/        — окно pywebview, stdio без консоли, диалоги, лаунчер (C#)
+assets/zere.ico      — иконка приложения и ярлыков
+scripts/             — сборка zere.exe и иконки, проверки порта
 main.py              — точка входа (Python)
 zere/                — Python-порт: ai, core, memory, tools, voice
 ZERE.App             — точка входа (C#)

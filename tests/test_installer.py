@@ -110,12 +110,13 @@ def test_install_references_launcher_template() -> None:
         assert f"${pname}" in text, f"install.ps1 нет параметра ${pname}"
 
 
-def test_launcher_prefers_venv() -> None:
-    """Лаунчер должен запускать .venv, затем .NET, затем системный python."""
+def test_launcher_prefers_app() -> None:
+    """Лаунчер начинает с zere.exe, затем .venv, затем .NET."""
     data = (INSTALLER / "ZereLauncher.bat").read_bytes().decode("ascii")
+    app_pos = data.find("zere.exe")
     venv_pos = data.find(".venv\\Scripts\\python.exe")
     dotnet_pos = data.find("publish\\app\\ZERE.App.exe")
-    assert 0 < venv_pos < dotnet_pos, "порядок запуска редакций нарушен"
+    assert 0 < app_pos < venv_pos < dotnet_pos, "порядок запуска нарушен"
 
 
 def test_uninstall_never_touches_sources() -> None:
@@ -306,11 +307,12 @@ IMPORT_TO_PACKAGE = {
     "PIL": "pillow",
     "faster_whisper": "faster-whisper",
     "sherpa_onnx": "sherpa-onnx",
+    # пакет называется pywebview, а импортируется как webview
+    "webview": "pywebview",
 }
 
 # Осознанно не объявляются в requirements.txt
 IMPORT_EXEMPT = {
-    "webview": "pywebview — необязательное окно панели, есть откат в браузер",
     "torch": "приходит транзитивно с ChatTTS (см. requirements.txt)",
 }
 

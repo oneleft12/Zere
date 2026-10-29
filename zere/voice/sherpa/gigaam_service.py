@@ -18,6 +18,7 @@ from __future__ import annotations
 import array
 import hashlib
 import os
+import sys
 import tarfile
 import tempfile
 import threading
@@ -25,6 +26,7 @@ import time
 import urllib.request
 import wave
 from pathlib import Path
+from typing import Any
 
 from zere import paths
 from zere.core.logging.log_service import log_error
@@ -49,8 +51,62 @@ _TRANSCRIBE_TIMEOUT_S = 30
 _WARNED_MISSING_RUNTIME = False
 
 
+# Загруженная нами копия onnxruntime из пакета sherpa: держим ссылку, чтобы
+# библиотека осталась в процессе (ctypes не выгружает её и без ссылки, но так
+# намерение видно явно и GC-случай исключён).
+_PRELOADED_ONNX_RUNTIME: Any = None
+
+
+def preload_bundled_onnxruntime() -> bool:
+    r"""Грузит ORT из пакета sherpa ДО Windows-копии из System32.
+
+    На Windows 11 в `C:\Windows\System32\onnxruntime.dll` лежит ONNX Runtime
+    1.17.1 (Windows ML). sherpa-onnx собран против ORT 1.28 и при инициализации
+    запрашивает API 28: Windows отдаёт системную 1.17.1, sherpa печатает
+    «requested API version [28] is not available…» и **падает с access
+    violation** (0xc0000005 в `_sherpa_onnx*.pyd`) — то есть ZERE умирал при
+    предзагрузке GigaAM, ещё до первого ответа.
+
+    Лечение: загрузить `onnxruntime.dll` из `site-packages/sherpa_onnx/lib` по
+    полному пути до `import sherpa_onnx` (и до `import onnxruntime` для KWS).
+    Тогда загрузчик по имени `onnxruntime.dll` возвращает уже загруженную
+    совместимую копию 1.28, и обе библиотеки работают.
+
+    Возвращает True, если копия уже была/загрузилась (или мы не на Windows).
+    """
+    global _PRELOADED_ONNX_RUNTIME
+
+    if _PRELOADED_ONNX_RUNTIME is not None:
+        return True
+
+    if sys.platform != "win32":
+        return True
+
+    try:
+        import ctypes
+        import importlib.util
+        from pathlib import Path
+
+        spec = importlib.util.find_spec("sherpa_onnx")
+        if spec is None or not spec.origin:
+            return False
+
+        candidate = Path(spec.origin).parent / "lib" / "onnxruntime.dll"
+        if not candidate.is_file():
+            return False
+
+        _PRELOADED_ONNX_RUNTIME = ctypes.WinDLL(str(candidate))
+        return True
+    except Exception as ex:  # noqa: BLE001 — не Windows/нет DLL: импорт решит сам
+        log_error("GigaamService", f"Предзагрузка onnxruntime: {ex}")
+        return False
+
+
 def _try_import_sherpa():
     """sherpa_onnx или None, если пакет не установлен (голос не должен падать)."""
+    # Сначала своя копия ORT: иначе System32 подсунет несовместимую 1.17.1.
+    preload_bundled_onnxruntime()
+
     try:
         import sherpa_onnx
 

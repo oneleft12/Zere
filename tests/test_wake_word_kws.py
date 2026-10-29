@@ -23,6 +23,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from zere.core.console import configure_console_encoding  # noqa: E402
+
 # audio_recorder тянет sounddevice (PortAudio) — на безголосых машинах
 # (CI) достаточно заглушки, как в tests/test_wake_word.py.
 try:
@@ -416,6 +418,10 @@ def test_csharp_has_same_wake_settings() -> None:
 
 
 def main() -> None:
+    # Эмодзи в предупреждениях детектора не должны ронять тест в cp1251
+    # (Windows-консоль): заменяем непредставимые символы на «?».
+    configure_console_encoding()
+
     tests = [
         value
         for name, value in sorted(globals().items())

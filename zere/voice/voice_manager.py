@@ -20,7 +20,7 @@ from zere.voice.audio.audio_processor import DEFAULT_SAMPLE_RATE, AudioProcessor
 from zere.voice.audio.audio_recorder import AudioRecorder
 from zere.voice.audio.csharp_speaker import CSharpSpeaker
 from zere.voice.chattts.chattts_service import ChatTtsService
-from zere.voice.sherpa.gigaam_service import GigaamService
+from zere.voice.sherpa.gigaam_service import GigaamService, preload_bundled_onnxruntime
 from zere.voice.silero.silero_service import SileroTtsService
 from zere.voice.voice_config import VoiceConfig
 from zere.voice.wakeword import (
@@ -70,6 +70,11 @@ class VoiceManager:
     """Оркестратор голосового ввода/вывода (порт VoiceManager.cs, IDisposable → close())."""
 
     def __init__(self) -> None:
+        # До первого импорта onnxruntime (KWS/панель) и sherpa: на Windows 11
+        # System32\onnxruntime.dll (1.17.1) иначе перехватывает загрузку и
+        # GigaAM падает с access violation — см. preload_bundled_onnxruntime.
+        preload_bundled_onnxruntime()
+
         self._recorder = AudioRecorder()
         self._player = AudioPlayer()
         # Озвучка на C#: DSP + вывод звука делает ZERE.Speaker (NAudio/WASAPI),

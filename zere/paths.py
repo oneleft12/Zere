@@ -11,6 +11,8 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parents[1]
 
 CONFIG_DIR: Path = PROJECT_ROOT / "config"
 LOGS_DIR: Path = PROJECT_ROOT / "logs"
+DATA_DIR: Path = PROJECT_ROOT / "data"
+ASSETS_DIR: Path = PROJECT_ROOT / "assets"
 PLUGINS_DIR: Path = PROJECT_ROOT / "plugins"
 TOOLS_DIR: Path = PROJECT_ROOT / "tools"
 VOICE_DIR: Path = PROJECT_ROOT / "ZERE.Voice"
@@ -105,6 +107,32 @@ def logs_dir() -> Path:
 def plugins_dir() -> Path:
     PLUGINS_DIR.mkdir(parents=True, exist_ok=True)
     return PLUGINS_DIR
+
+
+def desktop_log_path() -> Path:
+    """Журнал desktop-запуска: stdout/stderr `zere.exe` (консоли нет)."""
+    return logs_dir() / "desktop.log"
+
+
+def icon_path() -> Optional[str]:
+    """Иконка приложения (assets/zere.ico) или None, если файла нет.
+
+    Используется окном pywebview; сам `zere.exe` получает её при сборке
+    (`/win32icon`), чтобы в панели задач и в проводнике была одна и та же.
+    """
+    icon = ASSETS_DIR / "zere.ico"
+    return str(icon) if icon.is_file() else None
+
+
+def webview_dir() -> Path:
+    """Профиль WebView2: тема, язык и прочие настройки панели.
+
+    pywebview по умолчанию запускается в private_mode и стирает localStorage
+    при каждом закрытии; поэтому у приложения свой каталог профиля в data/.
+    """
+    directory = DATA_DIR / "webview"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
 
 
 def voice_dir() -> Path:

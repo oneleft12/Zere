@@ -10,7 +10,7 @@ from zere import paths
 from zere.ai.ai_service import AiService
 from zere.ai.ai_settings import AiSettings
 from zere.ai.ollama_client import OllamaClient
-from zere.api.server import PanelServer
+from zere.api.server import DEFAULT_PORT, PanelServer
 from zere.core.configuration.zere_config import ZereConfig
 from zere.core.console import configure_console_encoding
 from zere.core.context.runtime_context import RuntimeContext
@@ -21,6 +21,9 @@ from zere.core.plugins.plugin_config import PluginConfig
 from zere.core.plugins.plugin_manager import PluginManager
 from zere.core.plugins.settings.settings_menu import SettingsMenu
 from zere.core.services import create_services
+from zere.desktop.desktop import desktop_requested, port_from_argv, run_desktop
+from zere.desktop.stdio import ensure_std_streams
+from zere.desktop.window import PanelWindowHost
 from zere.memory.database.conversation_repository import ConversationRepository
 from zere.memory.database.memory_database import MemoryDatabase
 from zere.memory.database.memory_repository import MemoryRepository
@@ -31,7 +34,36 @@ from zere.voice.voice_bootstrap import bootstrap_voice
 from zere.voice.voice_manager import VoiceManager
 
 
-def main() -> None:
+_USAGE = """ZERE — персональный AI-ассистент.
+
+Запуск:
+  zere.exe                 — приложение (окно, без консоли)
+  python main.py --desktop — то же, без лаунчера
+  python main.py           — консольный режим (отладка)
+
+Флаги:
+  --desktop, --app, --gui  приложение: окно поверх локальной панели
+  --port N                 порт панели (по умолчанию 8080)
+  --console                консольный режим (так лаунчер запускает отладку)
+  --help                   эта справка
+"""
+
+
+def main() -> int:
+    argv = sys.argv[1:]
+
+    if any(argument in ("--help", "-h") for argument in argv):
+        print(_USAGE)
+        return 0
+
+    # Режим приложения: консоли нет, окно рисует pywebview (WebView2).
+    desktop = desktop_requested(argv)
+
+    # pythonw.exe (так запускает zere.exe) не имеет stdout/stderr: у процесса
+    # это None. Без подмены диагностика старта исчезает, а flush() падает.
+    if desktop:
+        ensure_std_streams(paths.desktop_log_path())
+
     # Эмодзи в принтах при перенаправленном выводе (cp866/cp1251) падали
     # UnicodeEncodeError — в аудио-пути это выглядело как сбой микрофона.
     configure_console_encoding()
@@ -63,25 +95,32 @@ def main() -> None:
     checker.print_report()
 
     if not checker.all_critical_passed():
-        checker.offer_install()
+        if desktop:
+            # В приложении некому отвечать на «Нажмите Enter» и предустановки
+            # не запустить: панель сама показывает «Подключение ИИ», поэтому
+            # старт не блокируем — приложение открывается и предлагает настройку.
+            print("Критические зависимости не выполнены — настройка через панель → «ИИ».")
+        else:
+            checker.offer_install()
 
-    if not checker.all_critical_passed():
-        print("Критические зависимости не выполнены.")
-        if cloud_available:
-            print("Настроен облачный API-ключ — он используется приоритетно.")
-        print("Откройте панель → «ИИ»: введите API-ключ или установите локальную модель.")
-        print("Устраните ошибки выше и запустите снова.")
-        print("Нажмите Enter для выхода...")
-        try:
-            input()
-        except EOFError:
-            pass
-        return
+            if not checker.all_critical_passed():
+                print("Критические зависимости не выполнены.")
+                if cloud_available:
+                    print("Настроен облачный API-ключ — он используется приоритетно.")
+                print("Откройте панель → «ИИ»: введите API-ключ или установите локальную модель.")
+                print("Устраните ошибки выше и запустите снова.")
+                print("Нажмите Enter для выхода...")
+                try:
+                    input()
+                except EOFError:
+                    pass
+                return 1
 
     print("Все зависимости в порядке.\n")
 
-    # Предложить установку голосовых компонентов (не критичные)
-    if config.voice_enabled:
+    # Предложить установку голосовых компонентов (не критичные). В приложении
+    # спрашивать некого — установка голоса остаётся за installer\install.ps1.
+    if config.voice_enabled and not desktop:
         checker.offer_voice_install()
 
     services = create_services(config)
@@ -109,19 +148,25 @@ def main() -> None:
         # Настройки ИИ: облачный ключ пользователя / локальная модель —
         # тот же сервис, что отвечает в чате (единый выбор провайдера).
         ai=services.get(AiService),
+        # Порт панели: у приложения и консоли один контракт, но тестам и
+        # второму окну нужен другой порт (--port 8081).
+        port=port_from_argv(argv, DEFAULT_PORT),
     )
-    # Авто-открытие панели при старте (этапы 5–6): окно приложения,
-    # фолбэк — браузер; panel_url остаётся None, если сервер не поднялся.
+    # URL панели для команды «панель»; None — сервер не поднялся (только
+    # консольный режим: в приложении сервер поднимает run_desktop).
     panel_url: str | None = None
 
-    try:
-        panel.start()
-        panel_url = f"http://127.0.0.1:{panel.port}"
-        print(f"[Панель] {panel_url} (токен: config/panel.token)")
-        _open_panel_window(panel_url, logger)
-    except OSError as ex:
-        logger.error(f"PanelServer: {ex}")
-        print("[Панель] Не удалось запустить локальный сервер (порт занят?).")
+    if not desktop:
+        # Консольный режим — отладка: панель открывается в браузере. Окно
+        # приложения поднимает desktop-режим (zere.exe) на главном потоке.
+        try:
+            panel.start()
+            panel_url = f"http://127.0.0.1:{panel.port}"
+            print(f"[Панель] {panel_url} (токен: config/panel.token)")
+            _open_panel_in_browser(panel_url, logger)
+        except OSError as ex:
+            logger.error(f"PanelServer: {ex}")
+            print("[Панель] Не удалось запустить локальный сервер (порт занят?).")
 
     # Громкость голоса из config.json (voiceVolume, дефолт 0.5)
     voice_manager.config.volume = float(config.voice_volume)
@@ -151,27 +196,6 @@ def main() -> None:
     if active_personality is not None:
         print(f"[Личность] {active_personality.name} | Стиль: {active_personality.style}\n")
 
-    # TTS поднимаем всегда, в том числе при выключенном голосовом выводе:
-    # панель тестирует синтез («Озвучить» на экране «Голос»), а initialize()
-    # только проверяет окружение (веса грузятся при первом синтезе).
-    # Предзагрузка STT — признак включённого голоса: она качает модель.
-    bootstrap_voice(
-        voice_manager,
-        voice_enabled=bool(config.voice_enabled),
-        personality_style=str(active_personality.style) if active_personality else None,
-        # Предзагрузка STT в фоне (ROADMAP 1.3): не блокируем старт;
-        # для GigaAM здесь же качается модель (~163 МБ), если её ещё нет
-        start_stt_preload=lambda: threading.Thread(
-            target=voice_manager.preload_stt,
-            daemon=True,
-        ).start(),
-    )
-
-    if config.voice_enabled:
-        print("[Голос] Режим: текст + голос")
-    else:
-        print("[Голос] Отключен. Только текстовый режим.")
-
     # Прогрев локальной модели в фоне (этап 1, анализ S5): первый
     # «настоящий» запрос не платит за загрузку модели; keep_alive из
     # конфига удерживает её в памяти. Если выбран облачный провайдер,
@@ -184,7 +208,51 @@ def main() -> None:
         except Exception as ex:  # noqa: BLE001 — прогрев не должен мешать старту
             logger.error(f"Warmup: {ex}")
 
-    threading.Thread(target=_warmup_llm, daemon=True).start()
+    # TTS поднимаем всегда, в том числе при выключенном голосовом выводе:
+    # панель тестирует синтез («Озвучить» на экране «Голос»), а initialize()
+    # только проверяет окружение (веса грузятся при первом синтезе).
+    # Предзагрузка STT — признак включённого голоса: она качает модель.
+    def _bootstrap_voice() -> None:
+        bootstrap_voice(
+            voice_manager,
+            voice_enabled=bool(config.voice_enabled),
+            personality_style=str(active_personality.style) if active_personality else None,
+            # Предзагрузка STT в фоне (ROADMAP 1.3): не блокируем старт;
+            # для GigaAM здесь же качается модель (~163 МБ), если её ещё нет
+            start_stt_preload=lambda: threading.Thread(
+                target=voice_manager.preload_stt,
+                daemon=True,
+            ).start(),
+        )
+
+        if config.voice_enabled:
+            print("[Голос] Режим: текст + голос")
+        else:
+            print("[Голос] Отключен. Только текстовый режим.")
+
+        threading.Thread(target=_warmup_llm, daemon=True).start()
+
+    # Режим приложения: окно открывается сразу, а голос и прогрев модели —
+    # после старта GUI (pywebview зовёт on_ready в своём потоке). Иначе
+    # пользователь ждёт загрузку ChatTTS/STT, глядя на пустой рабочий стол.
+    if desktop:
+        def _on_ready() -> None:
+            try:
+                _bootstrap_voice()
+            except Exception as ex:  # noqa: BLE001 — голос не должен гасить окно
+                logger.error(f"Desktop start: {ex}")
+
+        print(f"Команды: приложение, панель {panel.port}; выход — закрыть окно.")
+        return run_desktop(
+            panel=panel,
+            voice=voice_manager,
+            logger=logger,
+            on_ready=_on_ready,
+            icon=paths.icon_path(),
+            storage_path=paths.webview_dir(),
+        )
+
+    _bootstrap_voice()
 
     # Флаги рантайма: voice_mode → AIHandler отвечает коротко (этап 1, S5)
     runtime = services.get(RuntimeContext)
@@ -276,6 +344,7 @@ def main() -> None:
     panel.stop()
     voice_manager.close()
     logger.info("ZERE завершил работу.")
+    return 0
 
 
 def _open_panel_in_browser(url: str, logger: LogService) -> None:
@@ -289,50 +358,30 @@ def _open_panel_in_browser(url: str, logger: LogService) -> None:
 
 
 _panel_window_lock = threading.Lock()
-_panel_window_ref: dict = {"window": None}
+_panel_window_host: PanelWindowHost | None = None
 
 
 def _open_panel_window(url: str, logger: LogService) -> None:
-    """Открывает панель отдельным окном приложения (этап 6), а не вкладкой.
+    """Показывает панель окном приложения (команда «панель» в консоли).
 
-    Windows: pywebview (WebView2), если пакет установлен; иначе — фолбэк
-    в браузер. Любая сбой окна не должна ронять консоль.
+    Окно живёт в фоновом потоке: главный занят чтением команд. pywebview в
+    этом режиме может отказать — он ставит обработчик SIGINT, а это разрешено
+    только главному потоку; тогда PanelWindowHost честно открывает панель в
+    браузере, как было до появления окна.
     """
+    global _panel_window_host
+
     with _panel_window_lock:
-        window = _panel_window_ref["window"]
-        if window is not None:
-            try:
-                window.restore()
-                window.show()
-                return
-            except Exception:  # noqa: BLE001 — окно закрыто, создаём новое
-                _panel_window_ref["window"] = None
+        if _panel_window_host is None:
+            _panel_window_host = PanelWindowHost(
+                url,
+                logger,
+                icon=paths.icon_path(),
+                storage_path=paths.webview_dir(),
+                on_failure=lambda failed_url: _open_panel_in_browser(failed_url, logger),
+            )
 
-        try:
-            import webview  # pywebview — необязательная зависимость
-        except ImportError:
-            _open_panel_in_browser(url, logger)
-            return
-
-        try:
-            new_window = webview.create_window("ZERE", url, width=1280, height=840)
-            _panel_window_ref["window"] = new_window
-            threading.Thread(
-                target=_run_panel_window, args=(webview, url, logger), daemon=True
-            ).start()
-            print(f"[Панель] Открыта в окне приложения: {url}")
-        except Exception as ex:  # noqa: BLE001
-            logger.error(f"PanelWindow: {ex}")
-            _open_panel_in_browser(url, logger)
-
-
-def _run_panel_window(webview, url: str, logger: LogService) -> None:
-    """Цикл окна pywebview в фоновом потоке; сбой — фолбэк в браузер."""
-    try:
-        webview.start()
-    except Exception as ex:  # noqa: BLE001
-        logger.error(f"PanelWindow: {ex}")
-        _open_panel_in_browser(url, logger)
+    _panel_window_host.open()
 
 
 def _cleanup_voice_input() -> None:

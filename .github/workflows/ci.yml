@@ -123,6 +123,14 @@ jobs:
       - name: Тесты рисования картинкой (рендер, DIB, буфер, доставка в Paint)
         run: python tests/test_drawing_canvas.py
 
+      - name: Тесты десктоп-режима (окно, флаги, коды возврата лаунчера)
+        # GUI не запускается: проверяются stdio pythonw, разбор --desktop,
+        # сценарий «панель → окно → остановка» на фейках и артефакты zere.exe.
+        run: python tests/test_desktop.py
+
+      - name: Тесты предзагрузки onnxruntime (System32 не перехватывает sherpa)
+        run: python tests/test_onnx_preload.py
+
       - name: Тесты обновления из GitHub (git в temp-каталоге)
         run: python tests/test_updater.py
 

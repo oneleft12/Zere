@@ -26,6 +26,30 @@
 
 ---
 
+### Приложение (zere.exe)
+
+ZERE запускается как одно окно — без чёрной консоли и без вкладки браузера.
+UI не переписан: в окне живёт та же панель (`panel/dist`), что раздаёт
+локальный сервер.
+
+- **`zere.exe`** — лаунчер (C# 5 под .NET Framework 4.x; собирается
+  `scripts/build-zere-exe.ps1` системным `csc.exe`, коммитится в корень).
+  Находит `.venv\Scripts\pythonw.exe`, запускает `main.py --desktop`, ведёт
+  весь вывод в `logs/desktop.log`, держит единственный экземпляр (повторный
+  запуск поднимает окно), ошибки старта показывает окном с концом журнала.
+  `zere.exe --console` — консольная отладка.
+- **`zere/desktop/`** — режим приложения Python-редакции:
+  `desktop.py` (панель → окно → остановка; коды 0/2/3 для лаунчера),
+  `window.py` (pywebview поверх WebView2; `PanelWindowHost` для окна из
+  консольного режима с откатом в браузер), `stdio.py` (у pythonw
+  stdout/stderr = None → `logs/desktop.log`), `dialog.py` (`MessageBoxW`),
+  `launcher/ZereLauncher.cs` (исходник `zere.exe`).
+- **`python main.py --desktop`** — то же без лаунчера; `python main.py` —
+  консольный режим отладки (панель в браузере, команды текстом).
+- Ярлыки установщика ведут на `zere.exe`; `ZERE.bat` остаётся запасным
+  путём. Профиль WebView2 (тема/язык) — `data/webview/` (gitignored).
+- Подробности: `docs/DESKTOP_APP.md`; тесты — `tests/test_desktop.py`.
+
 ## Tools (инструменты)
 
 ### Applications (`ZERE.Tools/Applications/`)
@@ -76,6 +100,7 @@
 - **Голос в чате панели** — кнопка «Записать голосовое» в композере: запись идёт на сервере (`POST /api/voice/listen`), распознанный текст встаёт в поле ввода (Shift+клик — отправить сразу), при `capabilities.sttTest=false` кнопка выключена с причиной; кнопка «Режим голоса» в шапке — тот же непрерывный слушатель, что на экране «Голос» (`GET/POST /api/voice/mode`), с живой фазой цикла в подписи (без `/api/voice/mode` у старого бэкенда кнопки нет, при `available=false` — выключена)
 - **Голосовые реплики в диалоге чата** — реплику режима голоса обрабатывает сервер (`engine.process`), мимо `/api/chat/stream`: без отдельного признака её в чате не видно (только «История» и экран «Голос»). Признак — счётчик `turn` в `VoiceModeState` (+1 за каждую обработанную реплику, при повторном включении режима не сбрасывается); чат опрашивает `/api/voice/mode` и на росте счётчика дописывает пару «услышано / ответ» в диалог, помечая её `msg--voice` (у процесса без `turn` поведение прежнее)
 - **ISttService** — общий контракт STT-движков (`IsInstalled`/`Preload`/`TranscribeAsync`), за ним скрыт выбор активного движка
+- **preload_bundled_onnxruntime (Python)** — Windows 11 поставляет `System32\onnxruntime.dll` 1.17.1, и он перехватывает загрузку у sherpa-onnx (собран против 1.28): GigaAM падал с access violation при предзагрузке STT, приложение умирало через ~10 с. Своя копия ORT грузится по полному пути до `import sherpa_onnx` и до KWS-onnxruntime; тест — `tests/test_onnx_preload.py`. GigaAM-сервис вызывает это и сам (`_try_import_sherpa`), и `VoiceManager.__init__`
 - **GigaAmService** — основной STT: sherpa-onnx + GigaAM-v3 punct (русский, с пунктуацией; модель ~163 МБ качается при установке или при `Preload`, SHA-256)
 - **AudioRecorder** — запись с микрофона (и запись референса голоса для клонирования)
 - **ContinuousAudioRecorder** — непрерывная запись с круговым буфером и адаптивным VAD (wake word) + слушатели аудио (`add_listener`/`AddListener`) для streaming KWS: слушатель получает float-блок прямо из аудио-callback'а и лишь копирует его (инференс — не в callback'е)
@@ -504,6 +529,9 @@ Zere/
 │   ├── zere_chattts_server.py    # HTTP-сервер ChatTTS (uv.exe, PCM s16le 24 кГц)
 │   └── zere_silero_server.py     # HTTP-сервер Silero v5, русский голос (uv.exe: torch + soundfile)
 │   └── wake_word/                # Обучение wake word: record/synth/negatives/data/model/train/evaluate
+├── zere.exe                      # приложение: лаунчер (окно, без консоли)
+├── zere/desktop/                 # окно pywebview, stdio без консоли, диалоги, C#-лаунчер
+├── assets/zere.ico               # иконка окна, zere.exe и ярлыков
 ├── panel/                        # Web-панель (SPA, Vite + vanilla TS)
 │   ├── src/                      # main/shell/router/ui/i18n + 13 экранов (screens/)
 │   │   ├── icons.ts              # авторский набор SVG-иконок (24×24, штрих 1.6)
@@ -541,6 +569,8 @@ Zere/
 │   ├── test_drawing.py           # Тесты рисования (49: роутер, геометрия, документ, текст, Win32)
 │   ├── test_krita_plugin.py      # Тесты плагина Krita (32: SVG, протокол, kritarc, установка, выбор способа)
 │   ├── test_drawing_canvas.py    # Тесты рисования картинкой (27: рендер, DIB, буфер, доставка в Paint)
+│   ├── test_desktop.py           # Тесты приложения (stdio pythonw, --desktop, окно/панель на фейках)
+│   ├── test_onnx_preload.py      # Регрессия sherpa vs System32 onnxruntime.dll (порядок загрузки)
 │   ├── test_updater.py           # Тесты обновления из GitHub (git в temp: fetch/pull, отказы, зависимости)
 │   ├── test_ai_providers.py      # Тесты ИИ (приоритет облако/локально, проверка ключа, Ollama, маскирование)
 │   ├── test_jev_router.py        # Тесты роутера интентов Jev (72: реестр, пороги, слоты, встраивание, CLI)
