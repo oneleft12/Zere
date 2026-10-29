@@ -195,8 +195,8 @@ python -m zere.core.update --apply   # применить (git pull --ff-only + 
 
 ## Лицензия
 
-MIT — полный текст в [LICENSE](LICENSE). Список сторонних компонентов и их
-лицензий — [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md); какие данные
-хранятся локально и что уходит в сеть — [PRIVACY.md](PRIVACY.md).
+MIT — полный текст в [LICENSE](LICENSE), краткое соглашение — [EULA.txt](EULA.txt).
+Список сторонних компонентов и их лицензий — [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md);
+какие данные хранятся локально и что уходит в сеть — [PRIVACY.md](PRIVACY.md).
 
 История версий — [CHANGELOG.md](CHANGELOG.md).
