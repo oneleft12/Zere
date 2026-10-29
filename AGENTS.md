@@ -556,7 +556,8 @@ Zere/
 │   ├── Install-Zere.bat          # Двойной клик → install.ps1
 │   ├── Uninstall-Zere.bat        # Двойной клик → uninstall.ps1
 │   ├── ZereSetup.cs              # Свой установщик (WinForms, C# 5): мастер, встроенный
-│   │                             #   payload.zip, запуск install.ps1, деинсталлятор в реестре
+│   │                             #   payload.zip, запуск install.ps1 (-SkipOllama — галочка
+│   │                             #   «без Ollama»), деинсталлятор в реестре
 │   ├── build-installer.ps1       # Сборка ZereSetup.exe (git archive + csc) — основной путь
 │   ├── Zere.iss                  # Inno Setup: запасной Setup.exe (код возврата install.ps1 проверяется)
 │   └── build-setup.ps1           # Сборка Inno Setup.exe (git archive + ISCC)

@@ -14,6 +14,12 @@
 виден в окне консоли), после успеха регистрирует деинсталлятор в «Установка и
 удаление программ» и запускает `zere.exe` — окно приложения.
 
+В мастере есть галочка **«Установить без Ollama»**: тогда Ollama и модель не
+ставятся вовсе (не качаются ~5 ГБ), а ZERE работает без локальной модели —
+нужен облачный ключ, он вводится в панели на экране «ИИ». Без ключа ZERE всё
+равно запускается: окно и панель работают, чат честно просит подключить ключ
+или поставить модель. Галочка передаёт `install.ps1 -SkipOllama`.
+
 ```powershell
 # сборка установщика (git-архив + системный csc.exe, Inno Setup не нужен)
 powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1
@@ -23,6 +29,8 @@ powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1
 
 ```powershell
 installer\Output\ZereSetup.exe /SILENT "/DIR=C:\ZERE" /NOLAUNCH
+# без Ollama и локальной модели — только облачный ключ
+installer\Output\ZereSetup.exe /SILENT /SKIPOLLAMA "/DIR=C:\ZERE" /NOLAUNCH
 ```
 
 Коды возврата: `0` — установлено, `1` — ошибка (подробности в
