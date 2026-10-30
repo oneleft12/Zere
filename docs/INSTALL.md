@@ -20,6 +20,18 @@
 равно запускается: окно и панель работают, чат честно просит подключить ключ
 или поставить модель. Галочка передаёт `install.ps1 -SkipOllama`.
 
+Для ПК, где ZERE работает только через API-ключ, есть сборка, где эта галочка
+стоит сразу:
+
+```powershell
+# вариант «только облачный ключ»: /SILENT тоже идёт без Ollama
+powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 -NoOllama
+```
+
+Вариант записывается в `config\build-info.json` (`"variant": "no-ollama"`).
+Обратный ключ `/WITHOLLAMA` ставит Ollama и в такой сборке, а `/SKIPOLLAMA`
+отключает её в обычной.
+
 ```powershell
 # сборка установщика (git-архив + системный csc.exe, Inno Setup не нужен)
 powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1

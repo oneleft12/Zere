@@ -81,6 +81,8 @@ namespace ZereSetup
                 "  ZereSetup.exe                    мастер установки\r\n" +
                 "  ZereSetup.exe /SILENT [/DIR=ПУТЬ] [/NOLAUNCH]\r\n" +
                 "                                   тихая установка (без окна)\r\n" +
+                "  ZereSetup.exe /SKIPOLLAMA        без Ollama (только облачный ключ)\r\n" +
+                "  ZereSetup.exe /WITHOLLAMA        Ollama, даже если сборка без неё\r\n" +
                 "  ZereSetup.exe /UNINSTALL [/PURGEDATA]\r\n" +
                 "                                   удаление ZERE\r\n\r\n" +
                 "По умолчанию ZERE ставится в %LOCALAPPDATA%\\Programs\\ZERE\r\n" +
@@ -107,6 +109,15 @@ namespace ZereSetup
             Options options = new Options();
             options.Prefix = Installer.DefaultPrefix();
 
+#if ZERE_NO_OLLAMA_DEFAULT
+            // Сборка «только облачный ключ» (build-installer.ps1 -NoOllama):
+            // локальная модель по умолчанию не ставится — ZERE отвечает через
+            // API-ключ, который вводится в панели («ИИ»). Галочка в мастере
+            // остаётся, её можно снять, а тихую установку переопределяет
+            // /WITHOLLAMA.
+            options.SkipOllama = true;
+#endif
+
             foreach (string raw in args)
             {
                 if (raw == null) { continue; }
@@ -119,6 +130,12 @@ namespace ZereSetup
                 if (upper == "/SILENT" || upper == "/VERYSILENT" || upper == "/S" || upper == "/QUIET")
                 {
                     options.Silent = true;
+                }
+                else if (upper == "/WITHOLLAMA" || upper == "/OLLAMA")
+                {
+                    // Обратный ключ к /SKIPOLLAMA: нужен тем, кому сборка без
+                    // Ollama, но локальная модель всё-таки требуется.
+                    options.SkipOllama = false;
                 }
                 else if (upper == "/NOLAUNCH")
                 {

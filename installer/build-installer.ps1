@@ -37,15 +37,23 @@
     Windows такую подпись не считает доверенной: для распространения нужен
     сертификат УЦ (docs\SIGNING.md).
 
+.PARAMETER NoOllama
+    Сборка «только облачный ключ»: в мастере галочка «Установить без Ollama»
+    стоит сразу, тихая установка (/SILENT) тоже идёт без Ollama. Ollama и
+    модель (~5 ГБ) не ставятся — ZERE отвечает через API-ключ из панели
+    («ИИ»). Обратный ключ /WITHOLLAMA ставит Ollama в любом случае.
+
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1
     powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 -WorkingTree
+    powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 -NoOllama
     powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 -CertThumbprint ABCD1234
     powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 -SelfTestSign
 #>
 [CmdletBinding()]
 param(
     [switch]$WorkingTree,
+    [switch]$NoOllama,
     [string]$CertThumbprint = '',
     [string]$PfxPath = '',
     [string]$PfxPassword = '',
@@ -85,6 +93,9 @@ if (Test-Path $cfgPath) {
 }
 Write-Host ''
 Write-Host ('=== Сборка установщика ZERE ' + $version + ' (ZereSetup.exe) ===') -ForegroundColor Cyan
+if ($NoOllama) {
+    Write-Info 'вариант: без Ollama — ZERE работает через облачный ключ (галочка предустановлена)'
+}
 
 # --- 2. csc.exe из .NET Framework ---
 $csc = $null
@@ -181,6 +192,9 @@ $buildInfo = [ordered]@{
     branch     = ([string]$repoBranch).Trim()
     commit     = ([string]$repoCommit).Trim()
     version    = $version
+    # Какой установщик стоит: standard (с Ollama) или no-ollama (только
+    # облачный ключ). Видно в панели и в журналах поддержки.
+    variant    = $(if ($NoOllama) { 'no-ollama' } else { 'standard' })
     builtAt    = (Get-Date).ToUniversalTime().ToString('o')
 }
 Write-Utf8NoBom -Path $buildInfoPath -Text ($buildInfo | ConvertTo-Json)
@@ -261,6 +275,12 @@ $cscArgs = @(
 )
 if (Test-Path -LiteralPath $iconPath) {
     $cscArgs = @('/win32icon:' + $iconPath) + $cscArgs
+}
+if ($NoOllama) {
+    # Сборка «только облачный ключ»: Options.Parse ставит SkipOllama=true,
+    # поэтому галочка в мастере предустановлена, а /SILENT идёт без Ollama.
+    # Обратный ключ /WITHOLLAMA снимает это для конкретного запуска.
+    $cscArgs = @('/define:ZERE_NO_OLLAMA_DEFAULT') + $cscArgs
 }
 
 Write-Info ('csc -> ' + $setupPath)

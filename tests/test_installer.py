@@ -227,6 +227,26 @@ def test_installer_can_skip_ollama() -> None:
     assert "пропущено (-SkipOllama)" in ps1, "установщик не помечает Ollama пропущенной"
 
 
+def test_build_installer_can_default_to_no_ollama() -> None:
+    """-NoOllama: сборка «только облачный ключ».
+
+    Ollama вместе с моделью — это winget и ~5 ГБ; на ПК, где ZERE отвечает
+    через API-ключ, это лишняя работа. Флаг сборки предустанавливает галочку
+    в мастере и действует на тихую установку, а /WITHOLLAMA возвращает
+    Ollama для конкретного запуска.
+    """
+    build = _read("build-installer.ps1")
+    assert "[switch]$NoOllama" in build, "build-installer.ps1 не принимает -NoOllama"
+    assert "/define:ZERE_NO_OLLAMA_DEFAULT" in build, "флаг сборки не доходит до csc"
+    assert "variant" in build, "вариант сборки не попал в config/build-info.json"
+
+    cs = _read("ZereSetup.cs")
+    assert "#if ZERE_NO_OLLAMA_DEFAULT" in cs, "нет умолчания «без Ollama»"
+    assert "options.SkipOllama = true;" in cs, "умолчание не включает SkipOllama"
+    assert '"/WITHOLLAMA"' in cs, "нет обратного ключа /WITHOLLAMA"
+    assert "/SKIPOLLAMA" in cs and "/WITHOLLAMA" in cs, "ключи тихой установки не описаны"
+
+
 def test_app_starts_without_ollama_message() -> None:
     """«Все зависимости в порядке» не печатается, когда ИИ не настроен.
 
