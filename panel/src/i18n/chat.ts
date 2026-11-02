@@ -81,6 +81,10 @@ export const CHAT_EN: Record<string, string> = {
     "Save a fact: the first word is the key, the rest is the value",
   "Найти папку по имени (профиль и диски)":
     "Find a folder by name (profile and drives)",
+  "Найти приложение, а если его нет — папку":
+    "Find an application, or a folder if there is none",
+  "Найти папку: rabota67 тоже подойдёт":
+    "Find a folder: rabota67 works too",
   "Открыть папку в проводнике": "Open the folder in Explorer",
   "Открыть папку по номеру из прошлой выдачи":
     "Open a folder by its number from the previous results",

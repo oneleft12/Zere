@@ -601,10 +601,11 @@ def test_windows_open_missing_app() -> None:
 
 
 class FakeFolderFiles:
-    """Мини-замена FileManager для «открой загрузки»."""
+    """Мини-замена FileManager для «открой загрузки» и «найди …»."""
 
     def __init__(self) -> None:
         self.opened: list[str] = []
+        self.found: list[str] = []
 
     def can_open_folder(self, query: str) -> bool:
         return query.lower() in ("загрузки", "документы")
@@ -612,6 +613,12 @@ class FakeFolderFiles:
     def open_folder(self, query: str) -> str:
         self.opened.append(query)
         return f"Открываю папку «{query}»."
+
+    def find_folders(self, query: str) -> str:
+        self.found.append(query)
+        if query.casefold() == "rabota67":
+            return "Найденные папки:\n\n• rabota67\nC:\\Work\\rabota67"
+        return f'Папка "{query}" не найдена.'
 
 
 def test_windows_opens_known_folder_after_missing_app() -> None:
@@ -636,6 +643,44 @@ def test_windows_unknown_app_does_not_scan_folders() -> None:
 
     assert handler.handle("открой нет-такого") == "Не удалось найти приложение «нет-такого»."
     assert files.opened == []
+
+
+def test_windows_find_falls_back_to_folders() -> None:
+    files = FakeFolderFiles()
+    handler = WindowsHandler(  # type: ignore[arg-type]
+        FakeLauncher(),
+        SafeActionManager(FakeProcessService(), FakeFileManager()),
+        files,
+    )
+
+    answer = handler.handle("найди rabota67")
+
+    assert "rabota67" in answer
+    assert files.found == ["rabota67"]
+
+
+def test_windows_find_keeps_apps_first() -> None:
+    files = FakeFolderFiles()
+    handler = WindowsHandler(  # type: ignore[arg-type]
+        FakeLauncher(),
+        SafeActionManager(FakeProcessService(), FakeFileManager()),
+        files,
+    )
+
+    assert handler.handle("найди discord") == "• Discord"
+    assert files.found == []
+
+
+def test_windows_find_reports_nothing_when_no_app_or_folder() -> None:
+    files = FakeFolderFiles()
+    handler = WindowsHandler(  # type: ignore[arg-type]
+        FakeLauncher(),
+        SafeActionManager(FakeProcessService(), FakeFileManager()),
+        files,
+    )
+
+    assert handler.handle("найди zzz-нет") == "Ничего не найдено."
+    assert files.found == ["zzz-нет"]
 
 
 def test_windows_index_and_count() -> None:

@@ -147,20 +147,29 @@ class WindowsHandler(IZereHandler):
             and not lower.startswith("найди файл")
             and not lower.startswith("найди папку")
         ):
-            query = lower.replace("найди ", "")
+            query = message[len("найди ") :].strip()
+            needle = query.casefold()
 
             apps = [
                 f"• {a.name}"
                 for a in list(self._launcher.get_installed_applications().values())[:]
-                if query.lower() in a.name.lower()
+                if needle in a.name.casefold()
             ][:10]
 
             result = "\n".join(apps)
 
-            if result is None or result.strip() == "":
-                return "Ничего не найдено."
+            if result.strip():
+                return result
 
-            return result
+            # Приложений нет — ищем папку: «найди rabota67» должен находить
+            # папку, даже если пользователь не сказал «найди папку …».
+            finder = getattr(self._files, "find_folders", None)
+            if finder is not None:
+                folder_answer = finder(query)
+                if "не найдена." not in folder_answer or "Поиск ограничен" in folder_answer:
+                    return folder_answer
+
+            return "Ничего не найдено."
 
         if lower.startswith("открой "):
             app = message[len("открой") :].strip()
