@@ -32,6 +32,7 @@ try:
     from zere.memory.database.memory_database import MemoryDatabase
     from zere.memory.database.memory_repository import MemoryRepository
     from zere.tools.applications.application_launcher import ApplicationLauncher
+    from zere.tools.files.file_manager import FileManager
     from zere.tools.windows.process_service import ProcessService
     from zere.tools.windows.safe_action_manager import SafeActionManager
     from zere.voice.voice_bootstrap import bootstrap_voice
@@ -156,6 +157,9 @@ def main() -> int:
         process_service=services.get(ProcessService),
         safe_actions=services.get(SafeActionManager),
         app_launcher=services.get(ApplicationLauncher),
+        # Поиск папок и открытие в проводнике — тот же FileManager, что
+        # отвечает на команды чата (общий кэш индекса).
+        files=services.get(FileManager),
         voice=voice_manager,
         # Голосовой режим из панели: AIHandler отвечает коротко, пока
         # цикл /api/voice/mode жив (тот же синглтон, что и в консоли).

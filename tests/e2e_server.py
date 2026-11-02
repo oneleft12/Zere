@@ -39,6 +39,7 @@ from tests.test_panel_api import (
     FakeApplicationLauncher,
     FakeConversationRepository,
     FakeEngine,
+    FakeFileManager,
     FakeMcpPlugin,
     FakeMemory,
     FakeProcessService,
@@ -133,6 +134,7 @@ def main() -> None:
                 process_service=FakeProcessService(),
                 safe_actions=FakeSafeActionManager(),
                 app_launcher=FakeApplicationLauncher(),
+                files=FakeFileManager(),
                 voice=E2eVoiceManager(),
                 # Обновление из GitHub: в E2E — «есть 1 новый коммит»,
                 # без git, сети и записи в рабочую копию.

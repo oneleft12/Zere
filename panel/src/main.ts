@@ -11,7 +11,15 @@ import "./styles/tokens.css";
 import "./styles/base.css";
 import "./styles/components.css";
 
-import { aiSupport, apiGet, type AiStatus, type AiSupport, type Health, type UpdateStatus } from "./api";
+import {
+  aiSupport,
+  apiGet,
+  foldersSupport,
+  type AiStatus,
+  type AiSupport,
+  type Health,
+  type UpdateStatus,
+} from "./api";
 import { ASSISTANT_STATE_EVENT, logEvent, type AssistantStateDetail } from "./events";
 import { initLang, lang, onLangChange, t } from "./i18n";
 import { clear, initToasts, toast } from "./ui";
@@ -31,6 +39,7 @@ import { memoryScreen } from "./screens/memory";
 import { voiceScreen } from "./screens/voice";
 import { processesScreen } from "./screens/processes";
 import { appsScreen } from "./screens/apps";
+import { foldersScreen } from "./screens/folders";
 import { pluginsScreen } from "./screens/plugins";
 import { logsScreen } from "./screens/logs";
 import { updateScreen } from "./screens/update";
@@ -129,6 +138,11 @@ registerRoute({
   factory: appsScreen,
 });
 registerRoute({
+  path: "/folders",
+  title: "Папки",
+  factory: foldersScreen,
+});
+registerRoute({
   path: "/plugins",
   title: "Плагины",
   factory: pluginsScreen,
@@ -182,6 +196,15 @@ void aiSupport().then((state) => {
   }
 
   void refreshStatus();
+});
+
+// Экран «Папки» есть только в Python-редакции. На C#-панели маршрута нет —
+// прячем пункт меню, а не показываем «Маршрут не найден».
+void foldersSupport().then((state) => {
+  if (state === "unsupported") {
+    shell.setNavVisible("/folders", false);
+    logEvent("Поиск папок недоступен: C#-редакция панели");
+  }
 });
 
 async function refreshStatus(): Promise<void> {

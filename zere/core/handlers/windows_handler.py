@@ -4,17 +4,39 @@ from __future__ import annotations
 
 from zere.core.handlers.i_zere_handler import IZereHandler
 from zere.tools.applications.application_launcher import ApplicationLauncher
+from zere.tools.files.file_manager import FileManager
 from zere.tools.windows.pending_action import PendingAction
 from zere.tools.windows.safe_action_manager import ConfirmOutcome, SafeActionManager
 from zere.tools.windows.windows_command_router import WindowsCommandRouter
 from zere.tools.windows.windows_command_type import WindowsCommandType
 
+#: Явные папки-команды — зона FileHandler (он идёт после WindowsHandler).
+_FOLDER_PREFIXES = (
+    "открой папку",
+    "открыть папку",
+    "открой каталог",
+    "открыть каталог",
+    "открой директорию",
+    "открыть директорию",
+    "покажи папку",
+    "открой путь",
+    "найди папку",
+)
+
 
 class WindowsHandler(IZereHandler):
-    def __init__(self, launcher: ApplicationLauncher, safe_actions: SafeActionManager) -> None:
+    def __init__(
+        self,
+        launcher: ApplicationLauncher,
+        safe_actions: SafeActionManager,
+        files: FileManager | None = None,
+    ) -> None:
         self._launcher = launcher
         self._router = WindowsCommandRouter()
         self._safe_actions = safe_actions
+        # Необязателен: «открой загрузки» сначала пробует приложение, затем
+        # стандартную папку. В тестах без FileManager поведение прежнее.
+        self._files = files
 
     def can_handle(self, message: str) -> bool:
         lower = message.lower().strip()
@@ -66,13 +88,22 @@ class WindowsHandler(IZereHandler):
             or "уходи спать" in lower
         )
 
+        folder_command = lower.startswith(_FOLDER_PREFIXES) or lower in (
+            "открой её",
+            "открой ее",
+        )
+
         return (
-            lower.startswith("открой ")
+            (lower.startswith("открой ") and not folder_command)
             or lower == "обнови индекс"
             or lower == "сколько приложений"
-            # «найди файл …» — зона FileHandler (он идёт после нас):
-            # без этого исключения файловый поиск был бы недостижим.
-            or (lower.startswith("найди ") and not lower.startswith("найди файл"))
+            # «найди файл …» и «найди папку …» — зона FileHandler (он идёт
+            # после нас): без этого исключения поиск был бы недостижим.
+            or (
+                lower.startswith("найди ")
+                and not lower.startswith("найди файл")
+                and not lower.startswith("найди папку")
+            )
             or power
             # Confirmations
             or lower == "да"
@@ -111,7 +142,11 @@ class WindowsHandler(IZereHandler):
         if lower == "сколько приложений":
             return f"В индексе {len(self._launcher.get_installed_applications())} приложений."
 
-        if lower.startswith("найди ") and not lower.startswith("найди файл"):
+        if (
+            lower.startswith("найди ")
+            and not lower.startswith("найди файл")
+            and not lower.startswith("найди папку")
+        ):
             query = lower.replace("найди ", "")
 
             apps = [
@@ -130,7 +165,16 @@ class WindowsHandler(IZereHandler):
         if lower.startswith("открой "):
             app = message[len("открой") :].strip()
 
-            return f"Открываю {app}." if self._launcher.launch(app) else f"Не удалось найти приложение «{app}»."
+            if self._launcher.launch(app):
+                return f"Открываю {app}."
+
+            # «открой загрузки/документы» — не приложение, а стандартная
+            # папка. Явные «открой папку …» сюда не доходят: их обрабатывает
+            # FileHandler (can_handle выше).
+            if self._files is not None and self._files.can_open_folder(app):
+                return self._files.open_folder(app)
+
+            return f"Не удалось найти приложение «{app}»."
 
         command = self._router.parse(message)
 

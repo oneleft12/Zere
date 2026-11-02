@@ -415,6 +415,9 @@ def test_volume_can_handle() -> None:
 @pytest.fixture
 def file_setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        "zere.tools.files.folder_search._windows_known_folder", lambda guid: None
+    )
     desktop = tmp_path / "Desktop"
     desktop.mkdir()
 
@@ -482,11 +485,23 @@ def test_file_find(file_setup) -> None:
     assert "отчёт.md" in handler.handle("найди файл отчёт")
 
 
+def test_file_find_folder(file_setup) -> None:
+    handler, _, desktop, _ = file_setup
+    (desktop / "Проекты").mkdir()
+
+    answer = handler.handle("найди папку проекты")
+
+    assert "Найденные папки" in answer
+    assert "Проекты" in answer
+
+
 def test_file_can_handle() -> None:
     handler = FileHandler(FileManager(), SafeActionManager(FakeProcessService(), FakeFileManager()))  # type: ignore[arg-type]
 
     assert handler.can_handle("создай папку x") is True
     assert handler.can_handle("удали файл x") is True
+    assert handler.can_handle("найди папку проекты") is True
+    assert handler.can_handle("открой папку проекты") is True
     assert handler.can_handle("привет") is False
 
 
@@ -583,6 +598,44 @@ def test_windows_open_missing_app() -> None:
     handler = WindowsHandler(FakeLauncher(), SafeActionManager(FakeProcessService(), FakeFileManager()))  # type: ignore[arg-type]
 
     assert handler.handle("открой нет-такого") == "Не удалось найти приложение «нет-такого»."
+
+
+class FakeFolderFiles:
+    """Мини-замена FileManager для «открой загрузки»."""
+
+    def __init__(self) -> None:
+        self.opened: list[str] = []
+
+    def can_open_folder(self, query: str) -> bool:
+        return query.lower() in ("загрузки", "документы")
+
+    def open_folder(self, query: str) -> str:
+        self.opened.append(query)
+        return f"Открываю папку «{query}»."
+
+
+def test_windows_opens_known_folder_after_missing_app() -> None:
+    files = FakeFolderFiles()
+    handler = WindowsHandler(  # type: ignore[arg-type]
+        FakeLauncher(),
+        SafeActionManager(FakeProcessService(), FakeFileManager()),
+        files,
+    )
+
+    assert handler.handle("открой загрузки") == "Открываю папку «загрузки»."
+    assert files.opened == ["загрузки"]
+
+
+def test_windows_unknown_app_does_not_scan_folders() -> None:
+    files = FakeFolderFiles()
+    handler = WindowsHandler(  # type: ignore[arg-type]
+        FakeLauncher(),
+        SafeActionManager(FakeProcessService(), FakeFileManager()),
+        files,
+    )
+
+    assert handler.handle("открой нет-такого") == "Не удалось найти приложение «нет-такого»."
+    assert files.opened == []
 
 
 def test_windows_index_and_count() -> None:

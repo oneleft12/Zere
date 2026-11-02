@@ -23,6 +23,59 @@ class FileCommandRouter:
         if lower == "удали его" or lower == "удалить его":
             return ParsedFileCommand(FileCommandType.DELETE_LAST_FILE, "")
 
+        # === Открытие папки на экране ===
+        for prefix in (
+            "открой папку ",
+            "открыть папку ",
+            "открой каталог ",
+            "открыть каталог ",
+            "открой директорию ",
+            "открыть директорию ",
+            "покажи папку ",
+            "открой путь ",
+        ):
+            if lower.startswith(prefix):
+                return ParsedFileCommand(
+                    FileCommandType.OPEN_FOLDER, text[len(prefix):].strip())
+
+        for phrase in (
+            "открой папку",
+            "открыть папку",
+            "открой каталог",
+            "открыть каталог",
+            "открой директорию",
+            "открыть директорию",
+            "покажи папку",
+            "открой путь",
+            "открой её",
+            "открой ее",
+        ):
+            if lower == phrase:
+                return ParsedFileCommand(FileCommandType.OPEN_FOLDER, "")
+
+        # === Поиск папки ===
+        for prefix in (
+            "найди папку ",
+            "найти папку ",
+            "поищи папку ",
+            "где папка ",
+            "розыск папки ",
+            "поиск папки ",
+        ):
+            if lower.startswith(prefix):
+                return ParsedFileCommand(
+                    FileCommandType.FIND_FOLDER, text[len(prefix):].strip())
+
+        if lower in (
+            "найди папку",
+            "найти папку",
+            "поищи папку",
+            "где папка",
+            "розыск папки",
+            "поиск папки",
+        ):
+            return ParsedFileCommand(FileCommandType.FIND_FOLDER, "")
+
         # === Создание папки ===
         prefix = "создай папку "
         if lower.startswith(prefix):

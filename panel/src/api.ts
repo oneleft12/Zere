@@ -309,6 +309,30 @@ export interface AppReindexResponse {
   durationMs: number;
 }
 
+/** Папка в выдаче поиска. `reason` — почему она совпала с запросом. */
+export interface FolderInfo {
+  name: string;
+  path: string;
+  parent: string;
+  modified: string | null;
+  score: number;
+  reason: string;
+}
+
+export interface FolderList {
+  items: FolderInfo[];
+  total: number;
+  truncated: boolean;
+  durationMs: number;
+  indexed: number;
+}
+
+export interface FolderOpenResult {
+  opened: boolean;
+  path: string;
+  message: string;
+}
+
 export type LogLevel = "info" | "warn" | "error";
 
 export interface LogEntry {
@@ -636,6 +660,29 @@ async function probeAiSupport(): Promise<AiSupport> {
   try {
     await apiGet<UpdateStatus>("/api/update");
     return "restart-required";
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return "unsupported";
+    return "unknown";
+  }
+}
+
+// ── Поиск папок: есть ли маршрут у запущенного бэкенда ─────────────
+// Экран «Папки» реализован только в Python-редакции. C#-панель отвечает
+// 404, и пункт меню прячется, а не ведёт на «Маршрут не найден».
+
+export type FoldersSupport = "supported" | "unsupported" | "unknown";
+
+let foldersProbe: Promise<FoldersSupport> | null = null;
+
+export function foldersSupport(refresh = false): Promise<FoldersSupport> {
+  if (refresh || foldersProbe === null) foldersProbe = probeFoldersSupport();
+  return foldersProbe;
+}
+
+async function probeFoldersSupport(): Promise<FoldersSupport> {
+  try {
+    await apiGet<FolderList>("/api/folders?limit=1");
+    return "supported";
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) return "unsupported";
     return "unknown";

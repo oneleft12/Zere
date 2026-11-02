@@ -66,6 +66,7 @@ export const CHAT_EN: Record<string, string> = {
   // Группы
   "История диалогов": "Conversation history",
   "Файлы на рабочем столе": "Files on the desktop",
+  "Папки в системе": "Folders on the system",
   "Игры": "Games",
   "Питание": "Power",
   "Рисование: Krita и Paint": "Drawing: Krita and Paint",
@@ -78,6 +79,12 @@ export const CHAT_EN: Record<string, string> = {
   // Память
   "Сохранить факт: ключ — первое слово, значение — остальные":
     "Save a fact: the first word is the key, the rest is the value",
+  "Найти папку по имени (профиль и диски)":
+    "Find a folder by name (profile and drives)",
+  "Открыть папку в проводнике": "Open the folder in Explorer",
+  "Открыть папку по номеру из прошлой выдачи":
+    "Open a folder by its number from the previous results",
+  "Открыть последнюю найденную папку": "Open the last found folder",
   "Сохранить факт явной парой «ключ = значение»":
     "Save a fact as an explicit “key = value” pair",
   "Показать все воспоминания": "Show every memory",

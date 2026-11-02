@@ -10,6 +10,7 @@ import { APPS_EN } from "./i18n/apps";
 import { AI_EN } from "./i18n/ai";
 import { CHAT_EN } from "./i18n/chat";
 import { DASHBOARD_EN } from "./i18n/dashboard";
+import { FOLDERS_EN } from "./i18n/folders";
 import { HISTORY_EN } from "./i18n/history";
 import { LOGS_EN } from "./i18n/logs";
 import { MEMORY_EN } from "./i18n/memory";
@@ -197,6 +198,7 @@ const EN: Record<string, string> = {
   ...VOICE_EN,
   ...PROCESSES_EN,
   ...APPS_EN,
+  ...FOLDERS_EN,
   ...PLUGINS_EN,
   ...LOGS_EN,
   ...PERSONALITIES_EN,

@@ -249,6 +249,14 @@ ROUTER_CONTRACT: dict[str, tuple[str, str, str, dict[str, Any]]] = {
         "zere.tools.files.file_command_router", "FileCommandRouter", "FIND_FILE",
         {"payload": "отчёт"},
     ),
+    "folder_find": (
+        "zere.tools.files.file_command_router", "FileCommandRouter", "FIND_FOLDER",
+        {"payload": "проекты"},
+    ),
+    "folder_open": (
+        "zere.tools.files.file_command_router", "FileCommandRouter", "OPEN_FOLDER",
+        {"payload": "проекты"},
+    ),
     "file_delete": (
         "zere.tools.files.file_command_router", "FileCommandRouter", "DELETE_FILE",
         {"payload": "заметки.txt"},

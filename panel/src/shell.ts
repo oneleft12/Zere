@@ -41,6 +41,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { path: "/voice", icon: "voice", label: "Голос" },
       { path: "/processes", icon: "processes", label: "Процессы" },
       { path: "/apps", icon: "apps", label: "Приложения" },
+      { path: "/folders", icon: "folders", label: "Папки" },
       { path: "/plugins", icon: "plugins", label: "Плагины" },
       { path: "/logs", icon: "logs", label: "Логи" },
     ],

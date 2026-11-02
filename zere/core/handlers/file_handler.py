@@ -35,6 +35,21 @@ class FileHandler(IZereHandler):
             or lower.startswith("поищи файл")
             or lower.startswith("где файл")
             or lower.startswith("розыск файла")
+            or lower.startswith("найди папку")
+            or lower.startswith("найти папку")
+            or lower.startswith("поищи папку")
+            or lower.startswith("где папка")
+            or lower.startswith("розыск папки")
+            or lower.startswith("поиск папки")
+            or lower.startswith("открой папку")
+            or lower.startswith("открыть папку")
+            or lower.startswith("открой каталог")
+            or lower.startswith("открыть каталог")
+            or lower.startswith("открой директорию")
+            or lower.startswith("открыть директорию")
+            or lower.startswith("покажи папку")
+            or lower.startswith("открой путь")
+            or lower in ("открой её", "открой ее")
             or lower.startswith("удали файл")
             or lower.startswith("убери файл")
             or lower.startswith("удалить файл")
@@ -55,6 +70,12 @@ class FileHandler(IZereHandler):
 
         if command.type == FileCommandType.FindFile:
             return self._files.find_file(command.value)
+
+        if command.type == FileCommandType.FindFolder:
+            return self._files.find_folders(command.value)
+
+        if command.type == FileCommandType.OpenFolder:
+            return self._files.open_folder(command.value)
 
         if command.type == FileCommandType.DELETE_LAST_FILE:
             last_name = self._files.last_created_name

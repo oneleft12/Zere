@@ -19,6 +19,9 @@ from zere.tools.files.file_manager import FileManager
 def desktop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Пустой рабочий стол внутри tmp; OneDrive-ветки нет."""
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setattr(
+        "zere.tools.files.folder_search._windows_known_folder", lambda guid: None
+    )
     folder = tmp_path / "Desktop"
     folder.mkdir()
     return folder
@@ -111,6 +114,16 @@ def test_find_file_limits_results(manager: FileManager, desktop: Path) -> None:
 
     answer = manager.find_file("file")
     assert answer.count("•") == 10
+
+
+def test_create_folder_refreshes_folder_search(manager: FileManager, desktop: Path) -> None:
+    # Первый поиск строит индекс и запоминает отсутствие папки.
+    assert "не найдена" in manager.find_folders("новая")
+
+    manager.create_folder("новая")
+
+    # Создание папки сбрасывает индекс — ждать TTL не нужно.
+    assert "новая" in manager.find_folders("новая")
 
 
 @pytest.mark.parametrize(

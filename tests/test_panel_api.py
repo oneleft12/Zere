@@ -49,6 +49,7 @@ from zere.memory.models.memory_item import MemoryItem
 # app_info — только dataclass: в отличие от ApplicationLauncher, чей импорт
 # тянет winreg (сканеры), этот модуль работает на любой платформе.
 from zere.tools.applications.indexing.app_info import AppInfo
+from zere.tools.files.folder_search import FolderHit, FolderSearchResult
 # Фейковый HTTP-слой: проверка ключа и локальной модели не ходит в сеть.
 from tests.fake_http import (
     FakeSession,
@@ -461,6 +462,53 @@ class FakeApplicationLauncher:
         self.rebuilds += 1
 
 
+class FakeFileManager:
+    """Порт-замена FileManager: поиск папок и открытие без проводника."""
+
+    def __init__(self) -> None:
+        self.queries: list[tuple[str, int, bool]] = []
+        self.opened: list[str] = []
+        self.refreshes = 0
+
+    def search_folders(
+        self, query: str, *, limit: int = 20, refresh: bool = False
+    ) -> FolderSearchResult:
+        self.queries.append((query, limit, refresh))
+        if refresh:
+            self.refreshes += 1
+
+        if query == "пусто":
+            hits: tuple[FolderHit, ...] = ()
+            total = 0
+        else:
+            hits = (
+                FolderHit(
+                    path=Path(r"C:\Users\me\Projects"),
+                    name="Projects",
+                    parent=Path(r"C:\Users\me"),
+                    depth=1,
+                    score=1000,
+                    reason="exact",
+                    modified=datetime(2026, 1, 15, 9, 30, 0).timestamp(),
+                ),
+            )
+            total = 1
+
+        return FolderSearchResult(
+            query=query,
+            hits=hits,
+            total=total,
+            truncated=False,
+            duration_ms=3,
+            indexed=42,
+            from_cache=not refresh,
+        )
+
+    def open_path(self, path: Any) -> tuple[bool, str]:
+        self.opened.append(str(path))
+        return True, f"Открываю папку: {path}"
+
+
 # ── Инфраструктура ────────────────────────────────────────────────
 
 
@@ -760,6 +808,7 @@ def running_panel(
                     process_service=FakeProcessService(),
                     safe_actions=FakeSafeActionManager(),
                     app_launcher=FakeApplicationLauncher(),
+                    files=FakeFileManager(),
                     voice=FakeVoiceManager(),
                     # Обновление из GitHub: фейк — тесты не ходят в сеть
                     # и не трогают рабочую копию репозитория.
@@ -2024,6 +2073,175 @@ def test_apps_reindex_reports_count() -> None:
         if not EXTERNAL:
             assert panel.app_launcher.rebuilds == 1
             assert payload["count"] == 3
+
+
+# ── /api/folders — поиск папок и открытие (Python-редакция) ───────
+
+
+def _require_python_folders() -> bool:
+    """Поиск папок реализован только в Python-редакции (C# отвечает 404)."""
+    if EXTERNAL:
+        print("\n[пропущено] /api/folders реализован только в Python-редакции")
+        return False
+    return True
+
+
+def test_folders_paths_are_in_spec() -> None:
+    """Контракт: маршруты папок описаны в docs/api/openapi.yaml."""
+    for path in ("/api/folders", "/api/folders/open"):
+        assert path in SPEC["paths"], path
+
+
+def test_folders_get_matches_spec() -> None:
+    if not _require_python_folders():
+        return
+
+    with running_panel() as (panel, _):
+        status, raw, headers = call(panel, "GET", "/api/folders?q=проект")
+        assert status == 200
+        assert headers.get("content-type", "").startswith("application/json")
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("FolderList"), payload)
+        assert payload["total"] == 1
+        assert payload["truncated"] is False
+        assert payload["durationMs"] >= 0
+        assert payload["indexed"] >= 0
+
+        item = payload["items"][0]
+        assert_schema(schema("FolderInfo"), item)
+        assert item["name"] == "Projects"
+        assert item["reason"] == "exact"
+        assert item["path"].endswith("Projects")
+        assert item["parent"].endswith("me")
+
+        fake = panel.files
+        assert isinstance(fake, FakeFileManager)
+        assert fake.queries == [("проект", 20, False)]
+
+
+def test_folders_empty_query_lists_standard_folders() -> None:
+    if not _require_python_folders():
+        return
+
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/folders")
+        assert status == 200
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("FolderList"), payload)
+        assert payload["items"]
+        assert payload["total"] == 1
+
+
+def test_folders_query_limit_and_refresh() -> None:
+    if not _require_python_folders():
+        return
+
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/folders?q=проект&limit=7&refresh=1")
+        assert status == 200, raw
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("FolderList"), payload)
+
+        fake = panel.files
+        assert isinstance(fake, FakeFileManager)
+        assert fake.queries == [("проект", 7, True)]
+        assert fake.refreshes == 1
+
+
+def test_folders_empty_result_matches_spec() -> None:
+    if not _require_python_folders():
+        return
+
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/folders?q=пусто")
+        assert status == 200
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("FolderList"), payload)
+        assert payload["items"] == []
+        assert payload["total"] == 0
+
+
+def test_folders_validation() -> None:
+    if not _require_python_folders():
+        return
+
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/folders?q=" + "a" * 201)
+        assert status == 400
+        assert error_payload(raw)["code"] == "VALIDATION_ERROR"
+
+        for limit in ("0", "101", "abc"):
+            status, raw, _ = call(panel, "GET", f"/api/folders?limit={limit}")
+            assert status == 400, limit
+            assert error_payload(raw)["code"] == "VALIDATION_ERROR"
+
+
+def test_folders_requires_token_and_method() -> None:
+    if not _require_python_folders():
+        return
+
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/folders", token=None)
+        assert status == 401
+        assert error_payload(raw)["code"] == "UNAUTHORIZED"
+
+        status, raw, _ = call(panel, "DELETE", "/api/folders")
+        assert status == 405
+        assert error_payload(raw)["code"] == "METHOD_NOT_ALLOWED"
+
+        status, raw, _ = call(panel, "GET", "/api/folders/open")
+        assert status == 405
+        assert error_payload(raw)["code"] == "METHOD_NOT_ALLOWED"
+
+
+def test_folders_open_matches_spec() -> None:
+    if not _require_python_folders():
+        return
+
+    with running_panel() as (panel, _):
+        with tempfile.TemporaryDirectory() as td:
+            target = Path(td) / "Projects"
+            target.mkdir()
+
+            status, raw, _ = call(
+                panel, "POST", "/api/folders/open", body={"path": str(target)}
+            )
+            assert status == 200, raw
+
+            payload = json.loads(raw.decode("utf-8"))
+            assert_schema(schema("FolderOpenResult"), payload)
+            assert payload["opened"] is True
+            assert payload["path"].endswith("Projects")
+            assert "Открываю папку" in payload["message"]
+
+            fake = panel.files
+            assert isinstance(fake, FakeFileManager)
+            assert fake.opened == [str(target)]
+
+
+def test_folders_open_validation() -> None:
+    if not _require_python_folders():
+        return
+
+    with running_panel() as (panel, _):
+        for body in (
+            {},
+            {"path": ""},
+            {"path": 42},
+            {"path": "relative/path"},
+            {"path": "C:\\" + "a" * 4096},
+            {"path": "C:\\x", "extra": True},
+        ):
+            status, raw, _ = call(panel, "POST", "/api/folders/open", body=body)
+            assert status == 400, body
+            assert error_payload(raw)["code"] == "VALIDATION_ERROR"
+
+        status, raw, _ = call(panel, "POST", "/api/folders/open", body={}, token=None)
+        assert status == 401
 
 
 # ── /api/logs (этап 4) ────────────────────────────────────────────

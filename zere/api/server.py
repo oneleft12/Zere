@@ -15,9 +15,11 @@ import enum
 import hmac
 import json
 import mimetypes
+import os
 import re
 import secrets
 import time
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock, Thread
@@ -35,6 +37,7 @@ from zere.core.handlers.plugin_handler import PluginCommandHandler
 from zere.core.logging.log_service import log_error, redact_secrets
 from zere.core.plugins.plugin_config import PluginConfig
 from zere.core.update.updater import UpdateBusyError, UpdateService
+from zere.tools.files.file_manager import FileManager
 # Только раннер: он тянет лишь log_error/threading — сервер панели
 # по-прежнему собирается без тяжёлых голосовых зависимостей (Whisper/Silero).
 from zere.voice.voice_mode import VoiceModeRunner
@@ -67,6 +70,9 @@ _ROUTES = {
     "/api/processes": frozenset({"GET"}),
     "/api/apps": frozenset({"GET"}),
     "/api/apps/reindex": frozenset({"POST"}),
+    # Папки в системе: поиск по профилю/дискам и открытие в проводнике.
+    "/api/folders": frozenset({"GET"}),
+    "/api/folders/open": frozenset({"POST"}),
     "/api/logs": frozenset({"GET"}),
     "/api/plugins": frozenset({"GET"}),
     # MCP-плагины: состояние серверов (браузер, заметки) и выбор браузера
@@ -111,6 +117,10 @@ _TTL_SECONDS = 60  # тот же срок, что у SafeActionManager (серв
 _MAX_PROCESS_QUERY_LENGTH = 100
 _MAX_PID = 2_147_483_647  # int32, как int.TryParse в C#-реализации
 _MAX_APP_QUERY_LENGTH = 200
+_MAX_FOLDER_QUERY_LENGTH = 200
+_FOLDER_DEFAULT_LIMIT = 20
+_FOLDER_MAX_LIMIT = 100
+_MAX_FOLDER_PATH_LENGTH = 4096
 _LOG_DEFAULT_LIMIT = 50
 _LOG_MAX_LIMIT = 500
 _LOG_LEVELS = ("info", "warn", "error")
@@ -143,6 +153,7 @@ class PanelServer:
         process_service: Optional[Any] = None,
         safe_actions: Optional[Any] = None,
         app_launcher: Optional[Any] = None,
+        files: Optional[Any] = None,
         voice: Optional[Any] = None,
         runtime: Optional[Any] = None,
         updater: Optional[Any] = None,
@@ -158,6 +169,10 @@ class PanelServer:
         self._process_service = process_service
         self._safe_actions = safe_actions
         self._app_launcher = app_launcher
+        # Файловый менеджер: поиск папок и открытие в проводнике. None —
+        # создаётся лениво при первом обращении к /api/folders (тесты
+        # подменяют фейком, чтобы не обходить настоящий профиль).
+        self._files = files
         self._voice = voice
         # Непрерывный голосовой режим (POST /api/voice/mode): цикл живёт
         # фоновым потоком, обработка — тот же engine, что и в /api/chat/stream
@@ -216,6 +231,17 @@ class PanelServer:
     @property
     def app_launcher(self) -> Optional[Any]:
         return self._app_launcher
+
+    @property
+    def files(self) -> Any:
+        """Файловый менеджер панели (поиск/открытие папок).
+
+        Создаётся лениво: панель не обходит диск при старте, а только когда
+        пользователь действительно открыл экран «Папки» или отправил запрос.
+        """
+        if self._files is None:
+            self._files = FileManager()
+        return self._files
 
     @property
     def voice(self) -> Optional[Any]:
@@ -501,6 +527,10 @@ class _PanelHandler(BaseHTTPRequestHandler):
                 self._handle_apps_get()
             elif path == "/api/apps/reindex":
                 self._handle_apps_reindex()
+            elif path == "/api/folders":
+                self._handle_folders_get()
+            elif path == "/api/folders/open":
+                self._handle_folders_open()
             elif path == "/api/logs":
                 self._handle_logs_get()
             elif path == "/api/plugins":
@@ -925,6 +955,121 @@ class _PanelHandler(BaseHTTPRequestHandler):
             {
                 "count": len(launcher.get_installed_applications()),
                 "durationMs": duration_ms,
+            },
+        )
+
+    # ── Папки в системе (поиск и открытие) ────────────────────────
+
+    def _handle_folders_get(self) -> None:
+        """Поиск папок: {q} — имя/часть пути, {limit} — размер выдачи.
+
+        Пустой q — стандартные папки (Desktop, Documents, Downloads, …),
+        чтобы экран открывался не пустым. {refresh=1} сбрасывает кэш индекса:
+        папка, созданная минуту назад, не должна ждать TTL.
+        """
+        params = parse_qs(urlsplit(self.path).query)
+        query = (params.get("q") or [""])[0]
+
+        if len(query) > _MAX_FOLDER_QUERY_LENGTH:
+            self._send_json(
+                400,
+                "VALIDATION_ERROR",
+                f"Параметр «q» длиннее {_MAX_FOLDER_QUERY_LENGTH} символов.",
+            )
+            return
+
+        limit, error = _query_int(
+            params, "limit", _FOLDER_DEFAULT_LIMIT, 1, _FOLDER_MAX_LIMIT
+        )
+        if error is not None:
+            self._send_json(400, "VALIDATION_ERROR", error)
+            return
+
+        refresh = (params.get("refresh") or ["0"])[0].casefold() in ("1", "true", "yes")
+
+        try:
+            result = self.panel.files.search_folders(
+                query, limit=limit, refresh=refresh
+            )
+        except Exception as ex:  # noqa: BLE001 — обход диска не должен ронять сервер
+            log_error("PanelServer.folders", str(ex))
+            self._send_json(500, "INTERNAL", "Не удалось выполнить поиск папок.")
+            return
+
+        self._send_json(
+            200,
+            None,
+            {
+                "items": [_folder_payload(hit) for hit in result.hits],
+                "total": int(result.total),
+                "truncated": bool(result.truncated),
+                "durationMs": int(result.duration_ms),
+                "indexed": int(result.indexed),
+            },
+        )
+
+    def _handle_folders_open(self) -> None:
+        """Открыть найденную папку в проводнике. Тело: {path}."""
+        payload = self._read_json_object()
+        if payload is None:
+            return
+
+        for key in payload:
+            if key != "path":
+                self._send_json(400, "VALIDATION_ERROR", f"Неизвестный ключ: «{key}».")
+                return
+
+        raw_path = payload.get("path")
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            self._send_json(
+                400,
+                "VALIDATION_ERROR",
+                "Ключ «path» должен быть непустой строкой.",
+            )
+            return
+
+        text = raw_path.strip()
+        if len(text) > _MAX_FOLDER_PATH_LENGTH:
+            self._send_json(
+                400,
+                "VALIDATION_ERROR",
+                f"Путь длиннее {_MAX_FOLDER_PATH_LENGTH} символов.",
+            )
+            return
+
+        expanded = os.path.expandvars(os.path.expanduser(text))
+        target = Path(expanded)
+        is_absolute = target.is_absolute() or (
+            len(expanded) > 2 and expanded[1] == ":" and expanded[2] in "\\/"
+        )
+
+        if not is_absolute:
+            self._send_json(400, "VALIDATION_ERROR", "Путь должен быть абсолютным.")
+            return
+
+        try:
+            is_directory = target.is_dir()
+        except (OSError, ValueError):
+            is_directory = False
+
+        if not is_directory:
+            self._send_json(400, "VALIDATION_ERROR", "Папка не найдена.")
+            return
+
+        try:
+            opened, message = self.panel.files.open_path(target)
+        except Exception as ex:  # noqa: BLE001 — сбой ОС не должен ронять сервер
+            log_error("PanelServer.folders.open", str(ex))
+            self._send_json(500, "INTERNAL", "Не удалось открыть папку.")
+            return
+
+        self._send_json(
+            200,
+            None,
+            {
+                "opened": bool(opened),
+                "path": str(target),
+                "message": str(message),
             },
         )
 
@@ -1972,6 +2117,30 @@ def _app_payload(info: Any) -> dict[str, Any]:
         "aliases": [str(alias) for alias in info.aliases],
         "lastSeen": last_seen_text,
     }
+
+def _folder_payload(hit: Any) -> dict[str, Any]:
+    """Строка поиска папок: FolderHit (Path, float mtime) → JSON-поля."""
+    modified = getattr(hit, "modified", None)
+    try:
+        modified_text = (
+            datetime.fromtimestamp(float(modified))
+            .astimezone()
+            .isoformat(timespec="seconds")
+            if modified is not None
+            else None
+        )
+    except (OverflowError, OSError, ValueError):
+        modified_text = None
+
+    return {
+        "name": str(hit.name),
+        "path": str(hit.path),
+        "parent": str(hit.parent),
+        "modified": modified_text,
+        "score": int(hit.score),
+        "reason": str(hit.reason),
+    }
+
 
 def _enum_name(value: Any) -> str:
     """Enum (PluginType/PersonalityStyle) → имя члена; иначе строка как есть."""

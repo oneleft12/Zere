@@ -318,7 +318,11 @@ def create_services(config: ZereConfig) -> ServiceContainer:
 
     # services.AddSingleton<WindowsHandler>();
     services.add_singleton_factory(
-        lambda sp: WindowsHandler(sp.get(ApplicationLauncher), sp.get(SafeActionManager)),
+        lambda sp: WindowsHandler(
+            sp.get(ApplicationLauncher),
+            sp.get(SafeActionManager),
+            sp.get(FileManager),
+        ),
         WindowsHandler,
     )
 

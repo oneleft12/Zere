@@ -12,6 +12,8 @@ class FileCommandType(Enum):
     FIND_FILE = 3
     DELETE_FILE = 4
     DELETE_LAST_FILE = 5
+    FIND_FOLDER = 6
+    OPEN_FOLDER = 7
 
     # Алиасы 1:1 с именами C#-членов (None в Python — зарезервировано).
     CreateFolder = CREATE_FOLDER
@@ -19,3 +21,5 @@ class FileCommandType(Enum):
     FindFile = FIND_FILE
     DeleteFile = DELETE_FILE
     DeleteLastFile = DELETE_LAST_FILE
+    FindFolder = FIND_FOLDER
+    OpenFolder = OPEN_FOLDER

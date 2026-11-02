@@ -75,7 +75,11 @@ UI не переписан: в окне живёт та же панель (`pane
 - **Сканеры**: RegistryScanner, StartMenuScanner, AppPathsScanner, LocalAppDataScanner, InstalledAppScanner
 
 ### Files (`ZERE.Tools/Files/`)
-- **FileManager** — создание папок/файлов, поиск, удаление на рабочем столе
+- **FileManager** — создание/удаление файлов и папок на рабочем столе; поиск
+  папок по системе и открытие в проводнике (Python-редакция)
+- **FolderSearchService** — ограниченный BFS-поиск папок: стандартные папки,
+  профиль, локальные диски; ранжирование, алиасы, транслит, кэш индекса
+- **FolderOpener** — открытие существующей папки системным файловым менеджером
 - **FileCommandRouter** — парсинг файловых команд
 
 ### Gaming (`ZERE.Tools/Gaming/`)
@@ -152,7 +156,9 @@ Pipeline обработки команд (порядок важен):
 3. **ConversationHandler** — «покажи историю», «очисти историю»
 4. **ProcessHandler** — «процессы», «найди процесс», «закрой процесс»
 5. **WindowsHandler** — Windows-команды
-6. **FileHandler** — «создай папку/файл», «найди файл», «удали файл»
+6. **FileHandler** — «создай папку/файл», «найди файл», «удали файл»,
+   «найди папку», «открой папку» (Python-редакция: поиск по системе и
+   открытие в проводнике, `docs/FOLDERS.md`)
 7. **ConspectHandler** — конспектор: «законспектируй <файл|ссылка|текст>» →
     заметка в хранилище Obsidian *(только Python-редакция, `docs/CONSPECT.md`)*
 8. **GameHandler** — игровые команды
@@ -340,7 +346,7 @@ One, `~typesafe/jev-latest` через OpenRouter) за 70–500 мс выбир
 - Включение: `{ "enabled": true, "api_key": "sk-or-..." }`, перезапуск ZERE,
   проверка — `python3 -m zere.core.routing --check`. Подробности и быстрый
   старт: `docs/JEV_ROUTER.md`.
-- Код: `zere/core/routing/` (`intents.py` — 36 интентов и слоты,
+- Код: `zere/core/routing/` (`intents.py` — 38 интентов и слоты,
   `jev_client.py` — Decisions API, `jev_router.py` — пороги/решения/CLI),
   обёртка в пайплайне — `zere/core/handlers/jev_routing_handler.py`
   (`JevRoutingHandler` + `arrange_handlers`), регистрация — `zere/core/services.py`
@@ -552,7 +558,7 @@ Zere/
 ├── zere/desktop/                 # окно pywebview, stdio без консоли, диалоги, C#-лаунчер
 ├── assets/zere.ico               # иконка окна, zere.exe и ярлыков
 ├── panel/                        # Web-панель (SPA, Vite + vanilla TS)
-│   ├── src/                      # main/shell/router/ui/i18n + 13 экранов (screens/)
+│   ├── src/                      # main/shell/router/ui/i18n + 14 экранов (screens/)
 │   │   ├── icons.ts              # авторский набор SVG-иконок (24×24, штрих 1.6)
 │   │   ├── motion.ts             # движение: счётчики, раскрытие, волна, reduced-motion
 │   │   ├── palette.ts            # командная палитра Ctrl+K (экраны, действия, команды)
@@ -577,12 +583,13 @@ Zere/
 │   └── build-setup.ps1           # Сборка Inno Setup.exe (git archive + ISCC)
 ├── tests/
 │   ├── conftest.py               # Изоляция: журнал ZERE уводится в tmp (logs/ не засоряется)
-│   ├── test_panel_api.py         # Контрактные тесты панели (131, по OpenAPI)
+│   ├── test_panel_api.py         # Контрактные тесты панели (140, по OpenAPI)
 │   ├── test_core_handlers.py     # Обработчики команд: память, процессы, файлы,
 │   │                             #   громкость, игры, Windows, конвейер (раньше 0 %)
 │   ├── test_core_engine.py       # ZereEngine: история, сбои, сериализация реплик
 │   ├── test_core_services.py     # Мини-DI, фабрики, откат роутера Jev (регрессия NameError)
 │   ├── test_file_manager.py      # Файлы на рабочем столе + path traversal
+│   ├── test_folder_search.py     # Поиск папок: ранжирование, пределы, кэш, открытие
 │   ├── test_safe_actions.py      # Подтверждения, TTL, питание/kill/удаление
 │   ├── test_process_service.py   # Список/поиск/kill, denylist системных процессов
 │   ├── test_ai_language.py       # Язык ответа ru/en в промпте и подписях
@@ -617,7 +624,7 @@ Zere/
 │   ├── fake_http.py              # Фейковый requests.Session для тестов ИИ (без сети)
 │   ├── check_ai_contract_external.py  # /api/ai* против запущенной панели (C# и Python)
 │   └── e2e_server.py             # Раннер панели с фейками для E2E
-├── docs/                         # Планы, отчёты, openapi.yaml (PANEL_DESIGN.md, UPDATE.md, AI_PROVIDERS.md, TTS_SILERO.md, WAKE_WORD.md, PLUGINS_RESEARCH.md, MCP_PLUGINS.md, CONSPECT.md, SIGNING.md)
+├── docs/                         # Планы, отчёты, openapi.yaml (PANEL_DESIGN.md, UPDATE.md, AI_PROVIDERS.md, TTS_SILERO.md, WAKE_WORD.md, PLUGINS_RESEARCH.md, MCP_PLUGINS.md, CONSPECT.md, FOLDERS.md, SIGNING.md)
 ├── logs/                         # Логи
 └── backups/                      # Бэкапы версий
 ```

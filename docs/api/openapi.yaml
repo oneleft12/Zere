@@ -572,6 +572,102 @@ paths:
         "503":
           $ref: "#/components/responses/NotReady"
 
+  /api/folders:
+    get:
+      operationId: searchFolders
+      summary: >
+        Поиск папок по стандартным папкам, профилю и локальным дискам.
+        Пустой q возвращает стандартные папки. Выдача ранжируется: точное
+        имя, начало имени, слова, часть имени, похожесть, путь.
+      tags: [folders]
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 200
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: refresh
+          in: query
+          required: false
+          description: Сбросить кэш индекса папок перед поиском (1/true/yes).
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Найденные папки, полное число совпадений и пределы обхода
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FolderList"
+        "400":
+          description: Некорректный q/limit
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "405":
+          description: Метод не поддерживается
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          $ref: "#/components/responses/NotReady"
+
+  /api/folders/open:
+    post:
+      operationId: openFolder
+      summary: Открыть существующую папку в проводнике (Windows).
+      tags: [folders]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FolderOpenRequest"
+      responses:
+        "200":
+          description: Результат открытия (opened=false — ОС не открыла папку)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FolderOpenResult"
+        "400":
+          description: Пустой/относительный путь или папка не найдена
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "405":
+          description: Метод не поддерживается
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Сбой открытия на стороне ОС
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
   /api/logs:
     get:
       operationId: listLogs
@@ -1852,6 +1948,77 @@ components:
           type: integer
         durationMs:
           type: integer
+
+    FolderInfo:
+      type: object
+      required: [name, path, parent, modified, score, reason]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+          description: Полный путь папки
+        parent:
+          type: string
+          description: Родительская папка
+        modified:
+          type: string
+          format: date-time
+          nullable: true
+          description: Время изменения; null — не удалось прочитать
+        score:
+          type: integer
+          description: Оценка ранжирования (больше — выше в выдаче)
+        reason:
+          type: string
+          description: >
+            Почему папка совпала: exact, prefix, words, substring, part,
+            fuzzy, path, alias, known.
+
+    FolderList:
+      type: object
+      required: [items, total, truncated, durationMs, indexed]
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/FolderInfo"
+        total:
+          type: integer
+          description: Полное число совпадений до применения limit
+        truncated:
+          type: boolean
+          description: Обход остановлен по времени/числу каталогов — выдача неполная
+        durationMs:
+          type: integer
+          description: Длительность поиска, мс
+        indexed:
+          type: integer
+          description: Сколько каталогов было в индексе при поиске
+
+    FolderOpenRequest:
+      type: object
+      required: [path]
+      additionalProperties: false
+      properties:
+        path:
+          type: string
+          maxLength: 4096
+          description: Абсолютный путь существующей папки
+
+    FolderOpenResult:
+      type: object
+      required: [opened, path, message]
+      additionalProperties: false
+      properties:
+        opened:
+          type: boolean
+        path:
+          type: string
+        message:
+          type: string
 
     LogEntry:
       type: object
