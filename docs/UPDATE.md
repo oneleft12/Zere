@@ -10,6 +10,11 @@ ZERE обновляется **из своего репозитория на GitH
 
 Никаких слияний, перезаписи конфигов или удаления данных: обновляется только код.
 
+Репозиторий — **[oneleft12/Zere](https://github.com/oneleft12/Zere)**
+(публичный; прежнее имя `Jarvis` — GitHub перенаправляет старые адреса).
+Открытость важна обоим каналам: git-копия читается по HTTPS без ключа и
+логина, установленная сборка — через API и codeload без токена.
+
 Реализация — `zere/core/update/updater.py` (`UpdateService`).
 
 ## Как это работает
@@ -60,11 +65,17 @@ ZERE обновляется **из своего репозитория на GitH
 | `нет метки сборки` | Установка без `.git` и без `config/build-info.json` (старый Setup.exe) | Обновить установщиком один раз; дальше обновления идут из панели |
 | `нет git` | `git` не найден в `PATH` | Установить [Git для Windows](https://git-scm.com/download/win) |
 
-Приватный репозиторий читается теми же ключами, что и обычный `git`:
-проверка идёт без интерактива (`GIT_TERMINAL_PROMPT=0`, SSH `BatchMode=yes`),
-поэтому парольная фраза на ключе или запрос логина приводят к понятной
-ошибке, а не к «зависшей» панели. Подходит ключ без парольной фразы либо
-credential helper git.
+Репозиторий публичный, поэтому **fetch работает без ключей и токена**: для
+git-копии достаточно HTTPS-адреса в `origin`
+
+```bash
+git remote set-url origin https://github.com/oneleft12/Zere.git
+```
+
+SSH-адрес (`git@github.com:oneleft12/Zere.git`) тоже годится, если на машине
+есть ключ без парольной фразы или credential helper: проверка идёт без
+интерактива (`GIT_TERMINAL_PROMPT=0`, SSH `BatchMode=yes`), поэтому запрос
+логина/пароля приводит к понятной ошибке, а не к «зависшей» панели.
 
 ## Установленная сборка (без `.git`)
 
@@ -73,11 +84,11 @@ credential helper git.
 
 ```
 панель «Обновления»
-   │ 1. GET https://api.github.com/repos/oneleft12/Jarvis/commits/<ветка>
+   │ 1. GET https://api.github.com/repos/oneleft12/Zere/commits/<ветка>
    │    → sha HEAD и сообщение
    │ 2. сравнение с конфигом build-info.json (commit)
    │ 3. «Обновить сейчас»:
-   │    GET https://codeload.github.com/oneleft12/Jarvis/zip/<sha>
+   │    GET https://codeload.github.com/oneleft12/Zere/zip/<sha>
    │    → безопасная распаковка (без .. и абсолютных путей)
    │    → копирование кода поверх установки
    │    → pip install, если изменился requirements.txt

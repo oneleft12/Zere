@@ -334,7 +334,7 @@ def test_installed_build_without_metadata_is_reported() -> None:
         assert state["updateAvailable"] is False
         assert state["canUpdate"] is False
         assert state["remote"] == "github"
-        assert state["remoteUrl"] == "https://github.com/oneleft12/Jarvis"
+        assert state["remoteUrl"] == "https://github.com/oneleft12/Zere"
 
         outcome = service.apply()
         _assert_outcome(outcome)

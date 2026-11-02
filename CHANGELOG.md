@@ -56,6 +56,17 @@
 - Документация — `docs/FOLDERS.md`; тесты — `tests/test_folder_search.py`
   и контрактные `/api/folders*`.
 
+### Изменено
+
+- **Обновления идут из публичного репозитория
+  [oneleft12/Zere](https://github.com/oneleft12/Zere)** (прежнее имя `Jarvis`,
+  GitHub перенаправляет старые адреса). Адрес по умолчанию для установленной
+  сборки без `.git` — `Zere`: GitHub API и codeload читаются без токена,
+  git-копии достаточно HTTPS-адреса в `origin` (ключ и логин не нужны).
+  Изменены `zere/core/update/updater.py` (`_DEFAULT_REPOSITORY`),
+  `installer/build-installer.ps1` и `build-setup.ps1` (поле `repository`
+  в `config/build-info.json`); документация — `docs/UPDATE.md`.
+
 ## [1.9.0] — 2026-10-29
 
 Русская речь — один движок: Silero. ChatTTS удалён.
@@ -158,5 +169,5 @@
 - Тесты ядра: обработчики команд, `ZereEngine`, сборка сервисов,
   `SafeActionManager`, `ProcessService`, `FileManager` — раньше покрытие 0 %.
 
-[1.9.0]: https://github.com/oneleft12/Jarvis/releases/tag/v1.9.0
-[1.8.0]: https://github.com/oneleft12/Jarvis/releases/tag/v1.8.0
+[1.9.0]: https://github.com/oneleft12/Zere/releases/tag/v1.9.0
+[1.8.0]: https://github.com/oneleft12/Zere/releases/tag/v1.8.0

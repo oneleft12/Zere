@@ -54,7 +54,10 @@ _MAX_COMMITS = 30
 # сборка несёт config/build-info.json с коммитом, обновление — zipball
 # ветки. Данные пользователя (config/, data/, logs/, voice/, *.db)
 # не перезаписываются.
-_DEFAULT_REPOSITORY = "oneleft12/Jarvis"
+# Публичный репозиторий проекта (прежнее имя Jarvis, GitHub перенаправляет).
+# Для сборки без .git это единственный адрес: API и zipball читаются без
+# токена, лимит GitHub — 60 запросов в час на IP.
+_DEFAULT_REPOSITORY = "oneleft12/Zere"
 _DEFAULT_BRANCH = "python-port"
 _BUILD_INFO_PATH = Path("config") / "build-info.json"
 _MAX_API_BYTES = 1_000_000

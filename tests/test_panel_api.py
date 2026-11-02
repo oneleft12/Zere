@@ -723,7 +723,7 @@ class FakeUpdater:
             "available": self.available,
             "branch": "python-port",
             "remote": "origin",
-            "remoteUrl": "git@github.com:oneleft12/Jarvis.git",
+            "remoteUrl": "https://github.com/oneleft12/Zere",
             "current": copy.deepcopy(self._CURRENT),
             "target": copy.deepcopy(self._TARGET),
             "behind": self.behind if self.update_available else 0,

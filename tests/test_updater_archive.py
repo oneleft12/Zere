@@ -25,7 +25,7 @@ OLD = "a" * 40
 NEW = "b" * 40
 
 
-def _zip(files: dict[str, str], top: str = "Jarvis-новый") -> bytes:
+def _zip(files: dict[str, str], top: str = "Zere-новый") -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         for name, content in files.items():
@@ -42,7 +42,7 @@ def make_service(tmp_path: Path, *, commit: str = OLD, with_build_info: bool = T
         (tmp_path / "config" / "build-info.json").write_text(
             json.dumps(
                 {
-                    "repository": "oneleft12/Jarvis",
+                    "repository": "oneleft12/Zere",
                     "branch": "python-port",
                     "commit": commit,
                     "version": "1.8.0",
@@ -238,3 +238,19 @@ def test_parallel_operations_are_rejected(tmp_path: Path) -> None:
             service.check()
     finally:
         service._op_lock.release()
+
+
+def test_default_repository_is_public_zere(tmp_path: Path) -> None:
+    """Сборка без build-info тянется из публичного oneleft12/Zere.
+
+    Репозиторий переименован из Jarvis; адрес по умолчанию — новый, чтобы
+    API и codeload читались без токена (GitHub отдаёт его открыто).
+    """
+    service = make_service(tmp_path, with_build_info=False)
+
+    assert service._api_commit_url() == (
+        "https://api.github.com/repos/oneleft12/Zere/commits/python-port"
+    )
+    assert service._zip_url(NEW) == (
+        f"https://codeload.github.com/oneleft12/Zere/zip/{NEW}"
+    )

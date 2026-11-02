@@ -188,7 +188,7 @@ $buildInfoPath = Join-Path $stageDir 'config\build-info.json'
 $buildInfoDir = Split-Path $buildInfoPath -Parent
 if (-not (Test-Path -LiteralPath $buildInfoDir)) { New-Item -ItemType Directory -Path $buildInfoDir -Force | Out-Null }
 $buildInfo = [ordered]@{
-    repository = 'oneleft12/Jarvis'
+    repository = 'oneleft12/Zere'
     branch     = ([string]$repoBranch).Trim()
     commit     = ([string]$repoCommit).Trim()
     version    = $version
