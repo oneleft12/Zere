@@ -28,7 +28,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Ассистент",
     items: [
-      { path: "/", icon: "dashboard", label: "Дашборд" },
+      { path: "/", icon: "dashboard", label: "Главная страница" },
       { path: "/ai", icon: "ai", label: "Подключение ИИ" },
       { path: "/chat", icon: "chat", label: "Чат" },
       { path: "/history", icon: "history", label: "История" },
@@ -234,7 +234,7 @@ export function createShell(
 
   // ── Шапка ─────────────────────────────────────────────────────
 
-  const titleEl = h("h1", { class: "shell__title", text: t("Дашборд") });
+  const titleEl = h("h1", { class: "shell__title", text: t("Главная страница") });
   const subtitleEl = h("p", { class: "shell__subtitle", text: "" });
 
   const searchButton = h(

@@ -113,7 +113,7 @@ async function main() {
   // --- 1. Открытие панели и статус подключения -------------------------
   await page.goto(BASE + "/");
   await page.waitForSelector(".shell__title");
-  check("панель открылась, заголовок есть", (await page.locator(".shell__title").innerText()) === "Дашборд");
+  check("панель открылась, заголовок есть", (await page.locator(".shell__title").innerText()) === "Главная страница");
 
   const statusOk = await waitStatus(page, "Ollama", 20000);
   check("статус-строка: связь с сервером (health)", statusOk === true, statusOk === true ? "" : String(statusOk));
@@ -127,7 +127,7 @@ async function main() {
 
   // --- 2. Все экраны ---------------------------------------------------
   const screens = [
-    ["/", "Дашборд"], ["/chat", "Чат"], ["/history", "История"], ["/memory", "Память"],
+    ["/", "Главная страница"], ["/chat", "Чат"], ["/history", "История"], ["/memory", "Память"],
     ["/voice", "Голос"], ["/processes", "Процессы"], ["/apps", "Приложения"],
     ["/plugins", "Плагины"], ["/logs", "Логи"], ["/settings", "Настройки"],
     ["/personalities", "Личности"],

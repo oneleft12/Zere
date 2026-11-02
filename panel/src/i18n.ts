@@ -30,7 +30,7 @@ const CORE_EN: Record<string, string> = {
   "Ассистент": "Assistant",
   "Система": "System",
   "Панель": "Panel",
-  "Дашборд": "Dashboard",
+  "Главная страница": "Home",
   "Чат": "Chat",
   "История": "History",
   "Память": "Memory",
@@ -159,7 +159,7 @@ const CORE_EN: Record<string, string> = {
     "Assistant answer language: applied immediately, no restart needed",
   "русский": "Russian",
   "английский": "English",
-  // ── Дашборд, ИИ, голос, плагины: строки, которые раньше падали на ru ──
+  // ── Главная страница, ИИ, голос, плагины: строки, которые раньше падали на ru ──
   "ZERE готов отвечать": "ZERE is ready",
   "ZERE без модели": "ZERE has no model configured",
   "Стиль": "Style",

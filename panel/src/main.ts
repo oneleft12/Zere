@@ -89,7 +89,7 @@ document.addEventListener(ASSISTANT_STATE_EVENT, (event) => {
 // Маршруты: название экрана в шапке, описание — в самом экране.
 registerRoute({
   path: "/",
-  title: "Дашборд",
+  title: "Главная страница",
   factory: dashboardScreen,
 });
 registerRoute({

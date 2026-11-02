@@ -14,7 +14,7 @@ const TITLE = ".page-header__title";
 test("дашборд: заголовок и статус-строка с сервисами", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.locator(TITLE)).toHaveText("Дашборд");
+  await expect(page.locator(TITLE)).toHaveText("Главная страница");
   await expect(page.locator(".shell__status")).toContainText("Ollama", { timeout: 15_000 });
   await expect(page.locator(".shell__status")).toContainText("память:");
 });
@@ -217,7 +217,7 @@ test("i18n: переключение интерфейса на английск�
 
   // Экран перерисовывается асинхронно (перезагрузка конфига) — toHaveText ждёт.
   await expect(page.locator(TITLE)).toHaveText("Settings", { timeout: 15_000 });
-  await expect(page.locator('.nav-item[title="Dashboard"]')).toBeVisible();
+  await expect(page.locator('.nav-item[title="Home"]')).toBeVisible();
 
   await page.reload();
   await expect(page.locator(TITLE)).toHaveText("Settings");

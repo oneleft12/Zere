@@ -1,5 +1,5 @@
 /**
- * Дашборд (§5.4): ряд StatusPill, метрики, лента событий сессии.
+ * Главная страница (§5.4): ряд StatusPill, метрики, лента событий сессии.
  * Данные — только фактические из API; серверная лента /api/logs — этап 4.
  */
 
@@ -75,7 +75,7 @@ function formatTime(date: Date): string {
 
 export const dashboardScreen: ScreenFactory = (container): Cleanup => {
   container.appendChild(
-    pageHeader(t("Дашборд"), t("Состояние сервисов ассистента"), [
+    pageHeader(t("Главная страница"), t("Состояние сервисов ассистента"), [
       button(t("Обновить"), () => {
         logEvent("Обновление статусов по кнопке");
         void load();

@@ -5,7 +5,7 @@
  */
 export const DASHBOARD_EN: Record<string, string> = {
   // ── Шапка ─────────────────────────────────────────────────────
-  "Дашборд": "Dashboard",
+  "Главная страница": "Home",
   "Состояние сервисов ассистента": "Assistant services status",
   "Обновить": "Refresh",
 

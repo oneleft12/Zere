@@ -132,9 +132,9 @@ export const AI_EN: Record<string, string> = {
     "The panel was updated but the ZERE server still runs the old code: close and start ZERE again to get AI settings.",
   "В этой редакции настраивается только локальная модель":
     "This edition can only use a local model",
-  "Эта сборка панели новее сервера ZERE: перезапустите ZERE, чтобы включить настройку ключа. Локальная модель (Ollama) продолжает работать — её состояние видно на дашборде.":
-    "This panel build is newer than the ZERE server: restart ZERE to enable key setup. The local model (Ollama) keeps working — its status is shown on the dashboard.",
-  "На дашборд": "Go to dashboard",
+  "Эта сборка панели новее сервера ZERE: перезапустите ZERE, чтобы включить настройку ключа. Локальная модель (Ollama) продолжает работать — её состояние видно на главной странице.":
+    "This panel build is newer than the ZERE server: restart ZERE to enable key setup. The local model (Ollama) keeps working — its status is shown on the home page.",
+  "На главную страницу": "Go to home page",
   "Сервер ZERE старее панели: закройте и снова запустите ZERE — появится настройка облачного ключа.":
     "The ZERE server is older than the panel: close and start ZERE again to get cloud key settings.",
   "Настройка облачного ключа появится после перезапуска ZERE; пока работает локальная модель (Ollama).":
