@@ -158,10 +158,10 @@ export const CHAT_EN: Record<string, string> = {
     "Change the default target (also: “рисуй в пейнте”)",
   "Стереть нарисованное": "Erase what was drawn",
 
-  // Браузер: Playwright MCP
-  "Браузер: Playwright MCP": "Browser: Playwright MCP",
-  "плагин MCP; нужен Python-бэкенд и включение в config/mcp.json":
-    "an MCP plugin; needs the Python backend and enabling in config/mcp.json",
+  // Браузер: сайты, YouTube и музыка (один блок)
+  "Браузер: сайты, YouTube и музыка": "Browser: sites, YouTube and music",
+  "плагин MCP; нужен Python-бэкенд и включение в config/mcp.json; музыка играет в том же браузере":
+    "an MCP plugin; needs the Python backend and enabling in config/mcp.json; music plays in the same browser",
   "Перейти по адресу (ещё: «перейди на …», «открой сайт …»)":
     "Navigate to an address (also: “перейди на …”, “открой сайт …”)",
   "Что сейчас на странице (снимок для модели)":
@@ -184,10 +184,7 @@ export const CHAT_EN: Record<string, string> = {
   "Любой инструмент напрямую: <инструмент> {json}":
     "Any tool directly: <tool> {json}",
 
-  // YouTube и музыка
-  "YouTube и музыка": "YouTube and music",
-  "только Python-редакция; автовоспроизведение — через плагин браузера Playwright MCP":
-    "Python edition only; autoplay goes through the Playwright MCP browser plugin",
+  // YouTube и музыка (внутри блока «Браузер»)
   "Открыть YouTube и включить музыку (запрос по умолчанию)":
     "Open YouTube and start music (default query)",
   "Найти первое видео по запросу и включить его с миксом":

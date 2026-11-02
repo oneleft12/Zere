@@ -21,8 +21,8 @@ test("команды: панель открыта и содержит весь �
   await expect(panel.locator(".chat__commands-title")).toHaveText("Команды ZERE");
 
   // 15 групп: память, история, приложения, процессы, файлы, папки, громкость,
-  // игры, питание, рисование, браузер (MCP), заметки (MCP), конспектор,
-  // вопросы к ИИ, консоль.
+  // игры, питание, рисование, браузер и YouTube (MCP), заметки (MCP),
+  // конспектор, вопросы к ИИ, консоль.
   await expect(panel.locator(".cmd-group")).toHaveCount(15);
 
   // Бейдж в шапке панели совпадает с числом показанных команд.
@@ -55,8 +55,23 @@ test("команды: панель открыта и содержит весь �
   await expect(panel.getByText("только Python-редакция")).toBeVisible();
   await expect(panel.getByText("только в окне консоли ZERE, не в чате")).toBeVisible();
   await expect(
-    panel.getByText("плагин MCP; нужен Python-бэкенд и включение в config/mcp.json"),
+    panel.getByText(
+      "плагин MCP; нужен Python-бэкенд и включение в config/mcp.json; музыка играет в том же браузере",
+    ),
   ).toBeVisible();
+
+  // Браузер и YouTube — один блок: страницы и музыка в одной карточке,
+  // а не двумя отдельными группами.
+  const browserGroup = panel.locator(".cmd-group", {
+    hasText: "Браузер: сайты, YouTube и музыка",
+  });
+  await expect(browserGroup).toHaveCount(1);
+  await expect(
+    browserGroup.locator(".cmd__text", { hasText: "браузер открой" }),
+  ).toHaveCount(1);
+  await expect(
+    browserGroup.locator(".cmd__text", { hasText: "включи музыку" }),
+  ).toHaveCount(1);
 
   // Лог и композер никуда не делись.
   await expect(page.getByText("Начните диалог")).toBeVisible();
@@ -97,9 +112,9 @@ test("команды: поиск фильтрует список и прячет
   await expect(panel.locator(".cmd")).toHaveCount(0);
   await expect(panel.getByText("Ничего не найдено — попробуйте другой запрос")).toBeVisible();
 
-  // Сброс поиска возвращает весь каталог.
+  // Сброс поиска возвращает весь каталог (87 команд, см. COMMAND_TOTAL).
   await search.fill("");
-  await expect(panel.locator(".cmd")).toHaveCount(68);
+  await expect(panel.locator(".cmd")).toHaveCount(87);
 });
 
 test("команды: свёрнутая панель запоминается между заходами", async ({ page }) => {

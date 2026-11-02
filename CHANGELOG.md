@@ -66,6 +66,12 @@
   Изменены `zere/core/update/updater.py` (`_DEFAULT_REPOSITORY`),
   `installer/build-installer.ps1` и `build-setup.ps1` (поле `repository`
   в `config/build-info.json`); документация — `docs/UPDATE.md`.
+- **Справочник команд: браузер и YouTube — один блок.** В чате панели
+  вместо двух карточек («Браузер: Playwright MCP» и «YouTube и музыка»)
+  теперь одна — «Браузер: сайты, YouTube и музыка»: музыка играет в том же
+  браузере, которым управляет плагин, поэтому команды страниц, выбор браузера
+  и треки собраны вместе. `panel/src/commands.ts`, перевод —
+  `panel/src/i18n/chat.ts`.
 
 ## [1.9.0] — 2026-10-29
 
