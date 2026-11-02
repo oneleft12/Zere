@@ -28,11 +28,13 @@ from zere.core.handlers.i_zere_handler import IZereHandler
 from zere.core.handlers.memory_extractor import MemoryExtractor
 from zere.core.handlers.memory_handler import MemoryHandler
 from zere.core.handlers.memory_query_handler import MemoryQueryHandler
+from zere.core.handlers.media_handler import MediaHandler
 from zere.core.handlers.process_handler import ProcessHandler
 from zere.core.handlers.plugin_handler import PluginCommandHandler
 from zere.core.handlers.volume_handler import VolumeHandler
 from zere.core.handlers.windows_handler import WindowsHandler
 from zere.core.logging.log_service import LogService, log_error
+from zere.core.plugins.builtin.mcp.playwright_plugin import PlaywrightMcpPlugin
 from zere.core.plugins.plugin_config import PluginConfig
 from zere.core.plugins.plugin_manager import PluginManager
 from zere.memory.database.conversation_repository import ConversationRepository
@@ -43,6 +45,7 @@ from zere.tools.drawing.drawing_service import DrawingService
 from zere.tools.files.file_manager import FileManager
 from zere.tools.gaming.game_guardian import GameGuardian
 from zere.tools.gaming.game_tracker import GameTracker
+from zere.tools.media.youtube_service import YouTubeService
 from zere.tools.windows.process_service import ProcessService
 from zere.tools.windows.safe_action_manager import SafeActionManager
 from zere.tools.windows.volume.volume_service import VolumeService
@@ -187,6 +190,23 @@ def _create_jev_handler(
         return None
 
 
+def _create_youtube_service(sp: ServiceContainer) -> YouTubeService:
+    """Сервис YouTube с драйвером браузера (или без него).
+
+    Плагин может быть выключен — это не ошибка сборки: `YouTubeService`
+    откроет YouTube браузером по умолчанию. Драйвер ищется по типу, а не по
+    порядку в списке: внешние плагины тоже попадают в `command_handlers`.
+    """
+    driver = None
+
+    for plugin in sp.get(PluginManager).command_handlers:
+        if isinstance(plugin, PlaywrightMcpPlugin):
+            driver = plugin
+            break
+
+    return YouTubeService(driver=driver)
+
+
 def create_services(config: ZereConfig) -> ServiceContainer:
     """Порт ServiceRegistration.Create(config) — порядок и фабрики дословно.
 
@@ -262,6 +282,16 @@ def create_services(config: ZereConfig) -> ServiceContainer:
         return pm
 
     services.add_singleton_factory(_create_plugin_manager, PluginManager)
+
+    # services.AddSingleton<YouTubeService>(); — «включи музыку на ютубе».
+    # Драйвер — плагин браузера (Playwright MCP), если он загружен. Плагин
+    # может быть выключен: тогда сервис откроет YouTube браузером по
+    # умолчанию и честно скажет, что автовоспроизведение недоступно.
+    services.add_singleton_factory(_create_youtube_service, YouTubeService)
+
+    services.add_singleton_factory(
+        lambda sp: MediaHandler(sp.get(YouTubeService)), MediaHandler
+    )
 
     # services.AddSingleton<DependencyChecker>();
     services.add_singleton_factory(
@@ -385,6 +415,9 @@ def create_services(config: ZereConfig) -> ServiceContainer:
             sp.get(MemoryQueryHandler),
             sp.get(ConversationHandler),
             sp.get(ProcessHandler),
+            # YouTube и музыка — до WindowsHandler: «открой ютуб» не должно
+            # искать приложение «ютуб» в индексе.
+            sp.get(MediaHandler),
             sp.get(WindowsHandler),
             sp.get(FileHandler),
             # Конспектор: до игр, громкости и AIHandler — «законспектируй …»

@@ -254,7 +254,7 @@ class PlaywrightMcpPlugin(McpPluginBase):
         "снимок страницы, поиск на странице, клик и ввод, скриншот. "
         "Браузер выбирается (Edge, Chrome, Opera GX, Chromium) и меняется из чата."
     )
-    plugin_version = "1.1.0"
+    plugin_version = "1.2.0"
 
     #: Снимок страницы — самая «тяжёлая» выдача, режем раньше остальных.
     max_response_chars = 2500
@@ -428,6 +428,31 @@ class PlaywrightMcpPlugin(McpPluginBase):
         state["browser"] = self.browser_state()
 
         return state
+
+    # ── Выполнение Playwright-кода ──────────────────────────────────
+
+    def run_code(self, code: str) -> McpToolResult:
+        """Выполнить Playwright-код на текущей странице.
+
+        Публичный вход для других подсистем (`YouTubeService`): плагин
+        остаётся драйвером браузера и не знает, *что* именно выполняется.
+        Сервер поднимается лениво, как и для обычных команд.
+        """
+        if not self.enabled:
+            raise McpError(
+                "плагин браузера выключен — включите сервер playwright "
+                "в config/mcp.json"
+            )
+
+        if not self._settings.allows("browser_run_code_unsafe"):
+            raise McpError(
+                "инструмент browser_run_code_unsafe запрещён в allowedTools "
+                "сервера playwright"
+            )
+
+        return self._ensure_client().call_tool(
+            "browser_run_code_unsafe", {"code": code}
+        )
 
     # ── Разбор фраз ─────────────────────────────────────────────────
 

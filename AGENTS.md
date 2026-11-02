@@ -113,6 +113,18 @@ UI не переписан: в окне живёт та же панель (`pane
 - **DrawingTarget** — описания Krita и Paint: имена процессов (`krita.exe`, `mspaint.exe`/`PaintApp.exe`), заголовки окон, пути запуска, отступы холста
 - Подробности: `docs/DRAWING.md`
 
+### Media (`zere/tools/media/`, только Python-редакция)
+- **YouTubeService** — «включи музыку на ютубе»: открыть YouTube, найти первое
+  видео по запросу и включить его с миксом (`&list=RD…`), пауза/продолжение,
+  следующий и предыдущий трек, «что играет»
+- **YouTubeCommandRouter** — разбор русских и английских фраз (чистые функции;
+  «включи звук» и «включи музыку громче» остаются громкости)
+- Драйвер — Playwright MCP (`run_code()` → `browser_run_code_unsafe`): клик
+  Playwright считается действием пользователя, поэтому звук разрешён. Плагин
+  выключен → YouTube открывается браузером по умолчанию, без лжи про
+  автовоспроизведение
+- Подробности: `docs/YOUTUBE_MUSIC.md`; тесты — `tests/test_youtube_music.py`
+
 ### Voice (`ZERE.Voice/`)
 - **VoiceManager** — оркестратор STT (роутинг `sttEngine`: `gigaam` — GigaAM-v3 основной, автоматический откат на `whisper`) + TTS (движок выбирается ключом `ttsEngine`: `silero` — русский (единственный в Python), `pocket` — клонирование голоса в C#; ChatTTS удалён в 1.9.0)
 - **VoiceBootstrap (Python, `voice_bootstrap.py`)** — политика старта голоса: доступность TTS поднимается всегда, в том числе при `voiceEnabled=false` (иначе панель на «Озвучить» отвечала 503 «Синтез речи недоступен: Silero доступен…»), предзагрузка STT (качает модель) — только при включённом голосе; C#-паритет — `ZERE.App/Program.cs`
@@ -155,21 +167,25 @@ Pipeline обработки команд (порядок важен):
 2. **MemoryQueryHandler** — запросы к памяти
 3. **ConversationHandler** — «покажи историю», «очисти историю»
 4. **ProcessHandler** — «процессы», «найди процесс», «закрой процесс»
-5. **WindowsHandler** — Windows-команды; «найди …» — приложение, затем папка
-6. **FileHandler** — «создай папку/файл», «найди файл», «удали файл»,
+5. **MediaHandler** — YouTube и музыка: «включи музыку», «включи джаз на
+   ютубе», «открой ютуб», «пауза», «следующий трек», «что играет»
+   *(только Python-редакция, `docs/YOUTUBE_MUSIC.md`; стоит до
+   WindowsHandler, иначе «открой ютуб» искало бы приложение)*
+6. **WindowsHandler** — Windows-команды; «найди …» — приложение, затем папка
+7. **FileHandler** — «создай папку/файл», «найди файл», «удали файл»,
    «найди папку», «открой папку» (Python-редакция: поиск по системе и
    открытие в проводнике, `docs/FOLDERS.md`)
-7. **ConspectHandler** — конспектор: «законспектируй <файл|ссылка|текст>» →
+8. **ConspectHandler** — конспектор: «законспектируй <файл|ссылка|текст>» →
     заметка в хранилище Obsidian *(только Python-редакция, `docs/CONSPECT.md`)*
-8. **GameHandler** — игровые команды
-9. **VolumeHandler** — «громкость», «сделай громче/тише», «выключи звук»
-10. **DrawingHandler** — рисование в Krita/Paint: «нарисуй круг», «напиши на холсте привет», «рисуй в крите» *(только Python-редакция)*
-11. **JevRoutingHandler** — роутер интентов: свободная фраза → каноническая команда
+9. **GameHandler** — игровые команды
+10. **VolumeHandler** — «громкость», «сделай громче/тише», «выключи звук»
+11. **DrawingHandler** — рисование в Krita/Paint: «нарисуй круг», «напиши на холсте привет», «рисуй в крите» *(только Python-редакция)*
+12. **JevRoutingHandler** — роутер интентов: свободная фраза → каноническая команда
     *(только Python-редакция; регистрируется лишь при настроенном ключе Jev,
     `docs/JEV_ROUTER.md`)*
-12. **PluginCommandHandler** — плагины-обработчики (`ICommandHandlerPlugin`):
+13. **PluginCommandHandler** — плагины-обработчики (`ICommandHandlerPlugin`):
     браузер и заметки через MCP *(только Python-редакция, `docs/MCP_PLUGINS.md`)*
-13. **AIHandler** — fallback → генерация ответа через провайдера ИИ
+14. **AIHandler** — fallback → генерация ответа через провайдера ИИ
     (облачный ключ пользователя или локальная Ollama — выбор в
     `zere/ai/ai_service.py` и `ZERE.AI/AiService.cs` через `IAiClient`)
 
@@ -620,11 +636,12 @@ Zere/
 │   ├── test_plugin_pipeline.py   # Тесты моста плагинов и загрузчика (регрессия P1-3)
 │   ├── test_conspect.py          # Тесты конспектора (чанкование, файл/URL/PDF, запись в хранилище, map-reduce)
 │   ├── test_conspect_handler.py  # Тесты «законспектируй …» (фразы, потолок чата, сбои модели)
+│   ├── test_youtube_music.py     # Тесты YouTube: фразы, сервис, откат без плагина, run_code
 │   ├── fake_mcp_server.py        # Фейковый MCP-сервер для тестов (без сети и npx)
 │   ├── fake_http.py              # Фейковый requests.Session для тестов ИИ (без сети)
 │   ├── check_ai_contract_external.py  # /api/ai* против запущенной панели (C# и Python)
 │   └── e2e_server.py             # Раннер панели с фейками для E2E
-├── docs/                         # Планы, отчёты, openapi.yaml (PANEL_DESIGN.md, UPDATE.md, AI_PROVIDERS.md, TTS_SILERO.md, WAKE_WORD.md, PLUGINS_RESEARCH.md, MCP_PLUGINS.md, CONSPECT.md, FOLDERS.md, SIGNING.md)
+├── docs/                         # Планы, отчёты, openapi.yaml (PANEL_DESIGN.md, UPDATE.md, AI_PROVIDERS.md, TTS_SILERO.md, WAKE_WORD.md, PLUGINS_RESEARCH.md, MCP_PLUGINS.md, CONSPECT.md, FOLDERS.md, YOUTUBE_MUSIC.md, SIGNING.md)
 ├── logs/                         # Логи
 └── backups/                      # Бэкапы версий
 ```

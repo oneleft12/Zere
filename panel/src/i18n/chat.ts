@@ -184,6 +184,25 @@ export const CHAT_EN: Record<string, string> = {
   "Любой инструмент напрямую: <инструмент> {json}":
     "Any tool directly: <tool> {json}",
 
+  // YouTube и музыка
+  "YouTube и музыка": "YouTube and music",
+  "только Python-редакция; автовоспроизведение — через плагин браузера Playwright MCP":
+    "Python edition only; autoplay goes through the Playwright MCP browser plugin",
+  "Открыть YouTube и включить музыку (запрос по умолчанию)":
+    "Open YouTube and start music (default query)",
+  "Найти первое видео по запросу и включить его с миксом":
+    "Find the first video for a query and play it as a mix",
+  "Открыть YouTube без воспроизведения": "Open YouTube without playback",
+  "Поставить на паузу (ещё: «выключи музыку»)":
+    "Pause (also: “выключи музыку”)",
+  "Продолжить воспроизведение (ещё: «сними с паузы»)":
+    "Resume playback (also: “сними с паузы”)",
+  "Следующий трек в миксе (ещё: «следующая песня»)":
+    "Next track in the mix (also: “следующая песня”)",
+  "Предыдущий трек в миксе": "Previous track in the mix",
+  "Название текущего трека и пауза/воспроизведение":
+    "The current track title and pause/play state",
+
   // Заметки Obsidian: MCP
   "Заметки Obsidian: MCP": "Obsidian notes: MCP",
   "плагин MCP; нужен Python-бэкенд и хранилище в config/mcp.json":
