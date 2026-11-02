@@ -32,6 +32,7 @@ from zere.ai.ai_settings import MODES, PROVIDER_IDS
 from zere.ai.cloud_client import AiError
 from zere.api.token import load_or_create_token
 from zere.ai.ollama_url_resolver import OllamaUrlResolver
+from zere.core.autostart import AutostartError, AutostartService, AutostartUnsupportedError
 from zere.core.configuration.zere_config import ZereConfig
 from zere.core.handlers.plugin_handler import PluginCommandHandler
 from zere.core.logging.log_service import log_error, redact_secrets
@@ -62,6 +63,9 @@ _ALLOWED_WAKE_ENGINES = ("auto", "kws", "whisper")
 _ROUTES = {
     "/api/health": frozenset({"GET"}),
     "/api/config": frozenset({"GET", "POST"}),
+    # Автозапуск вместе с Windows: состояние записи в реестре и переключение
+    # (экран «Настройки»; источник истины — HKCU\...\Run, не config.json).
+    "/api/autostart": frozenset({"GET", "POST"}),
     "/api/chat/stream": frozenset({"GET"}),
     "/api/personality": frozenset({"GET"}),
     "/api/personality/set": frozenset({"POST"}),
@@ -158,6 +162,7 @@ class PanelServer:
         runtime: Optional[Any] = None,
         updater: Optional[Any] = None,
         ai: Optional[Any] = None,
+        autostart: Optional[Any] = None,
         token: Optional[str] = None,
         port: int = DEFAULT_PORT,
     ) -> None:
@@ -191,6 +196,10 @@ class PanelServer:
         # создаётся лениво при первом обращении (тесты подменяют его фейком),
         # поэтому отсутствие Ollama или сети не мешает старту панели.
         self._ai = ai
+        # Автозапуск вместе с Windows: сервис поверх HKCU\...\Run. None —
+        # создаётся лениво при первом обращении, чтобы старт панели не трогал
+        # реестр; в тестах подменяется фейком.
+        self._autostart = autostart
         self._requested_port = port
         self._httpd: Optional[ThreadingHTTPServer] = None
         self._thread: Optional[Thread] = None
@@ -267,6 +276,13 @@ class PanelServer:
         if self._ai is None:
             self._ai = AiService(config=self._config)
         return self._ai
+
+    @property
+    def autostart(self) -> Any:
+        """Автозапуск вместе с Windows (AutostartService или фейк в тестах)."""
+        if self._autostart is None:
+            self._autostart = AutostartService()
+        return self._autostart
 
     # ── Подтверждения опасных действий (серверный TTL, P0-3) ──────
 
@@ -507,6 +523,11 @@ class _PanelHandler(BaseHTTPRequestHandler):
                     self._handle_config_get()
                 else:
                     self._handle_config_post()
+            elif path == "/api/autostart":
+                if method == "GET":
+                    self._handle_autostart_get()
+                else:
+                    self._handle_autostart_post()
             elif path == "/api/personality":
                 self._handle_personality_get()
             elif path == "/api/personality/set":
@@ -684,6 +705,40 @@ class _PanelHandler(BaseHTTPRequestHandler):
         config.save()
 
         self._send_json(200, None, config.to_camel_dict())
+
+    def _handle_autostart_get(self) -> None:
+        """Состояние автозапуска: читается из реестра при каждом запросе."""
+        self._send_json(200, None, self.panel.autostart.status().to_dict())
+
+    def _handle_autostart_post(self) -> None:
+        """Включить/отключить автозапуск: тело строго ``{enabled: boolean}``."""
+        body = self._read_body()
+        if body is None:
+            return
+
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._send_json(400, "VALIDATION_ERROR", "Тело запроса не является корректным JSON.")
+            return
+
+        error = _validate_autostart_payload(payload)
+        if error is not None:
+            self._send_json(400, "VALIDATION_ERROR", error)
+            return
+
+        try:
+            state = self.panel.autostart.set_enabled(payload["enabled"])
+        except AutostartUnsupportedError as ex:
+            self._send_json(409, "AUTOSTART_UNSUPPORTED", str(ex))
+            return
+        except AutostartError as ex:
+            # Реестр недоступен (политика, повреждённый профиль): сообщение
+            # без сырых путей и стеков, как у остальных ошибок контракта.
+            self._send_json(500, "AUTOSTART_FAILED", str(ex))
+            return
+
+        self._send_json(200, None, state.to_dict())
 
     def _handle_personality_get(self) -> None:
         payload = self._personality_payload()
@@ -2528,6 +2583,24 @@ def _validate_ai_local_payload(payload: Any) -> Optional[str]:
         error = _validate_ai_model("localModel", payload["localModel"])
         if error is not None:
             return error
+
+    return None
+
+
+def _validate_autostart_payload(payload: Any) -> Optional[str]:
+    """Тело POST /api/autostart: строго ``{enabled: boolean}``."""
+    if not isinstance(payload, dict):
+        return "Ожидался JSON-объект автозапуска."
+
+    for key in payload:
+        if key != "enabled":
+            return f"Неизвестный ключ автозапуска: «{key}»."
+
+    if "enabled" not in payload:
+        return "Отсутствует обязательный ключ «enabled»."
+
+    if not isinstance(payload["enabled"], bool):
+        return "Ключ «enabled» должен быть логическим значением."
 
     return None
 

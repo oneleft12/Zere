@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import webbrowser
@@ -61,6 +62,15 @@ _USAGE = """ZERE — персональный AI-ассистент.
 
 def main() -> int:
     argv = sys.argv[1:]
+
+    # Рабочий каталог — корень ZERE, как у лаунчера zere.exe. При автозапуске
+    # через HKCU\...\Run Windows не задаёт рабочий каталог (процесс стартует
+    # из System32), а часть кода (метка сборки для обновлений) читает
+    # относительные пути. Сбой chdir не критичен: пути приложения абсолютные.
+    try:
+        os.chdir(paths.PROJECT_ROOT)
+    except OSError:
+        pass
 
     if any(argument in ("--help", "-h") for argument in argv):
         print(_USAGE)

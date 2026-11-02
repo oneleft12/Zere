@@ -40,6 +40,7 @@ from zere.ai.ai_service import AiService, MESSAGE_NOT_CONFIGURED
 from zere.ai.ai_settings import DEFAULT_LOCAL_MODEL
 from zere.ai.ollama_url_resolver import OllamaUrlResolver
 from zere.api.server import PanelServer
+from zere.core.autostart import LOCATION, AutostartState, AutostartUnsupportedError
 from zere.core.update.updater import UpdateBusyError
 from zere.core.configuration.zere_config import ZereConfig
 from zere.core.plugins.interfaces.plugin import PluginType
@@ -758,10 +759,44 @@ class FakeUpdater:
         }
 
 
+class FakeAutostart:
+    """Автозапуск в памяти: реестр контрактные тесты не трогают."""
+
+    _COMMAND = r'"C:\Zere App\zere.exe"'
+
+    def __init__(self, enabled: bool = False, supported: bool = True) -> None:
+        self.enabled = enabled
+        self.supported = supported
+        self.command = self._COMMAND if enabled else ""
+        self.calls: list[bool] = []
+
+    def status(self) -> AutostartState:
+        return AutostartState(
+            supported=self.supported,
+            enabled=self.enabled,
+            command=self.command,
+            expected_command=self._COMMAND,
+            outdated=False,
+            location=LOCATION,
+            reason="" if self.supported else "Автозапуск вместе с Windows доступен только в Windows.",
+        )
+
+    def set_enabled(self, enabled: bool) -> AutostartState:
+        if not self.supported:
+            raise AutostartUnsupportedError(
+                "Автозапуск вместе с Windows доступен только в Windows."
+            )
+        self.calls.append(enabled)
+        self.enabled = enabled
+        self.command = self._COMMAND if enabled else ""
+        return self.status()
+
+
 @contextmanager
 def running_panel(
     ai_session: Optional[Any] = None,
     mcp_plugins: Optional[list[Any]] = None,
+    autostart: Optional[Any] = None,
 ) -> Iterator[tuple[Any, Path]]:
     """Панель на эфемерном порту, config.json — во временной папке.
 
@@ -816,6 +851,8 @@ def running_panel(
                     # ИИ: реальный AiService с фейковым HTTP — проверяются
                     # и код, и контракт (без сети и без запущенной Ollama).
                     ai=AiService(session=ai_session if ai_session is not None else FakeSession()),
+                    # Автозапуск: по умолчанию фейк — тесты не пишут в HKCU.
+                    autostart=autostart if autostart is not None else FakeAutostart(),
                     token=TOKEN,
                     port=0,
                 )
@@ -1038,6 +1075,85 @@ def test_config_post_persists_atomically() -> None:
         reloaded = ZereConfig.load()
         assert reloaded.voice_volume == 0.8
         assert reloaded.model == "qwen3.5:4b"
+
+
+def test_autostart_get_reports_state() -> None:
+    """GET /api/autostart: состояние записи в реестре по контракту."""
+    if EXTERNAL:
+        print("\n[пропущено] /api/autostart в EXTERNAL: реестр чужого процесса")
+        return
+
+    with running_panel() as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/autostart")
+        assert status == 200, raw
+
+        payload = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("AutostartStatus"), payload)
+        assert payload["supported"] is True
+        assert payload["enabled"] is False
+        assert payload["command"] == ""
+        assert payload["expectedCommand"].rstrip('"').endswith("zere.exe")
+        assert payload["outdated"] is False
+
+
+def test_autostart_enable_and_disable() -> None:
+    """POST /api/autostart: включение и отключение применяются сразу."""
+    if EXTERNAL:
+        print("\n[пропущено] POST /api/autostart в EXTERNAL: реестр чужого процесса")
+        return
+
+    fake = FakeAutostart()
+    with running_panel(autostart=fake) as (panel, _):
+        status, raw, _ = call(panel, "POST", "/api/autostart", body={"enabled": True})
+        assert status == 200, raw
+        enabled = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("AutostartStatus"), enabled)
+        assert enabled["enabled"] is True
+        assert enabled["command"].rstrip('"').endswith("zere.exe")
+        assert fake.calls == [True]
+
+        status, raw, _ = call(panel, "POST", "/api/autostart", body={"enabled": False})
+        assert status == 200, raw
+        disabled = json.loads(raw.decode("utf-8"))
+        assert_schema(schema("AutostartStatus"), disabled)
+        assert disabled["enabled"] is False
+        assert disabled["command"] == ""
+        assert fake.calls == [True, False]
+
+
+def test_autostart_post_validates_body_and_method() -> None:
+    """Тело строго {enabled: boolean}; чужие методы и токен — по контракту."""
+    if EXTERNAL:
+        print("\n[пропущено] валидация /api/autostart в EXTERNAL")
+        return
+
+    with running_panel() as (panel, _):
+        for body in ({}, {"enabled": "yes"}, {"enabled": 1}, {"enabled": True, "extra": 1}):
+            status, raw, _ = call(panel, "POST", "/api/autostart", body=body)
+            assert status == 400, (body, status, raw)
+            assert error_payload(raw)["code"] == "VALIDATION_ERROR"
+
+        status, _, _ = call(panel, "DELETE", "/api/autostart")
+        assert status == 405
+
+        status, _, _ = call(panel, "GET", "/api/autostart", token=None)
+        assert status == 401
+
+
+def test_autostart_unsupported_platform_is_409() -> None:
+    """На не-Windows включение отклоняется кодом AUTOSTART_UNSUPPORTED."""
+    if EXTERNAL:
+        print("\n[пропущено] unsupported /api/autostart в EXTERNAL")
+        return
+
+    with running_panel(autostart=FakeAutostart(supported=False)) as (panel, _):
+        status, raw, _ = call(panel, "GET", "/api/autostart")
+        assert status == 200
+        assert json.loads(raw.decode("utf-8"))["supported"] is False
+
+        status, raw, _ = call(panel, "POST", "/api/autostart", body={"enabled": True})
+        assert status == 409, raw
+        assert error_payload(raw)["code"] == "AUTOSTART_UNSUPPORTED"
 
 
 def test_tts_engine_accepts_silero_in_voice_and_config() -> None:

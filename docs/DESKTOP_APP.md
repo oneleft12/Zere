@@ -164,7 +164,28 @@ powershell -ExecutionPolicy Bypass -File scripts\build-zere-exe.ps1
 ярлыки на `zere.exe` (а не на `ZERE.bat`); при включённом Smart App Control —
 на `pythonw.exe` с аргументами `main.py --desktop`.
 
-## 10. Проверка
+## 10. Автозапуск вместе с Windows
+
+Экран панели «Настройки» → карточка «Запуск вместе с Windows»: переключатель
+применяется сразу (кнопка «Сохранить» не нужна) и не пишет `config.json` —
+источник истины реестр.
+
+- Запись: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, значение
+  `ZERE` — только текущий пользователь, права администратора не нужны.
+  Видна в «Диспетчере задач» → «Автозагрузка».
+- Команда: `"<папка ZERE>\zere.exe"`; если лаунчера нет —
+  `"<папка>\.venv\Scripts\pythonw.exe" "<папка>\main.py" --desktop`
+  (то же окно без консоли). Пути с пробелами экранируются.
+- Отключение удаляет значение; повторное включение перезаписывает запись
+  путём текущей установки (после переноса папки — `outdated=true` в API).
+- Деинсталлятор (`installer/uninstall.ps1`) удаляет запись `ZERE`, чтобы
+  после удаления приложения Windows не пыталась его запускать.
+- API: `GET|POST /api/autostart` (`{enabled: boolean}`); на не-Windows —
+  `supported=false`, включение → 409 `AUTOSTART_UNSUPPORTED`.
+- Код: `zere/core/autostart.py`; тесты — `tests/test_autostart.py` и
+  контрактные в `tests/test_panel_api.py`.
+
+## 11. Проверка
 
 - `python tests/test_desktop.py` — stdio pythonw, разбор `--desktop`/`--port`,
   сценарий «панель → окно → остановка» на фейках, коды 2/3, артефакты.
@@ -172,8 +193,10 @@ powershell -ExecutionPolicy Bypass -File scripts\build-zere-exe.ps1
 - `ZERE.bat` — проверка запасного пути: при включённом SAC он запускает
   `pythonw.exe main.py --desktop` (подписанный бинарник, блокировки нет).
 - `zere.exe` — проверка лаунчера, единственного экземпляра и журнала.
+- `GET/POST /api/autostart` и переключатель в «Настройках» — проверка
+  записи в `HKCU\...\Run` (включить, отключить, посмотреть Диспетчер задач).
 
-## 11. Ограничения
+## 12. Ограничения
 
 - Трея нет: закрытие окна завершает ZERE (как обычное приложение). Если
   понадобится «свернуть в трей» — это отдельная задача (pystray/иконка).

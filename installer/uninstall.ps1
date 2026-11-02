@@ -95,6 +95,7 @@ if (Test-Path $manifestPath) {
 Write-Step 'Что будет удалено'
 $plan = @(
     'Ярлыки: рабочий стол (ZERE.lnk, ZERE - panel.url) и меню «Пуск»\ZERE',
+    'Запись автозапуска ZERE в HKCU\Software\Microsoft\Windows\CurrentVersion\Run',
     'Приложение zere.exe',
     'Лаунчер ZERE.bat',
     'Виртуальное окружение .venv',
@@ -136,6 +137,20 @@ $null = Remove-ItemSafe -Path (Join-Path $startMenu 'Programs\ZERE') -Label 'п�
 Write-Step 'Лаунчер'
 $null = Remove-ItemSafe -Path (Join-Path $Prefix 'ZERE.bat') -Label 'ZERE.bat'
 $null = Remove-ItemSafe -Path (Join-Path $Prefix 'zere.exe') -Label 'zere.exe'
+
+# --- 2a. Автозапуск вместе с Windows (включён в панели → «Настройки») ---
+Write-Step 'Автозапуск'
+$runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+try {
+    if (Get-ItemProperty -Path $runKey -Name 'ZERE' -ErrorAction SilentlyContinue) {
+        Remove-ItemProperty -Path $runKey -Name 'ZERE' -Force
+        Write-Ok 'запись автозапуска ZERE удалена'
+    } else {
+        Write-Info 'автозапуск не включён — пропущено'
+    }
+} catch {
+    Write-Warn2 ('не удалось удалить автозапуск: ' + $_.Exception.Message)
+}
 
 # --- 3. Окружение и публикация ---
 Write-Step 'Окружение и сборки'

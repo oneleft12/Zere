@@ -185,6 +185,21 @@ const CORE_EN: Record<string, string> = {
   "путь к WAV-референсу, пусто = встроенный голос":
     "path to the WAV reference, empty = built-in voice",
   "Смена применяется сразу": "Applied immediately",
+  // ── Настройки: автозапуск вместе с Windows ─────────────────────
+  "Запуск вместе с Windows": "Start with Windows",
+  "Запускать ZERE при входе в систему": "Launch ZERE when I sign in",
+  "Команда запуска": "Launch command",
+  "Автозапуск включён": "Autostart enabled",
+  "Автозапуск отключён": "Autostart disabled",
+  "Не удалось изменить автозапуск: {message}": "Failed to change autostart: {message}",
+  "Автозапуск вместе с Windows доступен только в Windows.":
+    "Starting with Windows is available on Windows only.",
+  "В автозапуске записан старый путь — включите переключатель заново, чтобы обновить его.":
+    "The autostart entry points to an old path — toggle it off and on to update it.",
+  "ZERE будет открываться при входе в систему. Отключение убирает запись — Windows больше не запускает приложение.":
+    "ZERE will open when you sign in. Turning it off removes the entry — Windows stops launching the app.",
+  "Запись: {location} (только текущий пользователь, права администратора не нужны)":
+    "Entry: {location} (current user only, no administrator rights required)",
 };
 
 /** Словари экранов лежат в panel/src/i18n/<screen>.ts — по файлу на экран. */

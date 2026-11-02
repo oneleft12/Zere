@@ -217,6 +217,24 @@ export interface Config {
   llmTimeoutSeconds: number;
 }
 
+/** Автозапуск вместе с Windows (GET/POST /api/autostart). */
+export interface AutostartStatus {
+  /** Доступен ли автозапуск (в Windows — да). */
+  supported: boolean;
+  /** Есть ли запись в HKCU\...\Run. */
+  enabled: boolean;
+  /** Команда, записанная сейчас (пусто — записи нет). */
+  command: string;
+  /** Команда, которой приложение запускается сейчас. */
+  expectedCommand: string;
+  /** Запись указывает на старый путь — включение перезапишет её. */
+  outdated: boolean;
+  /** Где хранится запись (для подписи в панели). */
+  location: string;
+  /** Причина недоступности или ошибки чтения (пусто — всё в порядке). */
+  reason: string;
+}
+
 export interface Personality {
   activeId: string;
   activeStyle: string;

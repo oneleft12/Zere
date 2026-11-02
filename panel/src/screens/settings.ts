@@ -4,7 +4,14 @@
  * на сервере; здесь только граничные проверки для удобства.
  */
 
-import { ApiError, apiGet, apiPost, type Config, type Health } from "../api";
+import {
+  ApiError,
+  apiGet,
+  apiPost,
+  type AutostartStatus,
+  type Config,
+  type Health,
+} from "../api";
 import { logEvent } from "../events";
 import { lang, setLang, t, type Lang } from "../i18n";
 import { currentTheme, setTheme } from "../theme";
@@ -29,6 +36,8 @@ import type { Cleanup, ScreenFactory } from "../router";
 interface State {
   base: Config;
   draft: Config;
+  /** Автозапуск вместе с Windows; null — бэкенд не знает маршрута. */
+  autostart: AutostartStatus | null;
 }
 
 function clone(config: Config): Config {
@@ -63,9 +72,12 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
     container.appendChild(skeleton("card", 4));
 
     try {
-      const [config, health] = await Promise.all([
+      const [config, health, autostart] = await Promise.all([
         apiGet<Config>("/api/config"),
         apiGet<Health>("/api/health").catch(() => null),
+        // Старая сборка (C#-редакция) маршрута не знает — карточку не
+        // показываем, вместо «Маршрут не найден» на весь экран.
+        apiGet<AutostartStatus>("/api/autostart").catch(() => null),
       ]);
 
       if (cancelled) return;
@@ -73,8 +85,9 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
       if (cachedState && isDirty(cachedState)) {
         // Есть несохранённые правки: обновляем базу, черновик сохраняем.
         cachedState.base = config;
+        cachedState.autostart = autostart;
       } else {
-        cachedState = { base: config, draft: clone(config) };
+        cachedState = { base: config, draft: clone(config), autostart };
       }
 
       render(cachedState, health);
@@ -130,6 +143,28 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
         logEvent("Ошибка сохранения настроек");
         saveBtn.disabled = false;
       }
+    }
+
+    /**
+     * Автозапуск применяется сразу, вне черновика конфигурации: его
+     * состояние живёт в реестре Windows (HKCU\...\Run), а не в config.json.
+     * После ответа карточка перерисовывается из настоящего состояния —
+     * включённый переключатель никогда не врёт.
+     */
+    async function applyAutostart(target: HTMLInputElement, enabled: boolean): Promise<void> {
+      target.disabled = true;
+
+      try {
+        state.autostart = await apiPost<AutostartStatus>("/api/autostart", { enabled });
+        toast(t(enabled ? "Автозапуск включён" : "Автозапуск отключён"), "ok");
+        logEvent(enabled ? "Автозапуск ZERE включён" : "Автозапуск ZERE отключён");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : t("Неизвестная ошибка");
+        toast(t("Не удалось изменить автозапуск: {message}", { message }), "danger");
+        logEvent("Ошибка изменения автозапуска");
+      }
+
+      render(state, health);
     }
 
     const d = state.draft;
@@ -316,6 +351,57 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
     );
     appearanceCard.classList.add("col-6");
 
+    // ── Запуск вместе с Windows ──────────────────────────────────
+    // Состояние читается из реестра (GET /api/autostart), переключатель
+    // применяется сразу и не ждёт кнопки «Сохранить» — в config.json этого
+    // ключа нет. Старая сборка (C#) маршрута не знает: state.autostart ===
+    // null — карточки нет, остальные настройки работают как раньше.
+    let autostartCard: HTMLElement | null = null;
+    if (state.autostart) {
+      const a = state.autostart;
+      const autostartToggle = toggle({
+        label: t("Запускать ZERE при входе в систему"),
+        checked: a.enabled,
+        onChange: (checked) => {
+          if (autostartInput) void applyAutostart(autostartInput, checked);
+        },
+      });
+      const autostartInput = autostartToggle.querySelector<HTMLInputElement>("input");
+      if (autostartInput) autostartInput.disabled = !a.supported;
+
+      const command = a.command || a.expectedCommand;
+      const commandInput = textInput({ value: command, mono: true });
+      commandInput.readOnly = true;
+
+      const note = !a.supported
+        ? t("Автозапуск вместе с Windows доступен только в Windows.")
+        : a.reason
+          ? a.reason
+          : a.outdated
+            ? t("В автозапуске записан старый путь — включите переключатель заново, чтобы обновить его.")
+            : t("ZERE будет открываться при входе в систему. Отключение убирает запись — Windows больше не запускает приложение.");
+
+      autostartCard = card(
+        t("Запуск вместе с Windows"),
+        h(
+          "div",
+          { class: "form-grid form-grid--single" },
+          autostartToggle,
+          command
+            ? field(
+                t("Команда запуска"),
+                commandInput,
+                t("Запись: {location} (только текущий пользователь, права администратора не нужны)", {
+                  location: a.location,
+                }),
+              )
+            : null,
+          h("p", { class: "panel-note", text: note }),
+        ),
+      );
+      autostartCard.classList.add("col-6");
+    }
+
     // ── О программе ──────────────────────────────────────────────
     const aboutCard = card(
       t("О программе"),
@@ -333,6 +419,7 @@ export const settingsScreen: ScreenFactory = (container): Cleanup => {
     grid.appendChild(voiceCard);
     grid.appendChild(memoryCard);
     grid.appendChild(appearanceCard);
+    if (autostartCard) grid.appendChild(autostartCard);
     grid.appendChild(aboutCard);
 
     updateDirty();

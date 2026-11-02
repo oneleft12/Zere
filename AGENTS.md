@@ -49,6 +49,13 @@ UI не переписан: в окне живёт та же панель (`pane
   `launcher/ZereLauncher.cs` (исходник `zere.exe`).
 - **`python main.py --desktop`** — то же без лаунчера; `python main.py` —
   консольный режим отладки (панель в браузере, команды текстом).
+- **Автозапуск вместе с Windows** — «Настройки» → «Запуск вместе с Windows»:
+  запись `ZERE` в `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`
+  (`zere.exe` текущей установки, иначе `pythonw.exe main.py --desktop`),
+  переключатель применяется сразу, отключение удаляет запись. Состояние
+  читается из реестра, а не из `config.json`; после переноса папки
+  устаревший путь виден и перезаписывается. API — `GET|POST /api/autostart`,
+  код — `zere/core/autostart.py`, тесты — `tests/test_autostart.py`.
 - Ярлыки установщика ведут на `zere.exe` — окно приложения; браузерный ярлык
   панели (`.url`) больше не создаётся, старый удаляется. Если Smart App Control
   (Windows 11) заблокирует неподписанный exe, `ZERE.bat` откатывается на
@@ -64,7 +71,8 @@ UI не переписан: в окне живёт та же панель (`pane
   `config/build-info.json` (`variant`). Обратный ключ `/WITHOLLAMA` ставит
   Ollama и в такой сборке. Нужна на ПК, где ZERE отвечает через API-ключ
   (панель → «ИИ»): без локальной модели приложение всё равно стартует.
-- Подробности: `docs/DESKTOP_APP.md`; тесты — `tests/test_desktop.py`.
+- Подробности: `docs/DESKTOP_APP.md`; тесты — `tests/test_desktop.py`,
+  `tests/test_autostart.py`.
 
 ## Tools (инструменты)
 
@@ -572,6 +580,7 @@ Zere/
 │   └── wake_word/                # Обучение wake word: record/synth/negatives/data/model/train/evaluate
 ├── zere.exe                      # приложение: лаунчер (окно, без консоли)
 ├── zere/desktop/                 # окно pywebview, stdio без консоли, диалоги, C#-лаунчер
+├── zere/core/autostart.py        # автозапуск вместе с Windows (HKCU\...\Run)
 ├── assets/zere.ico               # иконка окна, zere.exe и ярлыков
 ├── panel/                        # Web-панель (SPA, Vite + vanilla TS)
 │   ├── src/                      # main/shell/router/ui/i18n + 14 экранов (screens/)
@@ -599,7 +608,7 @@ Zere/
 │   └── build-setup.ps1           # Сборка Inno Setup.exe (git archive + ISCC)
 ├── tests/
 │   ├── conftest.py               # Изоляция: журнал ZERE уводится в tmp (logs/ не засоряется)
-│   ├── test_panel_api.py         # Контрактные тесты панели (140, по OpenAPI)
+│   ├── test_panel_api.py         # Контрактные тесты панели (144, по OpenAPI)
 │   ├── test_core_handlers.py     # Обработчики команд: память, процессы, файлы,
 │   │                             #   громкость, игры, Windows, конвейер (раньше 0 %)
 │   ├── test_core_engine.py       # ZereEngine: история, сбои, сериализация реплик
@@ -627,6 +636,7 @@ Zere/
 │   ├── test_krita_plugin.py      # Тесты плагина Krita (32: SVG, протокол, kritarc, установка, выбор способа)
 │   ├── test_drawing_canvas.py    # Тесты рисования картинкой (27: рендер, DIB, буфер, доставка в Paint)
 │   ├── test_desktop.py           # Тесты приложения (stdio pythonw, --desktop, окно/панель на фейках)
+│   ├── test_autostart.py         # Автозапуск вместе с Windows (реестр на фейке, команда, устаревший путь)
 │   ├── test_onnx_preload.py      # Регрессия sherpa vs System32 onnxruntime.dll (порядок загрузки)
 │   ├── test_updater.py           # Тесты обновления из GitHub (git в temp: fetch/pull, отказы, зависимости)
 │   ├── test_ai_providers.py      # Тесты ИИ (приоритет облако/локально, проверка ключа, Ollama, маскирование)

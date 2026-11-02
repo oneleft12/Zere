@@ -212,7 +212,7 @@ ZERE падал на старте с `No module named ...`, хотя устан�
 ## Удаление
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File installer\uninstall.ps1             # ярлыки, .venv, publish, манифест
+powershell -ExecutionPolicy Bypass -File installer\uninstall.ps1             # ярлыки, автозапуск, .venv, publish, манифест
 powershell -ExecutionPolicy Bypass -File installer\uninstall.ps1 -RemoveAssets # + голосовые артефакты
 powershell -ExecutionPolicy Bypass -File installer\uninstall.ps1 -PurgeData    # + данные: zere.db, logs, backups, voice
 ```

@@ -88,6 +88,76 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
 
+  /api/autostart:
+    get:
+      operationId: getAutostart
+      summary: Автозапуск ZERE вместе с Windows
+      description: >
+        Состояние записи `ZERE` в
+        `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (источник
+        истины — реестр, не config.json). На не-Windows `supported=false`
+        с причиной в `reason`.
+      tags: [system]
+      responses:
+        "200":
+          description: Текущее состояние автозапуска
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutostartStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      operationId: setAutostart
+      summary: Включить или отключить автозапуск вместе с Windows
+      description: >
+        `true` — записать команду запуска (zere.exe, иначе
+        .venv\Scripts\pythonw.exe main.py --desktop) в пользовательский
+        раздел реестра; `false` — удалить запись. Применяется сразу, без
+        перезапуска; права администратора не нужны.
+      tags: [system]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutostartUpdate"
+      responses:
+        "200":
+          description: Новое состояние автозапуска
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutostartStatus"
+        "400":
+          description: >
+            Ошибка валидации: тело не `{enabled: boolean}` или лишние ключи.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >
+            Автозапуск недоступен на этой платформе (код
+            AUTOSTART_UNSUPPORTED).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: >
+            Реестр недоступен, запись не изменена (код AUTOSTART_FAILED).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
   /api/chat/stream:
     get:
       operationId: streamChat
@@ -1498,6 +1568,53 @@ components:
         message:
           type: string
           description: Понятное сообщение без сырых исключений и путей
+
+    AutostartStatus:
+      type: object
+      required:
+        - supported
+        - enabled
+        - command
+        - expectedCommand
+        - outdated
+        - location
+        - reason
+      additionalProperties: false
+      properties:
+        supported:
+          type: boolean
+          description: Автозапуск доступен (Windows).
+        enabled:
+          type: boolean
+          description: Запись в Run существует — Windows запустит ZERE при входе.
+        command:
+          type: string
+          description: Команда, записанная в реестре (пусто — записи нет).
+        expectedCommand:
+          type: string
+          description: >
+            Команда текущей установки; её запишет включение (при переносе
+            приложения отличается от `command`).
+        outdated:
+          type: boolean
+          description: Запись указывает на старый путь.
+        location:
+          type: string
+          description: Раздел реестра с записью.
+        reason:
+          type: string
+          description: >
+            Причина недоступности (не-Windows) или ошибки чтения; пусто —
+            всё в порядке.
+
+    AutostartUpdate:
+      type: object
+      required: [enabled]
+      additionalProperties: false
+      properties:
+        enabled:
+          type: boolean
+          description: true — включить автозапуск, false — отключить.
 
     Health:
       type: object
