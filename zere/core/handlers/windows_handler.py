@@ -161,7 +161,7 @@ class WindowsHandler(IZereHandler):
             if result.strip():
                 return result
 
-            # Приложений нет — ищем папку: «найди rabota67» должен находить
+            # Приложений нет — ищем папку: «найди проекты» должен находить
             # папку, даже если пользователь не сказал «найди папку …».
             finder = getattr(self._files, "find_folders", None)
             if finder is not None:

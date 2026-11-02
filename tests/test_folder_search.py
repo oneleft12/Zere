@@ -93,11 +93,11 @@ def test_latin_query_finds_cyrillic_folder(tree: Path) -> None:
 
 
 def test_cyrillic_query_finds_latin_folder(tree: Path) -> None:
-    (tree / "rabota67").mkdir()
+    (tree / "proekt42").mkdir()
 
-    result = service(tree).search("работа67")
+    result = service(tree).search("проект42")
 
-    assert result.hits[0].name == "rabota67"
+    assert result.hits[0].name == "proekt42"
     assert result.hits[0].score == 1000
     assert result.hits[0].reason == "exact"
 

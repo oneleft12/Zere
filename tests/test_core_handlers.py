@@ -616,8 +616,8 @@ class FakeFolderFiles:
 
     def find_folders(self, query: str) -> str:
         self.found.append(query)
-        if query.casefold() == "rabota67":
-            return "Найденные папки:\n\n• rabota67\nC:\\Work\\rabota67"
+        if query.casefold() == "project42":
+            return "Найденные папки:\n\n• project42\nC:\\Work\\project42"
         return f'Папка "{query}" не найдена.'
 
 
@@ -653,10 +653,10 @@ def test_windows_find_falls_back_to_folders() -> None:
         files,
     )
 
-    answer = handler.handle("найди rabota67")
+    answer = handler.handle("найди project42")
 
-    assert "rabota67" in answer
-    assert files.found == ["rabota67"]
+    assert "project42" in answer
+    assert files.found == ["project42"]
 
 
 def test_windows_find_keeps_apps_first() -> None:
