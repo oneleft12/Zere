@@ -19,13 +19,15 @@
     Дополнительно удалить голосовые артефакты:
     ZERE.Voice\Models\*.bin, папку модели GigaAM (sherpa-onnx-*),
     менеджер Python tools\uv.exe (на нём работают Silero и клонирование),
-    временные WAV старого ChatTTS (наследие).
-    Git-трекаемые файлы не удаляются.
+    временные WAV старого ChatTTS (наследие), а также плагин браузера,
+    который ставит установщик: tools\node (Node.js) и tools\mcp (пакет
+    @playwright/mcp). Git-трекаемые файлы не удаляются.
 
 .PARAMETER PurgeData
     Дополнительно удалить пользовательские данные:
     zere.db (память и история), logs\, backups\, config\panel.token,
-    voice\reference.wav (голосовой референс), voice\input\.
+    config\mcp.json (настройки MCP-серверов), voice\reference.wav
+    (голосовой референс), voice\input\.
 
 .PARAMETER Yes
     Не запрашивать подтверждений.
@@ -104,9 +106,10 @@ $plan = @(
 if ($RemoveAssets) {
     $plan += 'Голосовые артефакты: ZERE.Voice\Models\*.bin и sherpa-onnx-*, tools\uv.exe, наследие ChatTts\output_*.wav'
     $plan += 'Наследие Piper: бинарники и голоса в ZERE.Voice\Piper (движок заменён на Silero)'
+    $plan += 'Плагин браузера: tools\node (Node.js) и tools\mcp (пакет @playwright/mcp)'
 }
 if ($PurgeData) {
-    $plan += 'Пользовательские данные: zere.db, logs\, backups\, config\panel.token, voice\reference.wav, voice\input\'
+    $plan += 'Пользовательские данные: zere.db, logs\, backups\, config\panel.token, config\mcp.json, voice\reference.wav, voice\input\'
 }
 $plan += 'Исходный код и git-репозиторий НЕ удаляются'
 foreach ($p in $plan) { Write-Host ('   - ' + $p) -ForegroundColor White }
@@ -202,6 +205,12 @@ if ($RemoveAssets) {
         if (Test-Path $p) { $null = Remove-ItemSafe -Path $p -Label ('tools\' + $tool) }
     }
 
+    # Плагин браузера (MCP): Node.js и пакет @playwright/mcp скачаны
+    # установщиком в tools\, исходников там нет. Каталог tools целиком не
+    # трогаем — в нём лежат krita_plugin, wake_word и прочие исходники.
+    $null = Remove-ItemSafe -Path (Join-Path $Prefix 'tools\node') -Label 'плагин браузера: tools\node (Node.js)'
+    $null = Remove-ItemSafe -Path (Join-Path $Prefix 'tools\mcp') -Label 'плагин браузера: tools\mcp (@playwright/mcp)'
+
     # Временные WAV старого ChatTTS (создаются и удаляются на лету)
     $chatTtsDir = Join-Path $Prefix 'ZERE.Voice\ChatTts'
     if (Test-Path $chatTtsDir) {
@@ -219,6 +228,9 @@ if ($PurgeData) {
     $null = Remove-ItemSafe -Path (Join-Path $Prefix 'logs') -Label 'logs\'
     $null = Remove-ItemSafe -Path (Join-Path $Prefix 'backups') -Label 'backups\'
     $null = Remove-ItemSafe -Path (Join-Path $Prefix 'config\panel.token') -Label 'config\panel.token'
+    # Настройки MCP-серверов: в них хранилище заметок и путь к Node — локальные
+    # данные пользователя, а не часть установки.
+    $null = Remove-ItemSafe -Path (Join-Path $Prefix 'config\mcp.json') -Label 'config\mcp.json (MCP-серверы)'
     $null = Remove-ItemSafe -Path (Join-Path $Prefix 'voice\reference.wav') -Label 'voice\reference.wav'
     $null = Remove-ItemSafe -Path (Join-Path $Prefix 'voice\input') -Label 'voice\input\'
 }

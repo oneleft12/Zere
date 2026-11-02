@@ -51,6 +51,12 @@ EXPECTED_ARTIFACTS = {
         "75d05de6762778c31ee183398de7dd15093fad0ed90b1f236d8205ea5ec00c90",
         18043715,
     ),
+    # Node.js для плагина браузера (Playwright MCP). Источник —
+    # https://nodejs.org/dist/v22.23.2/SHASUMS256.txt.
+    "Node": (
+        "1177b4137ba5adaa56354ae40f1080c7450e8ae09cecb47da459d1c52ac99f97",
+        35683585,
+    ),
 }
 
 PS1_FILES = ("install.ps1", "uninstall.ps1", "build-setup.ps1", "build-installer.ps1", "sign.ps1")
@@ -105,7 +111,7 @@ def test_install_references_launcher_template() -> None:
     assert "ZereLauncher.bat" in text, "install.ps1 не копирует лаунчер"
     assert "-CheckOnly" in text, "install.ps1 нет режима -CheckOnly"
     for pname in (
-        "Prefix", "Edition", "Model", "SkipOllama", "SkipVoice",
+        "Prefix", "Edition", "Model", "SkipOllama", "SkipVoice", "SkipMcp",
         "SkipShortcuts", "CheckOnly", "Yes", "NoLaunch",
     ):
         assert f"${pname}" in text, f"install.ps1 нет параметра ${pname}"
@@ -245,6 +251,61 @@ def test_build_installer_can_default_to_no_ollama() -> None:
     assert "options.SkipOllama = true;" in cs, "умолчание не включает SkipOllama"
     assert '"/WITHOLLAMA"' in cs, "нет обратного ключа /WITHOLLAMA"
     assert "/SKIPOLLAMA" in cs and "/WITHOLLAMA" in cs, "ключи тихой установки не описаны"
+
+
+def test_installer_installs_browser_mcp_plugin() -> None:
+    """Плагин браузера ставится установщиком, а не при первой команде.
+
+    Иначе «браузер открой …» и музыка на YouTube на свежей установке просят
+    поставить Node.js и скачать пакет через npx: ни того, ни другого у
+    пользователя нет, а `npx` ещё и требует интернет в момент команды.
+    Установщик кладёт Node.js в `tools\\node` (если системного нет) и
+    `@playwright/mcp` в `tools\\mcp`, затем включает сервер в config/mcp.json.
+    """
+    ps1 = _read("install.ps1")
+
+    assert "[switch]$SkipMcp" in ps1, "install.ps1 не принимает -SkipMcp"
+    assert "пропущено (-SkipMcp)" in ps1, "установщик не помечает пропуск -SkipMcp"
+    assert "$PlaywrightMcpVersion = '0.0.83'" in ps1, "версия @playwright/mcp не закреплена"
+    assert "tools\\node" in ps1, "нет пути для Node.js"
+    assert "tools\\mcp" in ps1, "нет пути для пакета @playwright/mcp"
+    assert "& $npm install" in ps1, "пакет не ставится npm install"
+    assert "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD" in ps1, (
+        "не отключено скачивание браузеров Playwright (сотни МБ) — нужен только системный Edge"
+    )
+    assert "zere.core.mcp.setup" in ps1, "config/mcp.json пишется не общим модулем"
+    assert '"@playwright/mcp": "__VERSION__"' in ps1, (
+        "package.json для tools\\mcp не собирается из версии"
+    )
+
+    # Версия пакета в PowerShell и в Python-модуле обязана совпадать, иначе
+    # установщик и `python -m zere.core.mcp.setup` пиннят разные версии.
+    setup_py = (ROOT / "zere" / "core" / "mcp" / "setup.py").read_text(encoding="utf-8")
+    match = re.search(r'^VERSION = "([^"]+)"', setup_py, re.M)
+    assert match, "в zere/core/mcp/setup.py нет константы VERSION"
+    assert match.group(1) == "0.0.83", "версия в setup.py != версии в install.ps1"
+
+    uninstall = _read("uninstall.ps1")
+    assert "'tools\\node'" in uninstall, "деинсталлятор не удаляет Node.js плагина"
+    assert "'tools\\mcp'" in uninstall, "деинсталлятор не удаляет пакет @playwright/mcp"
+    assert "'config\\mcp.json'" in uninstall, "деинсталлятор не убирает config/mcp.json"
+
+    cs = _read("ZereSetup.cs")
+    assert 'Text = "Установить плагин браузера (Playwright MCP)"' in cs, (
+        "в мастере нет галочки плагина браузера"
+    )
+    assert '"/SKIPMCP"' in cs, "нет ключа тихой установки /SKIPMCP"
+    assert 'arguments.Append(" -SkipMcp")' in cs, "галочка не передаёт -SkipMcp"
+
+    iss = _read("Zere.iss")
+    assert '"{app}\\tools\\node"' in iss and '"{app}\\tools\\mcp"' in iss, (
+        "запасной Setup.exe не удаляет скачанный плагин"
+    )
+
+    ignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+    assert "tools/node/" in ignore and "tools/mcp/" in ignore, (
+        "скачанный плагин попадёт в git"
+    )
 
 
 def test_app_starts_without_ollama_message() -> None:

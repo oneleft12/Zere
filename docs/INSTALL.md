@@ -1,7 +1,8 @@
 # Установка ZERE на Windows
 
 Установщик полностью готовит окружение: Python-зависимости, Ollama с моделью,
-голосовые компоненты (GigaAM/Whisper + uv для Silero), ярлыки и лаунчер. Все
+голосовые компоненты (GigaAM/Whisper + uv для Silero), плагин браузера
+(Playwright MCP: Node.js + `@playwright/mcp`), ярлыки и лаунчер. Все
 скачиваемые артефакты проверяются по **SHA-256**.
 
 ## Способы установки
@@ -19,6 +20,11 @@
 нужен облачный ключ, он вводится в панели на экране «ИИ». Без ключа ZERE всё
 равно запускается: окно и панель работают, чат честно просит подключить ключ
 или поставить модель. Галочка передаёт `install.ps1 -SkipOllama`.
+
+Вторая галочка — **«Установить плагин браузера (Playwright MCP)»** (стоит по
+умолчанию): ставится Node.js и пакет `@playwright/mcp`, а плагин включается в
+`config/mcp.json`. Отключить: снять галочку, ключ `/SKIPMCP` или
+`install.ps1 -SkipMcp`. Подробности — [MCP_PLUGINS.md](MCP_PLUGINS.md), §2.1.
 
 Для ПК, где ZERE работает только через API-ключ, есть сборка, где эта галочка
 стоит сразу:
@@ -126,6 +132,9 @@ ProductVersion 1.9.0
 | Модель GigaAM-v3 (~163 МБ, основной STT) | GitHub `k2-fsa/sherpa-onnx` release `asr-models` | SHA-256 + размер, распаковка `tar -xjf` |
 | Whisper `ggml-base.bin` (~141 МБ, откат STT) | HuggingFace `ggerganov/whisper.cpp` | SHA-256 + размер |
 | Менеджер Python `uv` (~18 МБ) | GitHub `astral-sh/uv` release 0.12.23 | SHA-256 + размер |
+| Node.js 22 LTS (~35 МБ) — только если системного Node нет | `nodejs.org/dist/v22.23.2/node-v22.23.2-win-x64.zip` → `tools\node` | SHA-256 + размер, `node --version` (18+) |
+| Пакет `@playwright/mcp@0.0.83` (плагин браузера) | npm: `npm install` в `tools\mcp` (без браузеров Playwright) | `cli.js` + версия в `package.json` пакета |
+| Сервер `playwright` в `config\mcp.json` | `python -m zere.core.mcp.setup` | `enabled: true` и путь к `node.exe` |
 | Web-панель | `panel/dist` (сборка npm, если dist отсутствует) | наличие `dist/index.html` |
 | Окно приложения `zere.exe` | компиляция `zere/desktop/launcher/ZereLauncher.cs` системным `csc.exe` (если exe нет) | наличие `zere.exe` |
 | Окно (pywebview + WebView2) | `requirements.txt` + Runtime Edge WebView2 (есть в Windows 11/с Edge) | `import webview`, каталог `EdgeWebView\Application` |
@@ -140,6 +149,8 @@ sherpa-onnx-nemo-transducer-punct-giga-am-v3-russian-2025-12-16.tar.bz2
 ggml-base.bin            60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe
 uv-x86_64-pc-windows-msvc.zip
                             75d05de6762778c31ee183398de7dd15093fad0ed90b1f236d8205ea5ec00c90
+node-v22.23.2-win-x64.zip
+                            1177b4137ba5adaa56354ae40f1080c7450e8ae09cecb47da459d1c52ac99f97
 ```
 
 Сам Silero отдельным артефактом не скачивается: модель (145 МБ) качается при
@@ -180,6 +191,7 @@ ZERE падал на старте с `No module named ...`, хотя устан�
 | `-NoLaunch` | не предлагать запуск в конце |
 | `-SkipOllama` | не трогать Ollama и модель |
 | `-SkipVoice` | не качать голосовые артефакты |
+| `-SkipMcp` | не ставить плагин браузера (Node.js + `@playwright/mcp`) и не включать его в `config\mcp.json` |
 | `-SkipShortcuts` | не создавать ярлыки |
 
 Установка идемпотентна: повторный запуск пропускает готовые компоненты
@@ -202,6 +214,11 @@ ZERE падал на старте с `No module named ...`, хотя устан�
 - `installer\install-log.txt` — полный лог установки (перезаписывается при
   каждом запуске; в git не попадает)
 - Недостающие `config\config.json` / `config\plugins.json`
+- Плагин браузера (если не указан `-SkipMcp`): `tools\node\` (Node.js, только
+  когда системного нет), `tools\mcp\` (пакет `@playwright/mcp` + `package.json`)
+  и включённый сервер `playwright` в `config\mcp.json`. Оба каталога в
+  `.gitignore`; удаляются деинсталлятором с `-RemoveAssets`, а настройка
+  MCP — с `-PurgeData`
 - Только для `ZereSetup.exe`: `ZereUninstall.exe` рядом с программой и запись
   в `HKCU\...\Uninstall\ZERE` — деинсталлятор в «Установка и удаление
   программ»
@@ -213,13 +230,14 @@ ZERE падал на старте с `No module named ...`, хотя устан�
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File installer\uninstall.ps1             # ярлыки, автозапуск, .venv, publish, манифест
-powershell -ExecutionPolicy Bypass -File installer\uninstall.ps1 -RemoveAssets # + голосовые артефакты
-powershell -ExecutionPolicy Bypass -File installer\uninstall.ps1 -PurgeData    # + данные: zere.db, logs, backups, voice
+powershell -ExecutionPolicy Bypass -File installer\uninstall.ps1 -RemoveAssets # + голосовые артефакты, Node.js и пакет @playwright/mcp (tools\node, tools\mcp)
+powershell -ExecutionPolicy Bypass -File installer\uninstall.ps1 -PurgeData    # + данные: zere.db, logs, backups, voice, config\mcp.json
 ```
 
 Или двойным кликом по `installer\Uninstall-Zere.bat`.
-Деинсталлятор **не трогает исходный код и git-репозиторий**. Python, Ollama и
-модель Ollama удаляются только вручную (`ollama rm <модель>`).
+Деинсталлятор **не трогает исходный код и git-репозиторий**. Python, Ollama,
+модель Ollama и системный Node.js (если он был у вас до установки) удаляются
+только вручную (`ollama rm <модель>`).
 
 ## Структура `installer/`
 

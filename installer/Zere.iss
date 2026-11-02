@@ -142,6 +142,10 @@ Type: filesandordirs; Name: "{app}\publish"
 Type: filesandordirs; Name: "{app}\ZERE.Voice"
 Type: filesandordirs; Name: "{app}\zere"
 Type: filesandordirs; Name: "{app}\__pycache__"
+; Плагин браузера (MCP): Node.js и пакет @playwright/mcp скачаны install.ps1.
+; Каталог tools целиком не трогаем — в нём исходники krita_plugin и wake_word.
+Type: filesandordirs; Name: "{app}\tools\node"
+Type: filesandordirs; Name: "{app}\tools\mcp"
 ; Ярлыки могли быть созданы install.ps1 (вне журнала Inno)
 Type: files; Name: "{userdesktop}\{#MyAppName}.lnk"
 Type: files; Name: "{userdesktop}\ZERE - panel.url"

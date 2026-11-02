@@ -169,6 +169,12 @@ tools/uv.exe
 tools/uv.zip
 tools/voice_cache/
 
+# Плагин браузера (MCP): свой Node.js и пакет @playwright/mcp ставит установщик
+# в tools/ (см. docs/MCP_PLUGINS.md). В git не попадают, пересоздаются
+# `installer\install.ps1`; не ставить вовсе — `install.ps1 -SkipMcp`.
+tools/node/
+tools/mcp/
+
 # Голосовой референс пользователя (биометрия — не коммитим)
 voice/reference.wav
 # Любые голосовые сэмплы и артефакты синтеза в voice/: генерируются

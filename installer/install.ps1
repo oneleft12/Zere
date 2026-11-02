@@ -11,10 +11,12 @@
       4. Загрузка голосовых артефактов: GigaAM-v3 (основной STT), Whisper ggml-base.bin,
          uv (менеджер Python для Silero и клонирования голоса)
          (все скачивания проверяются по SHA-256)
-      5. Опционально: .NET SDK 10 + dotnet publish C#-версии (-Edition dotnet|both)
-      6. Сборка web-панели (npm), если отсутствует panel/dist
-      7. Генерация недостающих config/*.json, лаунчера ZERE.bat, ярлыков, манифеста
-      8. Финальный smoke-тест (compileall)
+      5. Плагин браузера (MCP): Node.js (свой в tools\node или системный) +
+         пакет @playwright/mcp в tools\mcp и включение в config/mcp.json
+      6. Опционально: .NET SDK 10 + dotnet publish C#-версии (-Edition dotnet|both)
+      7. Сборка web-панели (npm), если отсутствует panel/dist
+      8. Генерация недостающих config/*.json, лаунчера ZERE.bat, ярлыков, манифеста
+      9. Финальный smoke-тест (compileall)
 
 .PARAMETER Prefix
     Корень установки. По умолчанию — родительская папка скрипта (репозиторий).
@@ -41,6 +43,11 @@
 .PARAMETER SkipVoice
     Не скачивать голосовые артефакты (GigaAM, Whisper, uv).
 
+.PARAMETER SkipMcp
+    Не ставить плагин браузера (Node.js + @playwright/mcp) и не включать его в
+    config/mcp.json. Нужен там, где браузером управлять не хотят или нет сети
+    до npm-реестра.
+
 .PARAMETER SkipShortcuts
     Не создавать ярлыки на рабочем столе и в меню «Пуск».
 
@@ -57,6 +64,7 @@ param(
     [string]$Model = '',
     [switch]$SkipOllama,
     [switch]$SkipVoice,
+    [switch]$SkipMcp,
     [switch]$SkipShortcuts,
     [switch]$CheckOnly,
     [switch]$Yes,
@@ -87,7 +95,32 @@ $Artifacts = @{
         Size   = 18043715
         Label  = 'менеджер Python uv (~18 МБ; нужен для Silero и клонирования)'
     }
+    # Node.js для плагина браузера (Playwright MCP): если системного Node нет,
+    # ставится своим zip в tools\node — без winget и без прав администратора.
+    # Версия пиннится, как у uv.
+    Node         = @{
+        Url    = 'https://nodejs.org/dist/v22.23.2/node-v22.23.2-win-x64.zip'
+        Sha256 = '1177b4137ba5adaa56354ae40f1080c7450e8ae09cecb47da459d1c52ac99f97'
+        Size   = 35683585
+        Dir    = 'node-v22.23.2-win-x64'
+        Label  = 'Node.js 22 LTS для плагина браузера (~35 МБ)'
+    }
 }
+
+# Плагин браузера: пиннинг версии пакета (не @latest — как и в
+# config/mcp.example.json). Совпадение с PLAYWRIGHT_MCP_VERSION в
+# zere/core/mcp/setup.py проверяет tests/test_installer.py.
+$PlaywrightMcpVersion = '0.0.83'
+$McpPackageJson = @'
+{
+  "name": "zere-mcp",
+  "private": true,
+  "description": "MCP-серверы ZERE: ставится установщиком (npm install в tools\\mcp)",
+  "dependencies": {
+    "@playwright/mcp": "__VERSION__"
+  }
+}
+'@
 
 $DefaultConfigJson = @'
 {
@@ -571,6 +604,137 @@ function Test-DotnetSdk10 {
 }
 
 # ---------------------------------------------------------------------------
+# Плагин браузера (MCP): Node.js, пакет @playwright/mcp, config/mcp.json
+# ---------------------------------------------------------------------------
+function Get-NodeVersionOf {
+    param([string]$Exe)
+    $r = Invoke-Native -FilePath $Exe -Arguments @('--version')
+    $txt = (($r.Output -split "`r?`n") | Where-Object { $_ -ne '' } | Select-Object -Last 1)
+    if ($null -eq $txt) { return $null }
+    $txt = $txt.Trim()
+    if ($r.ExitCode -eq 0 -and $txt -match '^v?(\d+)\.(\d+)\.(\d+)') {
+        try { return [version]($Matches[1] + '.' + $Matches[2] + '.' + $Matches[3]) } catch { return $null }
+    }
+    return $null
+}
+
+function Find-NodeExe {
+    <# Node для плагина браузера: сначала свой из tools\node, затем системный.
+
+       Свой Node предпочтительнее: он не зависит от того, что установлено у
+       пользователя и что первым попадёт в PATH. Системный принимается, чтобы
+       не качать 35 МБ там, где Node уже есть. #>
+    param([string]$Root)
+    $portable = Join-Path $Root 'tools\node\node.exe'
+    if (Test-Path -LiteralPath $portable) { return $portable }
+    $c = Get-Command 'node.exe' -ErrorAction SilentlyContinue
+    if ($null -ne $c) { return $c.Source }
+    if ($env:ProgramFiles) {
+        $p = Join-Path $env:ProgramFiles 'nodejs\node.exe'
+        if (Test-Path -LiteralPath $p) { return $p }
+    }
+    return $null
+}
+
+function Find-NpmCmd {
+    param([string]$NodeExe)
+    $dir = Split-Path -Parent $NodeExe
+    foreach ($name in @('npm.cmd', 'npm.exe')) {
+        $p = Join-Path $dir $name
+        if (Test-Path -LiteralPath $p) { return $p }
+    }
+    $c = Get-Command 'npm.cmd' -ErrorAction SilentlyContinue
+    if ($null -ne $c) { return $c.Source }
+    $c2 = Get-Command 'npm' -ErrorAction SilentlyContinue
+    if ($null -ne $c2) { return $c2.Source }
+    return $null
+}
+
+function Get-McpPackageState {
+    <# Установлен ли пакет @playwright/mcp нужной версии в tools\mcp. #>
+    param([string]$Root)
+    $dir = Join-Path $Root 'tools\mcp\node_modules\@playwright\mcp'
+    $res = @{
+        Installed = $false
+        CliJs     = (Join-Path $dir 'cli.js')
+        Version   = ''
+        Detail    = 'пакет @playwright/mcp не установлен'
+    }
+    if (-not (Test-Path -LiteralPath $res.CliJs)) { return $res }
+    $pkgFile = Join-Path $dir 'package.json'
+    if (-not (Test-Path -LiteralPath $pkgFile)) { return $res }
+    try {
+        $pkg = Get-Content -LiteralPath $pkgFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        $res.Version = [string]$pkg.version
+    } catch {
+        return $res
+    }
+    if ($res.Version -eq $PlaywrightMcpVersion) {
+        $res.Installed = $true
+        $res.Detail = ('@playwright/mcp ' + $res.Version + ' в tools\mcp')
+    } else {
+        $res.Detail = ('в tools\mcp @playwright/mcp ' + $res.Version + ', нужна ' + $PlaywrightMcpVersion)
+    }
+    return $res
+}
+
+function Get-McpState {
+    <# Состояние плагина браузера — и для -CheckOnly, и для установки. #>
+    param([string]$Root)
+    $res = @{
+        Node           = $false
+        NodeExe        = $null
+        NodeVersion    = $null
+        NodeDetail     = 'Node.js не найден'
+        Package        = $false
+        CliJs          = $null
+        PackageDetail  = 'пакет @playwright/mcp не установлен'
+        Enabled        = $false
+        ConfigDetail   = 'сервер playwright не описан в config\mcp.json'
+        ConfigPath     = (Join-Path $Root 'config\mcp.json')
+    }
+
+    $node = Find-NodeExe -Root $Root
+    if ($null -ne $node) {
+        $ver = Get-NodeVersionOf -Exe $node
+        if ($null -ne $ver) {
+            $res.NodeExe = $node
+            $res.NodeVersion = $ver
+            $res.Node = ($ver -ge [version]'18.0')
+            $res.NodeDetail = ('Node.js ' + $ver + ': ' + $node)
+            if (-not $res.Node) {
+                $res.NodeDetail = ('найден Node.js ' + $ver + ', для плагина нужен 18+: ' + $node)
+            }
+        } else {
+            $res.NodeDetail = ('node.exe найден, но не запускается: ' + $node)
+        }
+    }
+
+    $pkg = Get-McpPackageState -Root $Root
+    $res.Package = $pkg.Installed
+    $res.CliJs = $pkg.CliJs
+    $res.PackageDetail = $pkg.Detail
+
+    if (Test-Path -LiteralPath $res.ConfigPath) {
+        try {
+            $cfg = Get-Content -LiteralPath $res.ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+            $server = $cfg.servers.playwright
+            if ($null -eq $server) {
+                $res.ConfigDetail = 'сервер playwright не описан в config\mcp.json'
+            } elseif ($server.enabled -eq $true) {
+                $res.Enabled = $true
+                $res.ConfigDetail = ('включён в config\mcp.json: ' + [string]$server.command)
+            } else {
+                $res.ConfigDetail = 'описан в config\mcp.json, но выключен'
+            }
+        } catch {
+            $res.ConfigDetail = 'config\mcp.json не разбирается'
+        }
+    }
+    return $res
+}
+
+# ---------------------------------------------------------------------------
 # Шаги установки
 # ---------------------------------------------------------------------------
 function Install-PythonEngine {
@@ -759,6 +923,149 @@ function Install-VoiceAssets {
         }
     }
     return $ok
+}
+
+function Install-NodePortable {
+    <# Свой Node.js в tools\node: без winget, без прав администратора. #>
+    param([string]$Root)
+    $dir = Join-Path $Root 'tools\node'
+    $exe = Join-Path $dir 'node.exe'
+    if (Test-Path -LiteralPath $exe) { return $exe }
+
+    Write-Info $Artifacts.Node.Label
+    $zip = Join-Path $env:TEMP 'zere-installer\node.zip'
+    if (-not (Get-Artifact -Url $Artifacts.Node.Url -Dest $zip -Sha256 $Artifacts.Node.Sha256 -Size $Artifacts.Node.Size)) {
+        Write-Fail2 'не удалось скачать/проверить Node.js'
+        return $null
+    }
+
+    $unpack = Join-Path $env:TEMP 'zere-installer\node-unpack'
+    if (Test-Path -LiteralPath $unpack) {
+        Remove-Item -LiteralPath $unpack -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    try {
+        # В архиве node-vX-win-x64\ со всем содержимым: распаковываем во
+        # временную папку и переносим её целиком в tools\node (так путь
+        # получается предсказуемым — tools\node\node.exe).
+        Expand-Archive -LiteralPath $zip -DestinationPath $unpack -Force
+        $inner = Join-Path $unpack $Artifacts.Node.Dir
+        if (-not (Test-Path -LiteralPath (Join-Path $inner 'node.exe'))) {
+            throw ('в архиве нет ' + $Artifacts.Node.Dir + '\node.exe')
+        }
+        if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force }
+        $toolsDir = Split-Path -Parent $dir
+        if (-not (Test-Path -LiteralPath $toolsDir)) {
+            New-Item -ItemType Directory -Path $toolsDir -Force | Out-Null
+        }
+        Move-Item -LiteralPath $inner -Destination $dir
+        Write-Ok 'Node.js распакован в tools\node'
+        return $exe
+    } catch {
+        Write-Fail2 ('ошибка установки Node.js: ' + $_.Exception.Message)
+        return $null
+    } finally {
+        Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $unpack -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Install-McpPackage {
+    <# Пакет @playwright/mcp в tools\mcp: npm install по закреплённой версии. #>
+    param([string]$Root, [string]$NodeExe)
+    $dir = Join-Path $Root 'tools\mcp'
+    if (-not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+    $manifest = Join-Path $dir 'package.json'
+    Write-Utf8NoBom -Path $manifest -Text (($McpPackageJson -replace '__VERSION__', $PlaywrightMcpVersion) + "`n")
+
+    $npm = Find-NpmCmd -NodeExe $NodeExe
+    if ($null -eq $npm) {
+        Write-Fail2 'не найден npm — пакет @playwright/mcp не установить'
+        return $false
+    }
+
+    Write-Info ('npm install @playwright/mcp@' + $PlaywrightMcpVersion + ' в tools\mcp (нужен интернет)')
+    # Браузеры Playwright (сотни мегабайт) не нужны: плагин управляет
+    # системным Edge (или другим выбранным браузером) через канал Playwright.
+    # Без этой переменной postinstall пакета playwright скачал бы Chromium,
+    # Firefox и WebKit.
+    $oldEap = $ErrorActionPreference
+    $oldSkip = $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+    $ErrorActionPreference = 'Continue'
+    $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = '1'
+    Push-Location $dir
+    try {
+        & $npm install --omit=dev --no-audit --no-fund --loglevel=error 2>&1 |
+            ForEach-Object {
+                $line = $_.ToString()
+                Write-Host $line
+                Write-LogLine $line
+            }
+        $code = $LASTEXITCODE
+    } finally {
+        Pop-Location
+        $ErrorActionPreference = $oldEap
+        if ($null -eq $oldSkip) {
+            Remove-Item Env:\PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD -ErrorAction SilentlyContinue
+        } else {
+            $env:PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = $oldSkip
+        }
+    }
+    if ($null -eq $code) { $code = -1 }
+
+    # Проверяем файл и версию, а не код возврата npm: он бывает 0 и при
+    # частично установленном дереве.
+    $state = Get-McpPackageState -Root $Root
+    if ($state.Installed) { return $true }
+    Write-Fail2 ($state.Detail + ' (npm код ' + $code + ', см. installer\install-log.txt)')
+    return $false
+}
+
+function Set-McpConfig {
+    <# Включает сервер playwright в config/mcp.json.
+
+       Пишет не PowerShell, а zere/core/mcp/setup.py: этот же файл правят
+       вкладка «Плагины» (выбор браузера) и сам пользователь, а пересборка
+       через ConvertTo-Json «по памяти» потеряла бы чужие ключи и серверы. #>
+    param(
+        [string]$Root,
+        [string]$PythonExe,
+        [string]$NodeExe = '',
+        [string]$CliJs = '',
+        [switch]$NpxFallback
+    )
+    if (-not (Test-Path -LiteralPath $PythonExe)) {
+        Write-Fail2 ('нет .venv\Scripts\python.exe — config\mcp.json не записан: ' + $PythonExe)
+        return $false
+    }
+
+    $arguments = @('-m', 'zere.core.mcp.setup')
+    if ($NpxFallback) {
+        $arguments += '--npx-fallback'
+    } else {
+        $arguments += @('--node', $NodeExe, '--package', $CliJs)
+    }
+
+    Push-Location $Root
+    try {
+        $r = Invoke-Native -FilePath $PythonExe -Arguments $arguments
+    } finally {
+        Pop-Location
+    }
+    if ($r.Output) { Write-LogLine $r.Output }
+    if ($r.ExitCode -ne 0) {
+        Write-Fail2 ('config\mcp.json не записан: ' + $r.Output)
+        return $false
+    }
+
+    # Читаем файл обратно: отчёт «плагин включён» должен быть правдой.
+    $state = Get-McpState -Root $Root
+    if (-not $state.Enabled) {
+        Write-Fail2 ('сервер playwright не включился: ' + $state.ConfigDetail)
+        return $false
+    }
+    return $true
 }
 
 function Publish-DotnetEdition {
@@ -982,6 +1289,7 @@ function New-Shortcuts {
 
 function Write-InstallManifest {
     param([string]$Root, [string]$PythonExe)
+    $mcp = Get-McpState -Root $Root
     $manifest = [pscustomobject]@{
         installedAt = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ss')
         prefix      = $Root
@@ -991,6 +1299,12 @@ function Write-InstallManifest {
         venv        = (Test-Path (Join-Path $Root '.venv\Scripts\python.exe'))
         launcher    = (Test-Path (Join-Path $Root 'ZERE.bat'))
         app         = (Test-Path (Join-Path $Root 'zere.exe'))
+        # Плагин браузера: чем запускается и включён ли в config/mcp.json.
+        mcp         = [pscustomobject]@{
+            node    = $mcp.NodeExe
+            package = $mcp.Package
+            enabled = $mcp.Enabled
+        }
         smartAppControl = $sacOk
         shortcuts   = @(
             (Join-Path ([Environment]::GetFolderPath('Desktop')) 'ZERE.lnk'),
@@ -1132,6 +1446,7 @@ $launcherOk = Test-Path (Join-Path $Prefix 'ZERE.bat')
 $zereExeOk = Test-Path (Join-Path $Prefix 'zere.exe')
 $webview2Ok = Test-WebView2Runtime
 $sacOk = Test-SmartAppControl
+$mcpState = Get-McpState -Root $Prefix
 
 $needPython = -not $pyState.Ok
 $needVenv = (-not $venvState.Venv) -or (-not $depsOk)
@@ -1140,6 +1455,7 @@ $needServer = (-not $SkipOllama) -and $ollamaState.Installed -and (-not $ollamaS
 $needModel = (-not $SkipOllama) -and $ollamaState.Running -and (-not $ollamaState.Model)
 $needWhisper = (-not $SkipVoice) -and (-not $whisperOk)
 $needUv = (-not $SkipVoice) -and (-not $uvOk)
+$needMcp = (-not $SkipMcp) -and ((-not $mcpState.Node) -or (-not $mcpState.Package) -or (-not $mcpState.Enabled))
 $needDotnetSdk = (($Edition -eq 'dotnet') -or ($Edition -eq 'both')) -and (-not $dotnetOk)
 $needPublish = (($Edition -eq 'dotnet') -or ($Edition -eq 'both')) -and (-not $publishOk)
 $needSpeaker = $dotnetOk -and (-not $speakerOk)
@@ -1184,6 +1500,14 @@ if ($CheckOnly) {
         if ($needWhisper -or $needUv) { Write-Info '=> потребуется скачивание голосовых артефактов (~165 МБ)' }
         Write-Info 'Silero (TTS-движок) uv скачает torch сам при первом синтезе (~2 ГБ)'
     }
+    if ($SkipMcp) {
+        Write-Info 'Плагин браузера (MCP): пропущено (-SkipMcp)'
+    } else {
+        _line $mcpState.Node ('Node.js для плагина браузера: ' + $mcpState.NodeDetail)
+        _line $mcpState.Package ('Пакет @playwright/mcp: ' + $mcpState.PackageDetail)
+        _line $mcpState.Enabled ('config\mcp.json: ' + $mcpState.ConfigDetail)
+        if ($needMcp) { Write-Info '=> потребуется скачивание Node.js (~35 МБ) и пакета @playwright/mcp из npm' }
+    }
     if (($Edition -eq 'dotnet') -or ($Edition -eq 'both')) {
         _line $dotnetOk ('.NET SDK 10: ' + $(if ($dotnetOk) { 'найден' } else { 'не найден' }))
         _line $publishOk ('C#-сборка publish\app\ZERE.App.exe: ' + $(if ($publishOk) { 'есть' } else { 'нет' }))
@@ -1205,6 +1529,7 @@ if ($CheckOnly) {
     if ($venvState.Venv -and -not $depsOk) { $problems += ('зависимости (' + $depsDetail + ')') }
     if ($needOllama -or $needServer -or $needModel) { $problems += 'Ollama/модель' }
     if ($needWhisper -or $needUv) { $problems += 'голос' }
+    if ($needMcp) { $problems += 'плагин браузера (MCP)' }
     if ($needDotnetSdk -or $needPublish) { $problems += '.NET/публикация' }
     if ($needPanel) { $problems += 'панель' }
     if ($needZereExe) { $problems += 'zere.exe' }
@@ -1228,6 +1553,7 @@ if ($needServer)   { $plan += 'Запустить сервер Ollama' }
 if ($needModel)    { $plan += ('Загрузить модель Ollama "' + $Model + '" (интернет)' ) }
 if ($needWhisper)  { $plan += ('Скачать ' + $Artifacts.Whisper.Label) }
 if ($needUv)       { $plan += ('Скачать ' + $Artifacts.Uv.Label) }
+if ($needMcp)      { $plan += 'Плагин браузера (MCP): Node.js + @playwright/mcp, включить в config\mcp.json' }
 if ($needDotnetSdk) { $plan += 'Установить .NET SDK 10 (winget)' }
 if ($needPublish)  { $plan += 'Опубликовать C#-версию (dotnet publish)' }
 if ($needSpeaker)  { $plan += 'Опубликовать C#-озвучку (dotnet publish ZERE.Speaker)' }
@@ -1351,7 +1677,64 @@ if (-not $SkipVoice) {
     Add-Result -Name 'Голосовые компоненты' -Status skip -Detail 'пропущено (-SkipVoice)'
 }
 
-# --- 5. .NET-редакция ---
+# --- 5. Плагин браузера (MCP) ---
+# Ставится вместе с проектом: свой Node.js (если системного нет) и пакет
+# @playwright/mcp в tools\mcp, а затем сервер включается в config/mcp.json.
+# Без этого «браузер открой …» и музыка на YouTube просили бы поставить
+# Node.js и скачать пакет через npx при первой команде.
+if (-not $SkipMcp) {
+    Write-Step 'Плагин браузера (MCP): Node.js + @playwright/mcp'
+
+    $mcpNodeExe = $mcpState.NodeExe
+    $mcpNodeOk = $mcpState.Node
+    if ($mcpNodeOk) {
+        Write-Info ('Node.js уже есть: ' + $mcpState.NodeDetail)
+    } else {
+        if ($null -ne $mcpState.NodeExe -and -not $mcpState.Node) {
+            Write-Warn2 ($mcpState.NodeDetail + ' — ставится свой Node.js')
+        }
+        $mcpNodeExe = Install-NodePortable -Root $Prefix
+        if ($null -ne $mcpNodeExe) {
+            $nodeVersion = Get-NodeVersionOf -Exe $mcpNodeExe
+            $mcpNodeOk = ($null -ne $nodeVersion -and $nodeVersion -ge [version]'18.0')
+            if ($mcpNodeOk) { Write-Ok ('Node.js ' + $nodeVersion + ' готов для плагина браузера') }
+        }
+    }
+
+    if (-not $mcpNodeOk) {
+        Finish -Ok $false -Name 'Плагин браузера (MCP)' -FailDetail 'Node.js поставить не удалось — плагин браузера не заработает (остальное ZERE работает)'
+    } else {
+        $mcpPackageOk = $mcpState.Package
+        if ($mcpPackageOk) {
+            Write-Info ('пакет уже установлен: ' + $mcpState.PackageDetail)
+        } else {
+            $mcpPackageOk = Install-McpPackage -Root $Prefix -NodeExe $mcpNodeExe
+        }
+
+        $mcpCliJs = Join-Path $Prefix 'tools\mcp\node_modules\@playwright\mcp\cli.js'
+        if ($mcpPackageOk -and (Test-Path -LiteralPath $mcpCliJs)) {
+            $mcpCfgOk = Set-McpConfig -Root $Prefix -PythonExe $venvPy -NodeExe $mcpNodeExe -CliJs $mcpCliJs
+            Finish -Ok $mcpCfgOk -Name 'Плагин браузера (MCP)' `
+                -OkDetail ('@playwright/mcp@' + $PlaywrightMcpVersion + ' в tools\mcp, включён в config\mcp.json') `
+                -FailDetail 'пакет установлен, но config\mcp.json не записан'
+        } else {
+            # npm не скачал пакет (нет сети/реестра): пишем запуск через npx —
+            # плагин заработает, как только сеть появится. Установка ZERE от
+            # этого не срывается: браузер — расширение, а не ядро.
+            $mcpCfgOk = Set-McpConfig -Root $Prefix -PythonExe $venvPy -NpxFallback
+            if ($mcpCfgOk) {
+                Write-Warn2 'пакет @playwright/mcp не скачался — плагин включён через npx (первая команда потребует интернет)'
+                Add-Result -Name 'Плагин браузера (MCP)' -Status warn -Detail 'запуск через npx: npm не поставил пакет'
+            } else {
+                Finish -Ok $false -Name 'Плагин браузера (MCP)' -FailDetail 'ни пакет, ни config\mcp.json не настроены (см. installer\install-log.txt)'
+            }
+        }
+    }
+} else {
+    Add-Result -Name 'Плагин браузера (MCP)' -Status skip -Detail 'пропущено (-SkipMcp)'
+}
+
+# --- 6. .NET-редакция ---
 if (($Edition -eq 'dotnet') -or ($Edition -eq 'both')) {
     Write-Step '.NET-редакция (C#)'
     $dExe = Get-DotnetExe
@@ -1405,7 +1788,7 @@ if (($Edition -eq 'dotnet') -or ($Edition -eq 'both')) {
     }
 }
 
-# --- 6. Панель ---
+# --- 7. Панель ---
 Write-Step 'Web-панель'
 if ($needPanel) {
     $npOk = Build-Panel -Root $Prefix
@@ -1418,7 +1801,7 @@ if ($needPanel) {
     Skip-Result -Name 'Web-панель' -Detail 'panel\dist уже собрана'
 }
 
-# --- 7. Конфигурация ---
+# --- 8. Конфигурация ---
 Write-Step 'Конфигурация'
 $cfgMade = Ensure-Config -Root $Prefix
 if ($cfgMade) {
@@ -1427,7 +1810,7 @@ if ($cfgMade) {
     Skip-Result -Name 'Конфигурация' -Detail 'config/*.json на месте'
 }
 
-# --- 8. Приложение zere.exe ---
+# --- 9. Приложение zere.exe ---
 Write-Step 'Приложение zere.exe'
 if ($needZereExe) {
     $zOk = Build-ZereExe -Root $Prefix
@@ -1440,7 +1823,7 @@ if ($zereExeOk -and -not $webview2Ok) {
     Write-Warn2 'WebView2 Runtime не найден: окно откроет панель в браузере'
 }
 
-# --- 9. Лаунчер и ярлыки ---
+# --- 10. Лаунчер и ярлыки ---
 Write-Step 'Лаунчер и ярлыки'
 $lnOk = Install-Launcher -Root $Prefix
 Finish -Ok $lnOk -Name 'Лаунчер ZERE.bat' -OkDetail 'создан ZERE.bat в корне' -FailDetail 'шаблон ZereLauncher.bat не найден'
@@ -1459,7 +1842,7 @@ if ($needShortcuts) {
     Add-Result -Name 'Ярлыки' -Status skip -Detail 'пропущено (-SkipShortcuts)'
 }
 
-# --- 9. Манифест ---
+# --- 11. Манифест ---
 try {
     $null = Write-InstallManifest -Root $Prefix -PythonExe $script:PythonExe
     Finish -Ok $true -Name 'Манифест' -OkDetail 'installer\install-manifest.json записан'
@@ -1467,7 +1850,7 @@ try {
     Finish -Ok $false -Name 'Манифест' -FailDetail $_.Exception.Message
 }
 
-# --- 10. Smoke-тест ---
+# --- 12. Smoke-тест ---
 Write-Step 'Smoke-тест'
 if (Test-Path $venvPy) {
     $smoke = Invoke-SmokeTest -VenvPy $venvPy -Root $Prefix

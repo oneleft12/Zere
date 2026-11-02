@@ -83,6 +83,7 @@ namespace ZereSetup
                 "                                   тихая установка (без окна)\r\n" +
                 "  ZereSetup.exe /SKIPOLLAMA        без Ollama (только облачный ключ)\r\n" +
                 "  ZereSetup.exe /WITHOLLAMA        Ollama, даже если сборка без неё\r\n" +
+                "  ZereSetup.exe /SKIPMCP           без плагина браузера (Node.js + @playwright/mcp)\r\n" +
                 "  ZereSetup.exe /UNINSTALL [/PURGEDATA]\r\n" +
                 "                                   удаление ZERE\r\n\r\n" +
                 "По умолчанию ZERE ставится в %LOCALAPPDATA%\\Programs\\ZERE\r\n" +
@@ -100,6 +101,8 @@ namespace ZereSetup
         public bool NoShortcuts;
         /// <summary>Не ставить Ollama: ZERE работает через облачный ключ.</summary>
         public bool SkipOllama;
+        /// <summary>Не ставить плагин браузера (Node.js + @playwright/mcp).</summary>
+        public bool SkipMcp;
         public bool Uninstall;
         public bool PurgeData;
         public bool Help;
@@ -148,6 +151,13 @@ namespace ZereSetup
                 else if (upper == "/SKIPOLLAMA" || upper == "/NOOLLAMA" || upper == "/WITHOUTOLLAMA")
                 {
                     options.SkipOllama = true;
+                }
+                else if (upper == "/SKIPMCP" || upper == "/NOMCP" || upper == "/WITHOUTMCP")
+                {
+                    // Плагин браузера тянет Node.js и пакет @playwright/mcp из
+                    // npm: там, где управление браузером не нужно (или нет
+                    // сети до реестра), его можно не ставить.
+                    options.SkipMcp = true;
                 }
                 else if (upper == "/UNINSTALL" || upper == "/REMOVE")
                 {
@@ -378,6 +388,12 @@ namespace ZereSetup
                 // панели (экран «ИИ»). Ollama не ставим и не трогаем.
                 arguments.Append(" -SkipOllama");
             }
+            if (options.SkipMcp)
+            {
+                // Плагин браузера (Node.js + @playwright/mcp) не ставим: без него
+                // команды браузера честно говорят, что плагин недоступен.
+                arguments.Append(" -SkipMcp");
+            }
 
             ProcessStartInfo startInfo = new ProcessStartInfo();
             startInfo.FileName = PowerShellPath();
@@ -389,8 +405,8 @@ namespace ZereSetup
             startInfo.CreateNoWindow = options.Silent;
 
             Report(log, options.SkipOllama
-                ? "Настройка окружения: Python, зависимости, голосовые модели (без Ollama)…"
-                : "Настройка окружения: Python, зависимости, Ollama, голосовые модели…");
+                ? "Настройка окружения: Python, зависимости, голосовые модели, плагин браузера (без Ollama)…"
+                : "Настройка окружения: Python, зависимости, Ollama, голосовые модели, плагин браузера…");
             Report(log, "Подробный журнал: " + Path.Combine(prefix, "installer", "install-log.txt"));
 
             try
@@ -672,6 +688,7 @@ namespace ZereSetup
         private readonly CheckBox _desktopShortcut;
         private readonly CheckBox _skipOllama;
         private readonly Label _ollamaHint;
+        private readonly CheckBox _mcpPlugin;
         private readonly CheckBox _launchApp;
         private readonly TextBox _log;
         private readonly ProgressBar _progress;
@@ -686,7 +703,7 @@ namespace ZereSetup
             _options = options;
 
             Text = "Установка ZERE";
-            ClientSize = new Size(620, 484);
+            ClientSize = new Size(620, 500);
             StartPosition = FormStartPosition.CenterScreen;
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox = false;
@@ -748,15 +765,22 @@ namespace ZereSetup
             _ollamaHint.Text = "ZERE запустится без локальной модели: нужен облачный ключ (панель → «ИИ»).";
             Controls.Add(_ollamaHint);
 
+            _mcpPlugin = new CheckBox();
+            _mcpPlugin.Text = "Установить плагин браузера (Playwright MCP)";
+            _mcpPlugin.Checked = !options.SkipMcp;
+            _mcpPlugin.AutoSize = true;
+            _mcpPlugin.Location = new Point(22, 216);
+            Controls.Add(_mcpPlugin);
+
             _launchApp = new CheckBox();
             _launchApp.Text = "Запустить ZERE после установки";
             _launchApp.Checked = true;
             _launchApp.AutoSize = true;
-            _launchApp.Location = new Point(22, 216);
+            _launchApp.Location = new Point(22, 240);
             Controls.Add(_launchApp);
 
             _progress = new ProgressBar();
-            _progress.Location = new Point(22, 248);
+            _progress.Location = new Point(22, 272);
             _progress.Width = 572;
             _progress.Height = 18;
             _progress.Style = ProgressBarStyle.Marquee;
@@ -768,21 +792,21 @@ namespace ZereSetup
             _log.ReadOnly = true;
             _log.ScrollBars = ScrollBars.Vertical;
             _log.BackColor = Color.White;
-            _log.Location = new Point(22, 274);
+            _log.Location = new Point(22, 298);
             _log.Size = new Size(572, 160);
             _log.Text = "Нажмите «Установить». Займёт несколько минут: скачиваются модели и зависимости.";
             Controls.Add(_log);
 
             _installButton = new Button();
             _installButton.Text = "Установить";
-            _installButton.Location = new Point(416, 442);
+            _installButton.Location = new Point(416, 466);
             _installButton.Width = 90;
             _installButton.Click += OnInstall;
             Controls.Add(_installButton);
 
             _cancelButton = new Button();
             _cancelButton.Text = "Отмена";
-            _cancelButton.Location = new Point(512, 442);
+            _cancelButton.Location = new Point(512, 466);
             _cancelButton.Width = 84;
             _cancelButton.DialogResult = DialogResult.Cancel;
             Controls.Add(_cancelButton);
@@ -840,6 +864,7 @@ namespace ZereSetup
             _options.Prefix = prefix;
             _options.NoShortcuts = !_desktopShortcut.Checked;
             _options.SkipOllama = _skipOllama.Checked;
+            _options.SkipMcp = !_mcpPlugin.Checked;
 
             SetBusy(true);
             Append("Папка установки: " + prefix);
@@ -867,6 +892,7 @@ namespace ZereSetup
                 _pathBox.Enabled = false;
                 _desktopShortcut.Enabled = false;
                 _skipOllama.Enabled = false;
+                _mcpPlugin.Enabled = false;
                 _launchApp.Enabled = false;
                 Append("Готово. Запуск ZERE — ярлык ZERE или zere.exe в папке установки.");
 
@@ -896,6 +922,7 @@ namespace ZereSetup
             _pathBox.Enabled = !busy && !_installed;
             _desktopShortcut.Enabled = !busy && !_installed;
             _skipOllama.Enabled = !busy && !_installed;
+            _mcpPlugin.Enabled = !busy && !_installed;
             _launchApp.Enabled = !busy && !_installed;
             Cursor = busy ? Cursors.WaitCursor : Cursors.Default;
         }

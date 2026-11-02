@@ -8,6 +8,21 @@
 
 ### Добавлено
 
+- **Плагин браузера (MCP) ставится установщиком** вместе с проектом: шаг
+  «Плагин браузера (MCP)» в `installer/install.ps1` кладёт Node.js в
+  `tools\node` (свой zip с SHA-256; системный Node 18+ тоже годится) и
+  `npm install @playwright/mcp@0.0.83` в `tools\mcp` (браузеры Playwright не
+  качаются — управляем системным Edge), затем `python -m zere.core.mcp.setup`
+  включает сервер `playwright` в `config/mcp.json` с абсолютными путями к
+  `node.exe` и `cli.js`. Раньше на свежей установке «браузер открой …» и
+  музыка на YouTube просили поставить Node.js и `npx` тянул пакет из сети.
+  Отключение — галочка мастера «Установить плагин браузера (Playwright MCP)»,
+  `ZereSetup.exe /SKIPMCP` или `install.ps1 -SkipMcp`. Слияние конфига
+  (`zere/core/mcp/setup.py`) сохраняет чужие серверы, выбранный браузер и
+  `enabled`; деинсталлятор убирает `tools\node`, `tools\mcp` (`-RemoveAssets`)
+  и `config\mcp.json` (`-PurgeData`).
+- Документация — `docs/MCP_PLUGINS.md` (§2.1) и `docs/INSTALL.md`; тесты —
+  `tests/test_mcp_setup.py` и проверки связности в `tests/test_installer.py`.
 - **Автозапуск вместе с Windows** (Python-редакция): карточка «Запуск вместе
   с Windows» на экране «Настройки» — переключатель применяется сразу, без
   кнопки «Сохранить». Запись `ZERE` живёт в
