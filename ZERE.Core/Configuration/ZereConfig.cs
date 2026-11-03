@@ -4,7 +4,7 @@ namespace ZERE.Core.Configuration;
 
 public class ZereConfig
 {
-    public string Version { get; set; } = "1.9.0";
+    public string Version { get; set; } = "1.10.0";
     public string AssistantName { get; set; } = "ZERE";
     public string Language { get; set; } = "ru";
     public string Model { get; set; } = "t-tech/T-lite-it-2.1:q4_K_M";

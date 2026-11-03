@@ -4,7 +4,10 @@
 версии — [Semantic Versioning](https://semver.org/lang/ru/). Версия проекта
 живёт в `config/config.json` и оттуда попадает в установщик.
 
-## [Не выпущено]
+## [1.10.0] — 2026-11-03
+
+Браузер и музыка по команде, автозапуск вместе с Windows, поиск папок;
+установщик сам ставит плагин браузера (MCP) и умеет сборку без Ollama.
 
 ### Добавлено
 
@@ -175,5 +178,6 @@
 - Тесты ядра: обработчики команд, `ZereEngine`, сборка сервисов,
   `SafeActionManager`, `ProcessService`, `FileManager` — раньше покрытие 0 %.
 
+[1.10.0]: https://github.com/oneleft12/Zere/releases/tag/v1.10.0
 [1.9.0]: https://github.com/oneleft12/Zere/releases/tag/v1.9.0
 [1.8.0]: https://github.com/oneleft12/Zere/releases/tag/v1.8.0

@@ -1,5 +1,5 @@
 {
-  "version": "1.9.0",
+  "version": "1.10.0",
   "assistantName": "ZERE",
   "language": "ru",
   "model": "t-tech/T-lite-it-2.1:q4_K_M",

@@ -112,14 +112,15 @@ powershell -ExecutionPolicy Bypass -File installer\build-setup.ps1 -WorkingTree 
 коммитов git). Поэтому две сборки одной версии различимы в свойствах файла:
 
 ```
-FileVersion    1.9.0.118      ← версия из конфига + номер сборки
-ProductVersion 1.9.0
+FileVersion    1.10.0.213     ← версия из конфига + номер сборки
+ProductVersion 1.10.0
 ```
 
-Версия дублируется ещё в пяти местах (значения по умолчанию): `build-setup.ps1`,
-`DefaultConfigJson` в `install.ps1`, `Zere.iss`, `zere_config.py`,
-`ZereConfig.cs`. Их совпадение проверяет `tests/test_installer.py`
-(`test_version_sources_agree`) — при смене версии правьте все шесть.
+Версия дублируется ещё в шести местах (значения по умолчанию): `build-setup.ps1`,
+`build-installer.ps1`, `DefaultConfigJson` в `install.ps1`, `Zere.iss`,
+`zere_config.py`, `ZereConfig.cs`. Их совпадение проверяет
+`tests/test_installer.py` (`test_version_sources_agree`) — при смене версии
+правьте все семь файлов.
 
 ## Что устанавливает установщик
 

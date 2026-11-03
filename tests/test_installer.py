@@ -396,6 +396,13 @@ def test_version_sources_agree() -> None:
     assert match, "в install.ps1 не найден DefaultConfigJson с версией"
     assert match.group(1) == version, "install.ps1: DefaultConfigJson != config.json"
 
+    # Резервное значение в самой сборке установщика: конфиг не прочитан —
+    # ZereSetup.exe не должен показывать чужую версию.
+    build_installer = _read("build-installer.ps1")
+    match = re.search(r"^\$version = '([^']+)'", build_installer, re.M)
+    assert match, "в build-installer.ps1 не найден $version"
+    assert match.group(1) == version, "build-installer.ps1: $version != config.json"
+
     iss = _read("Zere.iss")
     match = re.search(r'#define MyAppVersion "([^"]+)"', iss)
     assert match, "в Zere.iss не найден MyAppVersion"

@@ -48,7 +48,7 @@ $stageZip = Join-Path $PSScriptRoot 'stage.zip'
 $outputDir = Join-Path $PSScriptRoot 'Output'
 
 # --- 1. Версия из config/config.json ---
-$version = '1.9.0'
+$version = '1.10.0'
 $cfgPath = Join-Path $root 'config\config.json'
 if (Test-Path $cfgPath) {
     try {

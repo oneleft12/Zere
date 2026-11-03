@@ -81,7 +81,7 @@ $setupPath = Join-Path $outputDir 'ZereSetup.exe'
 $iconPath = Join-Path $root 'assets\zere.ico'
 
 # --- 1. Версия из config/config.json ---
-$version = '1.9.0'
+$version = '1.10.0'
 $cfgPath = Join-Path $root 'config\config.json'
 if (Test-Path $cfgPath) {
     try {

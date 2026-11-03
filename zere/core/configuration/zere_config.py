@@ -32,7 +32,7 @@ def _camel(key: str) -> str:
 
 @dataclass
 class ZereConfig:
-    version: str = "1.9.0"
+    version: str = "1.10.0"
     assistant_name: str = "ZERE"
     language: str = "ru"
     # Русский — обязательное требование: по умолчанию берём русско-ориентированную
